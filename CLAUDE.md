@@ -30,6 +30,7 @@
 
 **Do not modify feature folders outside your own assignment.**
 If a change to `shared/` is needed, open a separate branch and PR, and get approval from 2 or more people.
+The same rule applies to `frontend/src/navigation/`: no single member owns it, but every member needs to touch it to register their screen, so changes there also require a separate branch/PR with approval from 2 or more people.
 
 ---
 
