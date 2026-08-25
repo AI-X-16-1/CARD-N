@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 
-from app.features.conversation.router import router as conversation_router
 from app.features.contacts.router import router as contacts_router
+from app.features.conversation.router import router as conversation_router
 from app.features.game.router import router as game_router
 from app.features.graph.router import router as graph_router
 from app.features.scan.router import router as scan_router
