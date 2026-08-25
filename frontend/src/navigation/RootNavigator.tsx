@@ -1,9 +1,12 @@
 import { NavigatorScreenParams } from '@react-navigation/native';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { StyleSheet, View } from 'react-native';
+import { createBottomTabNavigator, type BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
+import {
+  createNativeStackNavigator,
+  type NativeStackNavigationProp,
+} from '@react-navigation/native-stack';
+import { Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, radius } from '@/shared/theme';
+import { colors, radius, size } from '@/shared/theme';
 import HomeScreen from '@/features/home/screens/HomeScreen';
 import ScanCameraScreen from '@/features/scan/screens/ScanCameraScreen';
 import ContactListScreen from '@/features/contacts/screens/ContactListScreen';
@@ -38,7 +41,7 @@ export type TabParamList = {
 
 export type RootStackParamList = {
   Tabs: undefined;
-  Scan: NavigatorScreenParams<ScanStackParamList>;
+  Scan: NavigatorScreenParams<ScanStackParamList> | undefined;
 };
 
 const HomeStack = createNativeStackNavigator<HomeStackParamList>();
@@ -78,8 +81,18 @@ function ScanStackNavigator() {
   );
 }
 
-function FabButton() {
-  return <View style={styles.fab} />;
+function FabButton({ onPress, accessibilityState }: BottomTabBarButtonProps) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="명함 스캔"
+      accessibilityState={accessibilityState}
+      style={styles.fabButton}
+    >
+      <View style={styles.fab} />
+    </Pressable>
+  );
 }
 
 function TabNavigator() {
@@ -88,8 +101,8 @@ function TabNavigator() {
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.primaryLight,
-        tabBarInactiveTintColor: 'rgba(255,255,255,0.42)',
-        tabBarStyle: { backgroundColor: 'rgba(20,20,31,0.92)' },
+        tabBarInactiveTintColor: colors.tabIconInactive,
+        tabBarStyle: { backgroundColor: colors.tabBarSurface },
       }}
     >
       <Tab.Screen name="홈" component={HomeStackNavigator} />
@@ -101,7 +114,7 @@ function TabNavigator() {
         listeners={({ navigation }) => ({
           tabPress: (e) => {
             e.preventDefault();
-            navigation.getParent()?.navigate('Scan');
+            navigation.getParent<NativeStackNavigationProp<RootStackParamList>>()?.navigate('Scan');
           },
         })}
       />
@@ -129,11 +142,15 @@ export function RootNavigator() {
 }
 
 const styles = StyleSheet.create({
+  fabButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   fab: {
-    width: 52,
-    height: 52,
+    width: size.fab,
+    height: size.fab,
     borderRadius: radius.fab,
     backgroundColor: colors.primary,
-    marginTop: -18,
+    marginTop: size.fabRaise,
   },
 });

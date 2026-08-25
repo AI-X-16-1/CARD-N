@@ -28,4 +28,7 @@ export const colors = {
   jobMarketing: '#FD7272',
   jobSales: '#FF6348',
   jobPm: '#7ED6DF',
+
+  tabBarSurface: 'rgba(20,20,31,0.92)',
+  tabIconInactive: 'rgba(255,255,255,0.42)',
 } as const;

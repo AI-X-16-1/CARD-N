@@ -6,3 +6,5 @@ export const radius = {
   bottomSheet: 18,
   fab: 18,
 } as const;
+
+export const size = { fab: 52, fabRaise: -18 } as const;
