@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from app.features.contacts.router import router as contacts_router
@@ -5,8 +7,16 @@ from app.features.conversation.router import router as conversation_router
 from app.features.game.router import router as game_router
 from app.features.graph.router import router as graph_router
 from app.features.scan.router import router as scan_router
+from app.neo4j_driver import close_neo4j_driver
 
-app = FastAPI(title="CARD:N API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    await close_neo4j_driver()
+
+
+app = FastAPI(title="CARD:N API", version="0.1.0", lifespan=lifespan)
 
 app.include_router(scan_router, prefix="/api/v1/scan", tags=["scan"])
 app.include_router(contacts_router, prefix="/api/v1/contacts", tags=["contacts"])
