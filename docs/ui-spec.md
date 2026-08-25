@@ -32,7 +32,7 @@ Refer to `design-tokens.md` for color, typography, and spacing values.
 **feature folder**: `features/home/`
 
 ### Header
-- Left: Logo — 26px purple rounded square with "N" + "CARD:N" (Space Grotesk 700 17px)
+- Left: Logo — `shared/components/Logo.tsx` mark (26px, white ring + purple dot on transparent background) + "CARD:N" wordmark (Space Grotesk 700 17px)
 - Right: Circular avatar with the user's initials
 
 ### Greeting
