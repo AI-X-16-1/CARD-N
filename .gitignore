@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+
+# Node / React Native
+node_modules/
+.expo/
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Python / FastAPI
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Env
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
