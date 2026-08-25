@@ -177,10 +177,10 @@ Do not commit the `.env` file. Provide a `.env.example` instead.
 
 ```env
 # .env.example
-DATABASE_URL=mysql+asyncmy://cardn:cardn@localhost:3306/cardn_db
+DATABASE_URL=mysql+asyncmy://cardn:cardn@localhost:3307/cardn_db
 GOOGLE_VISION_API_KEY=
 OPENAI_API_KEY=
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=
+NEO4J_PASSWORD=cardncardn123
 ```

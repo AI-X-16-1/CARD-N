@@ -49,19 +49,17 @@
 │   │   ├── database.py         ← MySQL connection
 │   │   ├── neo4j_driver.py     ← Neo4j driver connection
 │   │   ├── dependencies.py
-│   │   ├── models/
-│   │   ├── schemas/
 │   │   ├── core/
+│   │   │   └── base.py         ← SQLAlchemy declarative Base
 │   │   │
-│   │   └── features/
+│   │   └── features/           ← per-feature schemas.py / queries.py / router.py / service.py
 │   │       ├── scan/           ← 강민구
 │   │       ├── contacts/       ← 강민구
-│   │       ├── graph/          ← 김민경
+│   │       ├── graph/          ← 김민경 (queries.py instead of schemas.py — talks to Neo4j)
 │   │       ├── conversation/   ← 박재경
 │   │       └── game/           ← 이승환
 │   │
-│   └── tests/
-│       └── features/
+│   └── tests/                  ← flat directory, one test module per concern
 │
 ├── assets/                     ← 문민재 (graphic assets)
 │   ├── card-illustrations/     ← card illustrations by role (ComfyUI)
@@ -182,12 +180,11 @@ services:
 ### Full Docker Compose
 
 ```yaml
-version: "3.9"
 services:
   mysql:
     image: mysql:8
     ports:
-      - "3306:3306"
+      - "3307:3306"   # host 3307 avoids clashing with a locally installed MySQL on 3306
     environment:
       MYSQL_DATABASE: cardn_db
       MYSQL_USER: cardn
@@ -214,7 +211,8 @@ services:
       - mysql
       - neo4j
     env_file:
-      - .env
+      - path: ./backend/.env
+        required: false
 
 volumes:
   mysql_data:
