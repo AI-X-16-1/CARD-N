@@ -1,0 +1,42 @@
+version: "3.9"
+services:
+  mysql:
+    image: mysql:8
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_DATABASE: cardn_db
+      MYSQL_USER: cardn
+      MYSQL_PASSWORD: cardn
+      MYSQL_ROOT_PASSWORD: cardn
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-ucardn", "-pcardn"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  neo4j:
+    image: neo4j:5-community
+    ports:
+      - "7474:7474"   # Browser UI
+      - "7687:7687"   # Bolt protocol
+    environment:
+      NEO4J_AUTH: neo4j/cardncardn123
+    volumes:
+      - neo4j_data:/data
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mysql
+      - neo4j
+    env_file:
+      - ./backend/.env
+
+volumes:
+  mysql_data:
+  neo4j_data:
