@@ -1,0 +1,2 @@
+class ContactsService:
+    pass
