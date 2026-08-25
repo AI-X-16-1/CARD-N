@@ -187,7 +187,7 @@ services:
   mysql:
     image: mysql:8
     ports:
-      - "3306:3306"
+      - "3307:3306"   # host 3307 avoids clashing with a locally installed MySQL on 3306
     environment:
       MYSQL_DATABASE: cardn_db
       MYSQL_USER: cardn

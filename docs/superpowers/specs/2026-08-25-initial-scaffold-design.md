@@ -155,7 +155,9 @@ Docker isn't running (useful for quick frontend-only work).
   service definition already written in `docs/architecture.md` into an
   actual file at the repo root, unchanged.
 - `backend/.env.example` values match `docs/conventions.md`'s
-  `DATABASE_URL=mysql+asyncmy://cardn:cardn@localhost:3306/cardn_db` block.
+  `DATABASE_URL=mysql+asyncmy://cardn:cardn@localhost:3307/cardn_db` block
+  (host port 3307, not MySQL's default 3306 — chosen during implementation
+  to avoid clashing with a locally installed MySQL on developer machines).
 
 ## Testing / Verification
 

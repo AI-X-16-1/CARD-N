@@ -33,7 +33,7 @@
 - Create: `docker-compose.yml` (repo root)
 
 **Interfaces:**
-- Produces: a `mysql` service reachable at `localhost:3306` (db `cardn_db`, user/pass `cardn`/`cardn`) and a `neo4j` service reachable at `bolt://localhost:7687` (user/pass `neo4j`/`cardncardn123`) — later tasks' `.env.example` values must match these exactly.
+- Produces: a `mysql` service reachable at `localhost:3307` (mapped to the container's 3306 — 3307 avoids clashing with a MySQL already installed natively on some developer machines; db `cardn_db`, user/pass `cardn`/`cardn`) and a `neo4j` service reachable at `bolt://localhost:7687` (user/pass `neo4j`/`cardncardn123`) — later tasks' `.env.example` values must match these exactly.
 
 - [ ] **Step 1: Write `docker-compose.yml`**
 
@@ -43,7 +43,7 @@ services:
   mysql:
     image: mysql:8
     ports:
-      - "3306:3306"
+      - "3307:3306"   # host 3307 avoids clashing with a locally installed MySQL on 3306
     environment:
       MYSQL_DATABASE: cardn_db
       MYSQL_USER: cardn
@@ -207,7 +207,7 @@ from app.config import Settings
 
 def test_settings_defaults_match_local_docker_compose():
     settings = Settings(_env_file=None)
-    assert settings.database_url == "mysql+asyncmy://cardn:cardn@localhost:3306/cardn_db"
+    assert settings.database_url == "mysql+asyncmy://cardn:cardn@localhost:3307/cardn_db"
     assert settings.neo4j_uri == "bolt://localhost:7687"
     assert settings.neo4j_user == "neo4j"
     assert settings.neo4j_password == "cardncardn123"
@@ -225,7 +225,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    database_url: str = "mysql+asyncmy://cardn:cardn@localhost:3306/cardn_db"
+    database_url: str = "mysql+asyncmy://cardn:cardn@localhost:3307/cardn_db"
     google_vision_api_key: str = ""
     openai_api_key: str = ""
     neo4j_uri: str = "bolt://localhost:7687"
@@ -293,7 +293,7 @@ __all__ = ["get_db", "get_neo4j_driver"]
 - [ ] **Step 7: Write `backend/.env.example`**
 
 ```env
-DATABASE_URL=mysql+asyncmy://cardn:cardn@localhost:3306/cardn_db
+DATABASE_URL=mysql+asyncmy://cardn:cardn@localhost:3307/cardn_db
 GOOGLE_VISION_API_KEY=
 OPENAI_API_KEY=
 NEO4J_URI=bolt://localhost:7687
