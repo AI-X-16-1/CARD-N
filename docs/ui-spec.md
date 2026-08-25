@@ -1,0 +1,281 @@
+# UI Specification
+
+This is a screen-by-screen implementation spec based on the design prototype (`design_handoff_node_networking_app/`).
+Refer to `design-tokens.md` for color, typography, and spacing values.
+
+## Screen Structure Overview
+
+```
+[Bottom Tab Navigator]
+├── Home (HomeScreen)
+├── List (ContactListScreen)
+├── FAB → Scan (ScanStack)
+│   ├── ScanCameraScreen
+│   ├── ScanResultScreen
+│   ├── CardRevealScreen
+│   └── ManualInputScreen
+├── Relationship Graph (GraphScreen)
+└── Game (GameStack)
+    ├── DeckBuilderScreen (Collection tab)
+    └── BattleScreen (Battle tab)
+
+[Stack Navigator (pushed on top of tabs)]
+├── PersonDetailScreen (Person Detail)
+├── ConversationRecordScreen (Conversation Recording)
+└── CardDetailOverlay (Card Detail — modal)
+```
+
+---
+
+## 1. Home (HomeScreen)
+
+**feature folder**: `features/home/`
+
+### Header
+- Left: Logo — 26px purple rounded square with "N" + "CARD:N" (Space Grotesk 700 17px)
+- Right: Circular avatar with the user's initials
+
+### Greeting
+- "안녕하세요, {name}님" (Hello, {name}) (22px/700)
+- "이번 주 새로운 인연 {n}명 · 전체 {n}명" ({n} new connections this week · {n} total) (13px, 45% white)
+
+### My Business Card (Digital Business Card)
+- Landscape card, aspect-ratio 1.72
+- Background: `linear-gradient(125deg, #1c1c30, #12121e 55%, #171728)`
+- Border: 1px primary 40%, radius 14px
+- Bottom-right: decorative concentric-circle outline
+- Top: mini logo + company name (11px/700, .1em tracking, 55%) | "DIGITAL CARD" (monospace 9px 30%)
+- Middle: name (21px/800), title (12px/600, primaryLight)
+- Bottom: phone + email (10.5px, 55%) | QR placeholder (44px)
+- "수정" (Edit) button → inline edit mode: 4 input fields (name/company/title/contact), Surface-2 background
+- Data persistence: local storage key `cardn-my-card`
+
+### Recently Added
+- Section label + "전체보기 ›" (View all ›) (→ List tab)
+- 3 rows: avatar (role tint background + role color ring + initials) + name (14px/600) + "{role} · {title} · {company}" (12px, 45%) + relative time on the right (11px, 30%)
+- Tap row → push to Person Detail
+
+---
+
+## 2. List (ContactListScreen)
+
+**feature folder**: `features/contacts/`
+
+### Header
+- "전체 목록" (All Contacts) + "{n}명" ({n} people)
+
+### Search
+- Input: Surface-1, radius 11px, placeholder "이름, 회사, 태그로 검색" (Search by name, company, or tag)
+- Filter targets: name, company, relation, job
+
+### Category Chips
+- "전체" (All) / "클라이언트" (Client) / "파트너" (Partner) / "네트워킹" (Networking) / "그 외" (Other)
+- Single select. Active = Primary fill
+
+### List Row
+- 58×36px business card thumbnail (diagonal stripe pattern, role color border)
+- Name + relation badge (role tint) + role/company + time
+- Empty state: "검색 결과가 없어요" (No search results)
+
+---
+
+## 3. Scan (ScanStack)
+
+**feature folder**: `features/scan/`
+
+### 3-1. Camera (ScanCameraScreen)
+- Title + single/batch segmented toggle (pill)
+- Viewfinder: dark gradient panel, dashed cyan card guide (aspect 1.7)
+- Hint text: single mode "명함을 프레임에 맞춰주세요" (Align the business card within the frame) / batch mode "연속으로 촬영하세요" (Take continuous shots)
+- Animated cyan scan line (3s loop)
+- Bottom: gallery button · shutter (66px primary circle) · "직접 입력" (Manual entry) (underlined text button)
+
+### 3-2. Recognition Result (ScanResultScreen) — single mode
+- "4개 항목 인식 · 1개 확인 필요" (4 fields recognized · 1 needs review) (cyan)
+- Field card: label, editable value, confidence % on the right
+  - ≥90%: green (#55E6C1)
+  - <90%: yellow label "확인 필요" (Needs review) + yellow border
+- Toggle: "전화번호부에도 저장" (Also save to phone contacts)
+- "만난 컨텍스트" (Context of meeting) free-text input
+- CTA "저장하고 카드 만들기" (Save and create card)
+
+### 3-3. Card Reveal (CardRevealScreen)
+- Battle card appears with a 500ms rotateY flip + purple glow
+- Card content: stars (rarity), title, cost, avatar, name, team, class badge
+- 4 stats (emoji + Space Grotesk), 2 skill chips
+- Italic flavor text (LLM-generated)
+- Buttons: "도감 보기" (View collection) / "완료" (Done)
+
+### 3-4. Batch Mode
+- Each shot adds a card to the horizontal tray at the bottom (viewfinder shows a "{n}장" ({n} cards) badge)
+- Mini card: initials chip + name + role + status (Done / Needs review / Analyzing)
+- CTA "{n}장 모두 저장" (Save all {n} cards) → List
+
+### 3-5. Manual Entry (ManualInputScreen)
+- "‹ 카메라로" (‹ Back to camera) back button
+- "직접 입력" (Manual entry) + "명함 없이도 인물을 등록할 수 있어요" (You can register a contact even without a business card)
+- 5 input fields: name/company/department & title/mobile phone/email
+- Context-of-meeting input
+- CTA "저장하고 카드 만들기" (Save and create card) → Card Reveal
+
+---
+
+## 4. Relationship Graph (GraphScreen)
+
+**feature folder**: `features/graph/`
+
+### Header
+- "관계도" (Relationship Graph) + "1촌 {n}명 · 2촌 {n}명" ({n} 1st-degree · {n} 2nd-degree connections)
+
+### Search & Filter
+- Search input ("이름, 회사, 태그로 검색" — Search by name, company, or tag)
+- Role filter chips: All/Development/Marketing/Design/Sales/HR/Finance
+- When filtering, non-matching nodes and labels fade to 18% opacity (250ms)
+
+### Graph (SVG or Canvas)
+- Center: "나" (Me) node (24px radius, Primary fill, halo)
+- 1st-degree: placed on 2 dashed concentric circles (r≈118/140), 15px radius
+  - Surface-1 fill + role color ring 1.6px
+  - 3s pulsing halo animation
+  - Name label above, initials inside
+- 2nd-degree: smaller nodes (10px radius), connected to their 1st-degree parent
+- Edge: width = 0.6 + (conversation count × 0.35), cyan 35%
+
+### Default Bottom Overlay
+- "가장 가까운 사람" (Closest connections) + "전체 보기" (View all)
+- Displays the top 2 people by conversation count as cards (name, "대화 {n}회 · {ago}" — {n} conversations · {ago})
+
+### Tap Node → Bottom Sheet
+- Surface-2, radius 18px (top), drag handle
+- Avatar (rounded square) + name + company·role + "1촌" (1st-degree) badge
+- 3 stat tiles: Conversations {n} / Mutual connections {n} / Last conversation {ago} (yellow)
+- "최근 대화 요약" (Recent conversation summary) card (latest timeline entry)
+- Buttons: "프로필" (Profile) (→ Person Detail) + "공통 인맥 보기" (View mutual connections) (Primary)
+
+---
+
+## 5. Person Detail (PersonDetailScreen)
+
+**feature folder**: `features/contacts/`
+
+### Header
+- "‹ 뒤로" (‹ Back)
+- Profile: 56px avatar + name (19px/800) + position·company + role badge + relation badge
+
+### Contact Card
+- 📞 / 📧 (cyan color)
+
+### Battle Card Teaser
+- Purple/coral gradient tint, stars, "배틀 카드 보기" (View battle card)
+- "ATK n · DEF n · INT n · HP n" + chevron → Game > Collection
+
+### Conversation History Timeline
+- Vertical dots + connecting line + entry cards
+- Card: date (11px, 40%), type badge, body text (13px, line-height 1.55)
+- AI summary: purple dot/border, bold one-line summary + bullet list + "🎙 요약" (🎙 Summary) badge
+- Delete button (red text)
+
+### FAB "+"
+- 54px, Primary, bottom-right
+- Tap → dim overlay + action sheet (Surface-3):
+  - "🎙 지금 녹음하기 — 대화를 실시간으로 녹음하고 요약" (🎙 Record now — record the conversation live and summarize it)
+  - "📁 녹음 파일 업로드 — 기존 녹음 파일을 올려 요약 생성" (📁 Upload recording file — upload an existing recording to generate a summary)
+
+---
+
+## 6. Conversation Recording (ConversationRecordScreen)
+
+**feature folder**: `features/conversation/`
+
+### Phase 1: Recording
+- "‹ 취소" (‹ Cancel), pulsing "● 녹음 중" (● Recording) pill (coral)
+- Person's avatar/name/company
+- mm:ss timer (Space Grotesk 44px)
+- 24-bar waveform animation (purple/cyan/lavender, staggered scaleY)
+- "실시간으로 잡히는 키워드" (Keywords detected in real time) chips (e.g., Q4 budget, proposal request, November launch)
+- Yellow "할 일로 감지됨" (Detected as a to-do) quote card
+- Stop button: 70px coral circle, square icon inside
+
+### Phase 2: Analyzing (~1.4s)
+- Spinner + "녹음 분석 중…" (Analyzing recording…) + "STT 변환 후 LLM이 요약을 생성해요" (After STT transcription, the LLM generates a summary)
+
+### Phase 3: Summary Result
+- Header: name + title, date · recording duration
+- "✦ 한 줄 요약" (✦ One-line summary) card (purple tint, 14px/700)
+- "핵심 내용" (Key points) — 3 bullets
+- "할 일 1건" (1 to-do item) card (cyan tint, checkbox)
+- Footnote: "녹음 원본은 저장되지 않아요 — 요약본만 기록에 저장됩니다" (The original recording is not saved — only the summary is saved to the record)
+- Buttons: "삭제" (Delete) (1fr, coral outline) / "기록에 저장" (Save to record) (2fr, Primary)
+  → On save, prepend to the person's timeline + persist
+
+**Privacy rule: the original audio is never persisted. Only the generated summary (one-liner + bullets + to-dos) is saved.**
+A recording-consent notice is required (Korea's Protection of Communications Secrets Act).
+
+---
+
+## 7. Game — Collection/Deck Builder (DeckBuilderScreen)
+
+**feature folder**: `features/game/`
+
+### Header
+- "명함 배틀" (Business Card Battle) + segmented pill ("배틀" (Battle) = coral fill / "도감" (Collection) = purple fill)
+
+### My Deck Section
+- "내 덱" (My Deck) + "{n} / 8" badge
+- "보유 {n}장 · 도감 완성도 {pct}%" ({n} cards owned · {pct}% collection complete), right side: "평균 코스트 {x.x}" (Average cost {x.x})
+- 4-column grid: selected cards = mini tiles (star 7px yellow, name 11px/800, "{atk} / {hp}" role color)
+- Empty slot = dashed "+" tile
+
+### Filter Chips
+- "전체" (All) / "★4↑" / "개발" (Development) / "마케팅" (Marketing) / "영업" (Sales) / "미획득" (Not owned) (active = coral)
+
+### Collection Grid
+- 4 columns: owned cards (star/name/role/atk-hp; purple border + "✓" if in deck)
+- Not owned: "🔒 미획득" (🔒 Not owned) locked tile
+- Tap → Card Detail Overlay
+
+### Card Detail Overlay
+- Dim + blur, "✕" close
+- Large card (250px, role color border + glow, flip-in animation)
+- Stars + title / cost, rounded-square avatar, name, company, class badge
+- ATK/DEF/INT/HP columns (coral/cyan/purple/mint)
+- Skill chips + "패시브 · {class}" (Passive · {class}) chip
+- Footer: "🗂 {date} 명함 등록 · 대화 {n}회" (🗂 Registered on {date} · {n} conversations)
+- CTA: "덱에 넣기" (Add to deck) (coral) / "덱에서 빼기" (Remove from deck) (outline) / disabled "덱이 가득 찼어요" (Deck is full)
+
+### Fixed Bottom CTA
+- "🛡 배틀 시작" (🛡 Start Battle) (coral) → Battle screen
+
+---
+
+## 8. Game — Battle (BattleScreen)
+
+**feature folder**: `features/game/`
+
+See `game-rules.md` for detailed rules.
+
+### Layout (top → bottom)
+1. Enemy header (avatar, name, HP bar coral, hand/deck count, cost badge)
+2. Enemy field (5 slots)
+3. YOUR TURN pill + one-line log
+4. Synergy badge (mint pill)
+5. My field (5 slots)
+6. Action bar (shown when a card is selected)
+7. My header + cost pips (7, 14px bars, filled ones primaryLight)
+8. Hand row + end-turn button
+
+Background: subtle coral (top) / purple (bottom) radial gradient.
+
+### Field Card (64px wide)
+- Star, name, role, "ATK HP" (Space Grotesk)
+- My card: role color border + glow (ready state), yellow border (selected)
+- Status caption: "⚡ 탭하여 선택" (⚡ Tap to select) / "출근 중…" (Reporting for duty…) / "행동 완료" (Action complete) / "대상 선택!" (Select target!)
+- Empty slot: dashed ("빈 자리" — Empty spot)
+
+### Hand Card (70px)
+- Role color top border, cost badge, name, role, atk/hp
+- 38% opacity when cost is insufficient
+
+### Result Overlay
+- VICTORY (mint glow) / DEFEAT (coral glow)
+- Space Grotesk 34px, subline, "다시 대전" (Battle again) button
