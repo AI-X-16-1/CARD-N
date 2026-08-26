@@ -126,7 +126,7 @@ export function PersonBottomSheet({
             <Text style={styles.profileButtonLabel}>프로필</Text>
           </Pressable>
           <Pressable style={styles.mutualButton} onPress={() => onViewMutual(displayPerson)}>
-            <Text style={styles.mutualButtonLabel}>공동 인맥 보기</Text>
+            <Text style={styles.mutualButtonLabel}>공통 인맥 보기</Text>
           </Pressable>
         </View>
 

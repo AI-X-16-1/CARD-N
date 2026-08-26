@@ -26,6 +26,7 @@ export type GraphEdge = {
 
 export type GraphStats = {
   degree1Count: number;
+  degree2Count: number;
 };
 
 export type GraphData = {

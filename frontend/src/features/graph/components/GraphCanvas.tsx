@@ -36,6 +36,9 @@ const NODE_RADIUS = 15;
 const SELECTED_NODE_RADIUS = 19;
 const GLOW_INNER_RADIUS = SELECTED_NODE_RADIUS + 8;
 const GLOW_OUTER_RADIUS = SELECTED_NODE_RADIUS + 20;
+const MATCHED_OPACITY = 1;
+const FADED_OPACITY = 0.18;
+const FADE_DURATION = 250;
 // Max px every other node (incl. "나") is pushed away from the selected node.
 const MAX_PUSH_DISTANCE = 26;
 // Nodes farther than this fraction of the canvas's short side from the
@@ -75,6 +78,7 @@ type PersonNodeMarkerProps = {
   focusProgress: SharedValue<number>;
   ringColor: string;
   isSelected: boolean;
+  isMatched: boolean;
   onPress: () => void;
 };
 
@@ -85,11 +89,19 @@ function PersonNodeMarker({
   focusProgress,
   ringColor,
   isSelected,
+  isMatched,
   onPress,
 }: PersonNodeMarkerProps) {
   const nodeRadius = useSharedValue(NODE_RADIUS);
   const glowInnerOpacity = useSharedValue(0);
   const glowOuterOpacity = useSharedValue(0);
+  const fadeOpacity = useSharedValue(isMatched ? MATCHED_OPACITY : FADED_OPACITY);
+
+  useEffect(() => {
+    fadeOpacity.value = withTiming(isMatched ? MATCHED_OPACITY : FADED_OPACITY, {
+      duration: FADE_DURATION,
+    });
+  }, [isMatched, fadeOpacity]);
 
   useEffect(() => {
     if (isSelected) {
@@ -118,10 +130,12 @@ function PersonNodeMarker({
     cx: basePosition.x + (focusPosition.x - basePosition.x) * focusProgress.value,
     cy: basePosition.y + (focusPosition.y - basePosition.y) * focusProgress.value,
     r: nodeRadius.value,
+    opacity: fadeOpacity.value,
   }));
   const labelProps = useAnimatedProps(() => ({
     x: basePosition.x + (focusPosition.x - basePosition.x) * focusProgress.value,
     y: basePosition.y + (focusPosition.y - basePosition.y) * focusProgress.value + 4,
+    opacity: fadeOpacity.value,
   }));
 
   return (
@@ -152,10 +166,18 @@ type Props = {
   width: number;
   height: number;
   selectedPersonId: number | null;
+  matchedPersonIds: Set<number>;
   onSelectPerson: (node: GraphNode) => void;
 };
 
-export function GraphCanvas({ data, width, height, selectedPersonId, onSelectPerson }: Props) {
+export function GraphCanvas({
+  data,
+  width,
+  height,
+  selectedPersonId,
+  matchedPersonIds,
+  onSelectPerson,
+}: Props) {
   const centerX = width / 2;
   const centerY = height / 2;
   const center: Point = { x: centerX, y: centerY };
@@ -356,6 +378,7 @@ export function GraphCanvas({ data, width, height, selectedPersonId, onSelectPer
                   focusProgress={focusProgress}
                   ringColor={ringColor}
                   isSelected={node.id === selectedPersonId}
+                  isMatched={matchedPersonIds.has(node.id)}
                   onPress={() => onSelectPerson(node)}
                 />
               );
