@@ -19,7 +19,11 @@ import CardDetailOverlay from '@/features/game/screens/CardDetailOverlay';
 export type HomeStackParamList = {
   Home: undefined;
   PersonDetail: { personId: number };
-  ConversationRecord: { personId: number };
+  // mode picks which input the record screen leads with. The action sheet
+  // has separate "녹음" and "업로드" entries, and landing on the wrong one
+  // reads as the button having done nothing. Optional so existing callers
+  // keep the recording-first default.
+  ConversationRecord: { personId: number; mode?: 'record' | 'upload' };
 };
 
 export type GameStackParamList = {

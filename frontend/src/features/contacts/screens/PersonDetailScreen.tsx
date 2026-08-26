@@ -14,7 +14,8 @@ import { usePersonDetail } from '../hooks/usePersonDetail';
 
 type PersonDetailStackParamList = {
   PersonDetail: { personId: number };
-  ConversationRecord: { personId: number };
+  // Kept in step with navigation/RootNavigator.tsx and conversation/screens/ConversationRecordScreen.tsx (#24/#25).
+  ConversationRecord: { personId: number; mode?: 'record' | 'upload' };
 };
 
 function initialsOf(name: string): string {
@@ -123,7 +124,7 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
                 // Only registered stack routes (e.g. the Home tab) can push
                 // ConversationRecord today; inline (list) mode has no route for it yet.
                 if (!onBack) {
-                  navigation.navigate('ConversationRecord', { personId: person.id });
+                  navigation.navigate('ConversationRecord', { personId: person.id, mode: 'record' });
                 }
               }}
             >
@@ -134,10 +135,11 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
               style={styles.actionItem}
               onPress={() => {
                 setActionSheetOpen(false);
-                // Same destination as "지금 녹음하기" — ConversationRecordScreen offers both
-                // live recording and file upload internally (AudioPickerCard).
+                // mode: 'upload' makes ConversationRecordScreen lead with the file picker
+                // instead of the record button (#24/#25) — otherwise tapping this reads as
+                // having hit the wrong button.
                 if (!onBack) {
-                  navigation.navigate('ConversationRecord', { personId: person.id });
+                  navigation.navigate('ConversationRecord', { personId: person.id, mode: 'upload' });
                 }
               }}
             >
