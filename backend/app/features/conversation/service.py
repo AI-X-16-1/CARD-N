@@ -89,15 +89,7 @@ class ConversationService:
                 break
 
             date = row.created_at.strftime("%Y-%m-%d") if row.created_at else ""
-            line = f"{date} · {row.one_liner}"
-
-            # An unfinished to-do from last time is the best material for next_hints.
-            todos = self._summary_dict(row).get("action_items") or []
-            brief = ", ".join(t.get("content", "") for t in todos[:2] if t.get("content"))
-            if brief:
-                line += f" (할 일: {brief})"
-
-            lines.append(line)
+            lines.append(f"{date} · {row.one_liner}")
 
         return list(reversed(lines))
 

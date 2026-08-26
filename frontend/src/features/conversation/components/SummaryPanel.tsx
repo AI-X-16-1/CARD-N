@@ -51,18 +51,6 @@ export function SummaryPanel({ summary, person, historyUsed, model, elapsed }: P
         </Section>
       ) : null}
 
-      {summary.action_items.length > 0 ? (
-        <Section title={`할 일 ${summary.action_items.length}건`}>
-          {summary.action_items.map((item, index) => (
-            <View key={index} style={styles.todoRow}>
-              <Text style={styles.todoOwner}>{item.owner === 'me' ? '나' : '상대'}</Text>
-              <Text style={styles.todoText}>{item.content}</Text>
-              <Text style={styles.todoDue}>{item.due_date || '기한 미정'}</Text>
-            </View>
-          ))}
-        </Section>
-      ) : null}
-
       {summary.mentioned_people.length > 0 ? (
         <Section title="언급된 인물 · 관계도 후보">
           {summary.mentioned_people.map((mention, index) => (
@@ -78,14 +66,6 @@ export function SummaryPanel({ summary, person, historyUsed, model, elapsed }: P
                 {Math.round((mention.confidence ?? 0) * 100)}%
               </Text>
             </View>
-          ))}
-        </Section>
-      ) : null}
-
-      {summary.next_hints.length > 0 ? (
-        <Section title="다음에 만나면">
-          {summary.next_hints.map((hint, index) => (
-            <Bullet key={index}>{hint}</Bullet>
           ))}
         </Section>
       ) : null}
@@ -157,35 +137,6 @@ const styles = StyleSheet.create({
     fontSize: typography.body.fontSize,
     lineHeight: 21,
     color: colors.textSecondary,
-  },
-  todoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(0,210,211,0.10)',
-    borderRadius: radius.card,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-  },
-  todoOwner: {
-    fontSize: typography.micro.fontSize,
-    fontWeight: typography.micro.fontWeight,
-    color: colors.secondary,
-    borderWidth: 1,
-    borderColor: colors.secondary,
-    borderRadius: radius.pill,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    overflow: 'hidden',
-  },
-  todoText: {
-    flex: 1,
-    fontSize: typography.body.fontSize,
-    color: colors.textPrimary,
-  },
-  todoDue: {
-    fontSize: typography.meta.fontSize,
-    color: colors.textQuaternary,
   },
   mentionRow: {
     flexDirection: 'row',

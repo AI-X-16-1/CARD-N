@@ -30,12 +30,6 @@ class TranscribeResponse(BaseModel):
 # ─────────────────────────────────────────────────────────────
 
 
-class ActionItem(BaseModel):
-    content: str
-    due_date: str = ""
-    owner: str = "me"  # "me" | "them"
-
-
 class MentionedPerson(BaseModel):
     """A third party named in the conversation — a candidate graph edge."""
 
@@ -47,9 +41,7 @@ class MentionedPerson(BaseModel):
 class ConversationSummary(BaseModel):
     one_line: str
     key_points: list[str] = []
-    action_items: list[ActionItem] = []
     mentioned_people: list[MentionedPerson] = []
-    next_hints: list[str] = []
     keywords: list[str] = []
 
 

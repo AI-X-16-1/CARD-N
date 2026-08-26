@@ -25,7 +25,7 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v1"  # bump when the prompt changes — it invalidates the cache
+PROMPT_VERSION = "v2"  # bump when the prompt changes — it invalidates the cache
 MAX_RETRY = 3
 
 # Prompt tuning burns through the free tier fast, so an identical prompt is answered
@@ -49,24 +49,6 @@ SCHEMA = {
             "items": {"type": "string"},
             "description": "핵심 내용 3~5개. 각 한 문장.",
         },
-        "action_items": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "content": {"type": "string"},
-                    "due_date": {
-                        "type": "string",
-                        "description": "YYYY-MM-DD. 대화에 명시가 없으면 빈 문자열.",
-                    },
-                    "owner": {
-                        "type": "string",
-                        "description": "'me' 또는 'them'. 누가 하기로 했는지.",
-                    },
-                },
-                "required": ["content", "due_date", "owner"],
-            },
-        },
         "mentioned_people": {
             "type": "array",
             "items": {
@@ -86,11 +68,6 @@ SCHEMA = {
             },
             "description": "대화에 등장한 제3의 인물. 관계 그래프 엣지 후보가 된다.",
         },
-        "next_hints": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "다음에 만났을 때 꺼낼 만한 이야깃거리 1~3개.",
-        },
         "keywords": {
             "type": "array",
             "items": {"type": "string"},
@@ -100,9 +77,7 @@ SCHEMA = {
     "required": [
         "one_line",
         "key_points",
-        "action_items",
         "mentioned_people",
-        "next_hints",
         "keywords",
     ],
 }
@@ -116,7 +91,6 @@ SYSTEM_INSTRUCTION = """\
 · 대화에 실제로 나온 내용만 쓴다. 추측하거나 보강하지 않는다.
 · 음성 인식 오류로 깨진 단어는 문맥으로 판단하되, 확신이 없으면 빼라.
 · 사람 이름은 특히 잘못 인식되기 쉽다. confidence를 정직하게 매겨라.
-· 날짜는 대화에 명시된 것만 쓴다. "다음 주"처럼 모호하면 빈 문자열로 둔다.
 · 한국어로 쓴다. 존댓말 말고 간결한 개조식으로.
 """
 

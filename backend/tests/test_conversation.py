@@ -14,12 +14,7 @@ from app.features.conversation import models  # noqa: F401  registers the table 
 SUMMARY = {
     "one_line": "온보딩 개편 초안 공유 및 11월 배포 일정 논의",
     "key_points": ["본인 인증 단계를 3단계에서 1단계로 축소", "11월 초 배포 목표"],
-    "action_items": [
-        {"content": "피그마 링크 정리해서 보내기", "due_date": "", "owner": "them"},
-        {"content": "내부 리뷰 일정 잡기", "due_date": "2026-09-01", "owner": "me"},
-    ],
     "mentioned_people": [{"name": "박준호", "relation": "개발 담당 연구원", "confidence": 0.95}],
-    "next_hints": ["법무 검토 결과 확인"],
     "keywords": ["온보딩", "피그마"],
 }
 
@@ -52,7 +47,7 @@ def test_save_and_list(client: TestClient) -> None:
     saved = res.json()
     assert saved["person_id"] == person_id
     assert saved["one_liner"] == SUMMARY["one_line"]
-    assert saved["summary"]["action_items"][1]["owner"] == "me"
+    assert saved["summary"]["mentioned_people"][0]["name"] == "박준호"
     assert saved["duration_seconds"] == 372
 
     listed = client.get("/api/v1/conversations", params={"person_id": person_id}).json()

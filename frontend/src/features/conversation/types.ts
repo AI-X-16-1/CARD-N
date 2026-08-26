@@ -12,12 +12,6 @@ export type TranscribeResult = {
   model: string;
 };
 
-export type ActionItem = {
-  content: string;
-  due_date: string;
-  owner: 'me' | 'them' | string;
-};
-
 /** A third party named in the conversation — a candidate edge for the relationship graph. */
 export type MentionedPerson = {
   name: string;
@@ -28,9 +22,7 @@ export type MentionedPerson = {
 export type ConversationSummary = {
   one_line: string;
   key_points: string[];
-  action_items: ActionItem[];
   mentioned_people: MentionedPerson[];
-  next_hints: string[];
   keywords: string[];
 };
 

@@ -342,13 +342,9 @@ Response 200:
   "result": {
     "one_line": "토스 김서연 디자이너와 온보딩 개편 초안 공유 및 일정 논의",
     "key_points": ["토스 측에서 온보딩 개편 초안을 공유함", "..."],
-    "action_items": [
-      { "content": "피그마 링크 정리해서 보내기", "due_date": "", "owner": "them" }
-    ],
     "mentioned_people": [
       { "name": "박준호", "relation": "개발 담당 연구원", "confidence": 0.95 }
     ],
-    "next_hints": ["개인정보 처리방침 법무 검토 결과 확인"],
     "keywords": ["온보딩", "피그마", "법무검토"]
   },
   "person": {
@@ -367,6 +363,10 @@ into the prompt, so conversation history never travels through the client. `pers
 `mentioned_people` are third parties named during the conversation — candidate edges for
 the relationship graph. `confidence` is the model's own estimate of whether it heard the
 name correctly; the UI flags anything under 0.7.
+
+The summary deliberately carries no to-do list and no "what to raise next time" hints.
+Both were dropped after review: on real recordings they were the parts most prone to
+being invented, and neither had a screen that acted on them.
 
 ### POST /conversations
 
