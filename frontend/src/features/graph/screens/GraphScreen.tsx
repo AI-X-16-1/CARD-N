@@ -9,6 +9,7 @@ import {
   declineIntroductionRequest,
   fetchGraph,
   fetchIncomingIntroductionRequests,
+  fetchMutualConnectionCount,
   requestIntroduction,
 } from '../api/graphApi';
 import { GraphCanvas } from '../components/GraphCanvas';
@@ -35,6 +36,7 @@ export default function GraphScreen() {
   const [selectedPerson, setSelectedPerson] = useState<GraphNode | null>(null);
   const [incomingRequests, setIncomingRequests] = useState<IncomingIntroductionRequest[]>([]);
   const [isRequestsSheetOpen, setIsRequestsSheetOpen] = useState(false);
+  const [mutualCounts, setMutualCounts] = useState<Record<number, number>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +65,30 @@ export default function GraphScreen() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedPerson || selectedPerson.type !== 'person') return;
+    if (mutualCounts[selectedPerson.id] !== undefined) return;
+
+    let cancelled = false;
+    fetchMutualConnectionCount(selectedPerson.id)
+      .then((count) => {
+        if (!cancelled) setMutualCounts((current) => ({ ...current, [selectedPerson.id]: count }));
+      })
+      .catch(() => {
+        // Leave it unset — the stat tile just falls back to 0.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPerson, mutualCounts]);
+
+  const displayedPerson = useMemo(() => {
+    if (!selectedPerson) return null;
+    const mutualCount = mutualCounts[selectedPerson.id];
+    return mutualCount === undefined ? selectedPerson : { ...selectedPerson, mutualCount };
+  }, [selectedPerson, mutualCounts]);
 
   const availableJobs = useMemo(() => {
     const jobs = new Set<JobClass>();
@@ -231,7 +257,7 @@ export default function GraphScreen() {
       )}
 
       <PersonBottomSheet
-        person={selectedPerson}
+        person={displayedPerson}
         onClose={() => setSelectedPerson(null)}
         onViewProfile={handleViewProfile}
         onViewMutual={handleViewMutual}
