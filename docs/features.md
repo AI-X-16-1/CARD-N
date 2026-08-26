@@ -6,7 +6,7 @@
 
 | Team member | Role | Frontend folder | Backend folder | Core tech |
 |------|------|----------------|------------|----------|
-| **강민구** | Business card scan + contacts + home | `features/scan/` `features/contacts/` `features/home/` | `features/scan/` `features/contacts/` | Google Vision OCR, NLP parsing, CRUD |
+| **강민구** | Business card scan + contacts + home | `features/scan/` `features/contacts/` `features/home/` | `features/scan/` `features/contacts/` | PaddleOCR (self-hosted, replaces Google Vision — see api-spec.md §Scan), NLP parsing, CRUD |
 | **김민경** | Relationship graph | `features/graph/` | `features/graph/` | Neo4j, Cypher, SVG/Canvas graph visualization |
 | **박재경** | Recording + summary | `features/conversation/` | `features/conversation/` | Whisper STT, LLM summary, audio recording |
 | **이승환** | Game client | `features/game/` | `features/game/` | Battle engine, card UI, deck management |

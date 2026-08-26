@@ -53,7 +53,7 @@ The flow: business card OCR → contact registration → conversation recording/
 - **Frontend**: React Native (Android-first), TypeScript
 - **Backend**: FastAPI (Python 3.11+), async
 - **Database**: MySQL (main) + Neo4j Community Edition (relationship graph)
-- **AI/ML**: Google Vision OCR, Whisper STT, Claude/GPT LLM
+- **AI/ML**: self-hosted PaddleOCR (business card scan; see `docs/api-spec.md`'s Scan section for why this replaced the originally-planned Google Vision API), Whisper STT, Claude/GPT LLM
 - **Asset**: ComfyUI, Krea2 (game card illustrations, icons)
 - **Infra**: Docker Compose (local development only, no deployment)
 
