@@ -9,18 +9,38 @@ import Animated, {
 
 import { colors, radius, typography } from '@/shared/theme';
 
-import type { GraphNode } from '../types';
+import type { GraphNode, IntroductionRequestStatus } from '../types';
 
 type Props = {
   person: GraphNode | null;
   onClose: () => void;
   onViewProfile: (person: GraphNode) => void;
   onViewMutual: (person: GraphNode) => void;
+  onRequestIntroduction: (person: GraphNode) => void;
 };
 
 const SHEET_HIDDEN_OFFSET = 500;
 
-export function PersonBottomSheet({ person, onClose, onViewProfile, onViewMutual }: Props) {
+function getIntroductionRow(status: IntroductionRequestStatus | undefined) {
+  switch (status) {
+    case 'pending':
+      return { label: '소개 요청 보냄 · 승인 대기중', disabled: true };
+    case 'approved':
+      return { label: '소개 승인됨 · 2촌에게 노출 중', disabled: true };
+    case 'declined':
+      return { label: '다시 요청하기', disabled: false };
+    default:
+      return { label: '이 사람의 인맥에게 내 프로필 소개 요청', disabled: false };
+  }
+}
+
+export function PersonBottomSheet({
+  person,
+  onClose,
+  onViewProfile,
+  onViewMutual,
+  onRequestIntroduction,
+}: Props) {
   const [displayPerson, setDisplayPerson] = useState<GraphNode | null>(null);
   const translateY = useSharedValue(SHEET_HIDDEN_OFFSET);
   const overlayOpacity = useSharedValue(0);
@@ -47,6 +67,8 @@ export function PersonBottomSheet({ person, onClose, onViewProfile, onViewMutual
 
   if (!displayPerson) return null;
 
+  const introRow = getIntroductionRow(displayPerson.introductionRequestStatus);
+
   return (
     <>
       <Animated.View style={[styles.overlay, overlayStyle]}>
@@ -64,7 +86,9 @@ export function PersonBottomSheet({ person, onClose, onViewProfile, onViewMutual
             <View style={styles.nameRow}>
               <Text style={styles.name}>{displayPerson.name}</Text>
               <View style={styles.degreeBadge}>
-                <Text style={styles.degreeBadgeLabel}>1촌</Text>
+                <Text style={styles.degreeBadgeLabel}>
+                  {displayPerson.degree === 2 ? '2촌' : '1촌'}
+                </Text>
               </View>
             </View>
             <Text style={styles.subtitle}>
@@ -105,6 +129,18 @@ export function PersonBottomSheet({ person, onClose, onViewProfile, onViewMutual
             <Text style={styles.mutualButtonLabel}>공동 인맥 보기</Text>
           </Pressable>
         </View>
+
+        {displayPerson.degree === 1 && (
+          <Pressable
+            disabled={introRow.disabled}
+            onPress={() => onRequestIntroduction(displayPerson)}
+            style={styles.introRow}
+          >
+            <Text style={[styles.introRowLabel, introRow.disabled && styles.introRowLabelDisabled]}>
+              {introRow.label}
+            </Text>
+          </Pressable>
+        )}
       </Animated.View>
     </>
   );
@@ -257,5 +293,20 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontSize: typography.body.fontSize,
     fontWeight: '700',
+  },
+  introRow: {
+    paddingVertical: 12,
+    borderRadius: radius.card,
+    alignItems: 'center',
+    backgroundColor: colors.surface1,
+  },
+  introRowLabel: {
+    color: colors.primaryLight,
+    fontSize: typography.meta.fontSize,
+    fontWeight: '600',
+  },
+  introRowLabelDisabled: {
+    color: colors.textTertiary,
+    fontWeight: '500',
   },
 });

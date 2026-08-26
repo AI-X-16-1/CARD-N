@@ -27,8 +27,10 @@ RETURN me.id AS id, me.name AS name
 _FIRST_DEGREE_QUERY = """
 MATCH (me:Person {id: $me_id})-[r:MET_AT]-(person:Person)
 OPTIONAL MATCH (person)-[:WORKS_AT]->(company:Company)
+OPTIONAL MATCH (me)-[c:INTRO_CONSENT]->(person)
 RETURN DISTINCT person.id AS id, person.name AS name, person.job_class AS job_class,
-       company.name AS company, r.weight AS weight, r.last_interaction AS last_interaction
+       company.name AS company, r.weight AS weight, r.last_interaction AS last_interaction,
+       c.status AS introduction_request_status
 """
 
 # A 2nd-degree candidate only counts once they've *approved* an introduction request through the

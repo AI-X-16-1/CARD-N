@@ -87,6 +87,7 @@ class GraphService:
             degree=degree,
             conversation_count=row.get("weight") or 0,
             last_conversation=row.get("last_interaction"),
+            introduction_request_status=row.get("introduction_request_status"),
         )
 
     async def request_introduction(self, target_person_id: int) -> IntroductionRequestResponse:

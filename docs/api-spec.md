@@ -181,7 +181,8 @@ Response 200:
       "company": "Kakao",
       "degree": 1,
       "conversation_count": 3,
-      "last_conversation": "2024-03-15T14:00:00Z"
+      "last_conversation": "2024-03-15T14:00:00Z",
+      "introduction_request_status": null
     }
   ],
   "edges": [
@@ -198,6 +199,10 @@ Response 200:
   }
 }
 ```
+
+`introduction_request_status` on a degree-1 node is *my own* outgoing request status toward that
+contact (`null` | `"pending"` | `"approved"` | `"declined"`) — see "Introduction Requests" below.
+Always `null` for degree-2 nodes.
 
 ### GET /graph/{person_id}/mutual
 

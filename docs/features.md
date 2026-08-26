@@ -48,6 +48,10 @@
 - ← 강민구: Receives Neo4j node sync when a person is created/updated
 - ← 박재경: Receives edge weight updates when a conversation is saved
 - Navigation: Bottom sheet "Profile" → pushes to PersonDetailScreen (강민구's screen)
+- → 강민구: PersonDetailScreen needs the same "소개 요청" action as GraphScreen's 1st-degree
+  bottom sheet (see `ui-spec.md` §5 and `api-spec.md` "Introduction Requests"). The
+  `POST/GET /graph/.../introduction-requests` endpoints are already built — this is a UI-only
+  addition on 강민구's side, no new graph API needed.
 
 **Neo4j notes**:
 - Neo4j Community Edition 5.x, run locally via Docker

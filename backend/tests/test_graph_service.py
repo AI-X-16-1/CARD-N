@@ -50,6 +50,34 @@ async def test_get_graph_returns_me_and_first_degree_nodes(monkeypatch: pytest.M
     assert result.stats.degree_1_count == 1
     assert result.stats.degree_2_count == 0
     assert result.edges == [GraphEdgeResponse(source=0, target=1, weight=3, last_interaction=NOW)]
+    assert result.nodes[1].introduction_request_status is None
+
+
+async def test_get_graph_surfaces_my_outgoing_introduction_request_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_fetch_me(driver, me_id):
+        return {"id": 0, "name": "김민경"}
+
+    async def fake_fetch_first_degree(driver, me_id):
+        return [
+            {
+                "id": 1,
+                "name": "홍길동",
+                "job_class": "marketing",
+                "company": "카카오",
+                "weight": 3,
+                "last_interaction": NOW,
+                "introduction_request_status": "pending",
+            }
+        ]
+
+    monkeypatch.setattr(queries, "fetch_me", fake_fetch_me)
+    monkeypatch.setattr(queries, "fetch_first_degree", fake_fetch_first_degree)
+
+    result = await _service().get_graph(depth=1, job_filter="all")
+
+    assert result.nodes[1].introduction_request_status == "pending"
 
 
 async def test_get_graph_includes_second_degree_when_depth_two(
