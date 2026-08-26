@@ -3,10 +3,9 @@ import { Alert, Animated, Easing, Pressable, StyleSheet, Text, View } from 'reac
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useNavigation } from '@react-navigation/native';
-import axios from 'axios';
 
 import { colors, radius, typography } from '@/shared/theme';
-import { useOcrScan } from '@/features/scan/hooks/useOcrScan';
+import { extractErrorMessage, useOcrScan } from '@/features/scan/hooks/useOcrScan';
 import { ScanResultPanel } from '@/features/scan/components/ScanResultPanel';
 import { ManualInputForm } from '@/features/scan/components/ManualInputForm';
 import { CardRevealPanel } from '@/features/scan/components/CardRevealPanel';
@@ -17,13 +16,6 @@ type CaptureMode = 'single' | 'batch';
 type Step = 'camera' | 'manual' | 'reveal';
 
 const GUIDE_ASPECT_RATIO = 1.7;
-
-function extractErrorMessage(error: unknown): string {
-  if (axios.isAxiosError(error)) {
-    return error.response?.data?.detail ?? error.message;
-  }
-  return '저장하지 못했어요. 다시 시도해주세요.';
-}
 
 export default function ScanCameraScreen() {
   const navigation = useNavigation();
