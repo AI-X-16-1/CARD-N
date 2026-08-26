@@ -130,7 +130,17 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
               <Text style={styles.actionText}>🎙 지금 녹음하기</Text>
               <Text style={styles.actionSubtext}>대화를 실시간으로 녹음하고 요약</Text>
             </Pressable>
-            <Pressable style={styles.actionItem} onPress={() => setActionSheetOpen(false)}>
+            <Pressable
+              style={styles.actionItem}
+              onPress={() => {
+                setActionSheetOpen(false);
+                // Same destination as "지금 녹음하기" — ConversationRecordScreen offers both
+                // live recording and file upload internally (AudioPickerCard).
+                if (!onBack) {
+                  navigation.navigate('ConversationRecord', { personId: person.id });
+                }
+              }}
+            >
               <Text style={styles.actionText}>📁 녹음 파일 업로드</Text>
               <Text style={styles.actionSubtext}>기존 녹음 파일을 올려 요약 생성</Text>
             </Pressable>

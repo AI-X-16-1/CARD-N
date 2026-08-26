@@ -27,9 +27,7 @@ export type PersonListResponse = {
 export type ConversationSummaryResult = {
   one_line: string;
   key_points: string[];
-  action_items: { content: string; due_date: string; owner: string }[];
   mentioned_people: { name: string; relation: string; confidence: number }[];
-  next_hints: string[];
   keywords: string[];
 };
 
@@ -38,7 +36,7 @@ export type Conversation = {
   person_id: number;
   one_liner: string;
   summary: ConversationSummaryResult;
-  duration_seconds: number;
-  recorded_at: string;
+  duration_seconds: number | null;
+  recorded_at: string | null;
   created_at: string;
 };

@@ -7,7 +7,8 @@ import type { Conversation } from '../types';
 import { useConversations } from '../hooks/useConversations';
 import { deleteConversation } from '../api';
 
-function formatDate(iso: string): string {
+function formatDate(iso: string | null): string {
+  if (!iso) return '';
   return new Date(iso).toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 

@@ -25,13 +25,9 @@ export async function deleteContact(personId: number): Promise<void> {
 // --- Call recording import (see features/contacts/components/CallRecordingFinder.tsx) ---
 //
 // These call the conversation feature's endpoints directly (docs/api-spec.md's "Conversation"
-// section) rather than importing anything from features/conversation/ — cross-feature
-// communication stays at the API boundary per frontend/CLAUDE.md §2.
-//
-// ⚠️ Dependency: /conversations/transcribe, /conversations/summarize, and /conversations are
-// implemented on 박재경's in-progress branch (feat/conversation-stt-summary), not yet on main
-// as of this branch. This compiles and type-checks against the documented contract but can't
-// be exercised end-to-end until that branch merges.
+// section, backend/app/features/conversation/{router,schemas}.py) rather than importing
+// anything from features/conversation/ — cross-feature communication stays at the API
+// boundary per frontend/CLAUDE.md §2.
 
 type TranscribeResponse = {
   text: string;
@@ -43,10 +39,10 @@ type SummarizeResponse = {
 };
 
 export async function fetchConversations(personId: number): Promise<Conversation[]> {
-  const response = await apiClient.get<Conversation[]>('/conversations', {
+  const response = await apiClient.get<{ total: number; items: Conversation[] }>('/conversations', {
     params: { person_id: personId },
   });
-  return response.data;
+  return response.data.items;
 }
 
 export async function deleteConversation(conversationId: number): Promise<void> {
@@ -66,22 +62,26 @@ export async function summarizeCallRecording(personId: number, match: CallRecord
     type: 'audio/mpeg',
   } as unknown as Blob);
 
-  const transcribed = await apiClient.post<TranscribeResponse>('/conversations/transcribe', form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
-  const { text: transcript, duration_seconds } = transcribed.data;
+  // No explicit Content-Type here: a multipart boundary must be generated per-request,
+  // and hardcoding 'multipart/form-data' without one produces a malformed body (see
+  // features/scan/hooks/useOcrScan.ts, which hit this exact issue first).
+  const transcribed = await apiClient.post<TranscribeResponse>('/conversations/transcribe', form);
+  const { text: transcript } = transcribed.data;
+  // Whisper reports fractional seconds; SummarizeRequest/SaveConversationRequest both type
+  // this field as `int | None`, and pydantic v2 rejects a non-integer float there.
+  const durationSeconds = Math.round(transcribed.data.duration_seconds);
 
   const summarized = await apiClient.post<SummarizeResponse>('/conversations/summarize', {
     transcript,
     person_id: personId,
-    duration_seconds,
+    duration_seconds: durationSeconds,
   });
 
   const saved = await apiClient.post<Conversation>('/conversations', {
     person_id: personId,
     transcript,
     summary: summarized.data.result,
-    duration_seconds,
+    duration_seconds: durationSeconds,
     recorded_at: match.creationTime ? new Date(match.creationTime).toISOString() : undefined,
   });
   return saved.data;
