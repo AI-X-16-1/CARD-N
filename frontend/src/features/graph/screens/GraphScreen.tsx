@@ -25,7 +25,11 @@ import type {
   JobFilter,
 } from '../types';
 
-const EMPTY_GRAPH: GraphData = { nodes: [], edges: [], stats: { degree1Count: 0 } };
+const EMPTY_GRAPH: GraphData = {
+  nodes: [],
+  edges: [],
+  stats: { degree1Count: 0, degree2Count: 0 },
+};
 
 export default function GraphScreen() {
   const [graphData, setGraphData] = useState<GraphData>(EMPTY_GRAPH);
@@ -98,24 +102,24 @@ export default function GraphScreen() {
     return [...jobs].sort();
   }, [graphData]);
 
-  const filteredData = useMemo(() => {
+  // Nodes/edges never leave the graph on filter — the spec calls for a
+  // 250ms fade to 18% opacity, not removal, so GraphCanvas gets the full
+  // data set plus which person ids currently match.
+  const matchedPersonIds = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
     const matches = (node: GraphNode) => {
-      if (node.type === 'me') return true;
       if (selectedJob !== 'all' && node.jobClass !== selectedJob) return false;
       if (!normalizedQuery) return true;
       const haystack = `${node.name} ${node.company ?? ''}`.toLowerCase();
       return haystack.includes(normalizedQuery);
     };
 
-    const nodes = graphData.nodes.filter(matches);
-    const visibleIds = new Set(nodes.map((node) => node.id));
-    const edges = graphData.edges.filter(
-      (edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target)
-    );
-
-    return { nodes, edges, stats: graphData.stats };
+    const ids = new Set<number>();
+    graphData.nodes.forEach((node) => {
+      if (node.type === 'person' && matches(node)) ids.add(node.id);
+    });
+    return ids;
   }, [graphData, query, selectedJob]);
 
   const closestConnections = useMemo(() => {
@@ -197,7 +201,9 @@ export default function GraphScreen() {
       <View style={styles.header}>
         <View style={styles.headerText}>
           <Text style={styles.title}>관계도</Text>
-          <Text style={styles.subtitle}>1촌 {graphData.stats.degree1Count}명</Text>
+          <Text style={styles.subtitle}>
+            1촌 {graphData.stats.degree1Count}명 · 2촌 {graphData.stats.degree2Count}명
+          </Text>
         </View>
         <IntroductionBell
           count={incomingRequests.length}
@@ -228,10 +234,11 @@ export default function GraphScreen() {
         )}
         {loadState === 'ready' && canvasSize.width > 0 && (
           <GraphCanvas
-            data={filteredData}
+            data={graphData}
             width={canvasSize.width}
             height={canvasSize.height}
             selectedPersonId={selectedPerson?.id ?? null}
+            matchedPersonIds={matchedPersonIds}
             onSelectPerson={setSelectedPerson}
           />
         )}
