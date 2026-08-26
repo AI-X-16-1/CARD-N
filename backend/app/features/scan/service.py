@@ -1,4 +1,4 @@
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from app.features.scan.ocr.pipeline import OcrPipelineResult, extract_business_card
@@ -61,19 +61,28 @@ def _to_ocr_response(result: OcrPipelineResult) -> OcrResponse:
     )
 
 
+async def _extract_or_400(image_bytes: bytes) -> OcrPipelineResult:
+    # card detection + PaddleOCR inference are CPU-bound and synchronous —
+    # run off the event loop so one scan doesn't stall other requests.
+    try:
+        return await run_in_threadpool(extract_business_card, image_bytes)
+    except Exception as exc:
+        # A corrupted or non-image upload fails inside PIL/cv2 decoding, not our logic —
+        # that's a client error (400), not a server bug (500).
+        raise HTTPException(status_code=400, detail="이미지를 처리할 수 없어요") from exc
+
+
 class ScanService:
     async def process_image(self, image: UploadFile) -> OcrResponse:
         image_bytes = await image.read()
-        # card detection + PaddleOCR inference are CPU-bound and synchronous —
-        # run off the event loop so one scan doesn't stall other requests.
-        result = await run_in_threadpool(extract_business_card, image_bytes)
+        result = await _extract_or_400(image_bytes)
         return _to_ocr_response(result)
 
     async def process_batch(self, images: list[UploadFile]) -> OcrBatchResponse:
         items = []
         for image in images:
             image_bytes = await image.read()
-            result = await run_in_threadpool(extract_business_card, image_bytes)
+            result = await _extract_or_400(image_bytes)
             ocr_response = _to_ocr_response(result)
             items.append(
                 OcrBatchItemResponse(
