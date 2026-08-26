@@ -2,10 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
+  Easing,
+  cancelAnimation,
   runOnJS,
   useAnimatedProps,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
@@ -39,6 +42,17 @@ const GLOW_OUTER_RADIUS = SELECTED_NODE_RADIUS + 20;
 const MATCHED_OPACITY = 1;
 const FADED_OPACITY = 0.18;
 const FADE_DURATION = 250;
+// ui-spec.md §4: 1st-degree nodes carry a continuous 3s pulsing halo (idle
+// presence indicator). Selecting a node swaps this for a bigger, brighter
+// version of the same pulse rather than freezing it into a static glow.
+const AMBIENT_GLOW_RADIUS = NODE_RADIUS + 6;
+const AMBIENT_GLOW_MIN_OPACITY = 0.1;
+const AMBIENT_GLOW_MAX_OPACITY = 0.32;
+const AMBIENT_PULSE_HALF_DURATION = 1500;
+const SELECTED_GLOW_INNER_MIN_OPACITY = 0.2;
+const SELECTED_GLOW_INNER_MAX_OPACITY = 0.35;
+const SELECTED_GLOW_OUTER_MIN_OPACITY = 0.08;
+const SELECTED_GLOW_OUTER_MAX_OPACITY = 0.16;
 // Max px every other node (incl. "나") is pushed away from the selected node.
 const MAX_PUSH_DISTANCE = 26;
 // Nodes farther than this fraction of the canvas's short side from the
@@ -79,6 +93,7 @@ type PersonNodeMarkerProps = {
   ringColor: string;
   isSelected: boolean;
   isMatched: boolean;
+  isFirstDegree: boolean;
   onPress: () => void;
 };
 
@@ -90,11 +105,13 @@ function PersonNodeMarker({
   ringColor,
   isSelected,
   isMatched,
+  isFirstDegree,
   onPress,
 }: PersonNodeMarkerProps) {
   const nodeRadius = useSharedValue(NODE_RADIUS);
   const glowInnerOpacity = useSharedValue(0);
   const glowOuterOpacity = useSharedValue(0);
+  const ambientGlowOpacity = useSharedValue(0);
   const fadeOpacity = useSharedValue(isMatched ? MATCHED_OPACITY : FADED_OPACITY);
 
   useEffect(() => {
@@ -105,16 +122,57 @@ function PersonNodeMarker({
 
   useEffect(() => {
     if (isSelected) {
+      // Selecting a node swaps its idle pulse (if any) for a bigger, brighter
+      // pulse on the same 3s cadence — it keeps breathing, just more visibly.
+      cancelAnimation(ambientGlowOpacity);
+      ambientGlowOpacity.value = withTiming(0, { duration: 200 });
       nodeRadius.value = withTiming(SELECTED_NODE_RADIUS, { duration: 200 });
-      // A steady, non-pulsing halo — fades in once and holds.
-      glowInnerOpacity.value = withTiming(0.35, { duration: 400 });
-      glowOuterOpacity.value = withTiming(0.16, { duration: 500 });
+
+      cancelAnimation(glowInnerOpacity);
+      glowInnerOpacity.value = SELECTED_GLOW_INNER_MIN_OPACITY;
+      glowInnerOpacity.value = withRepeat(
+        withTiming(SELECTED_GLOW_INNER_MAX_OPACITY, {
+          duration: AMBIENT_PULSE_HALF_DURATION,
+          easing: Easing.inOut(Easing.ease),
+        }),
+        -1,
+        true,
+      );
+
+      cancelAnimation(glowOuterOpacity);
+      glowOuterOpacity.value = SELECTED_GLOW_OUTER_MIN_OPACITY;
+      glowOuterOpacity.value = withRepeat(
+        withTiming(SELECTED_GLOW_OUTER_MAX_OPACITY, {
+          duration: AMBIENT_PULSE_HALF_DURATION,
+          easing: Easing.inOut(Easing.ease),
+        }),
+        -1,
+        true,
+      );
     } else {
       nodeRadius.value = withTiming(NODE_RADIUS, { duration: 200 });
+      cancelAnimation(glowInnerOpacity);
+      cancelAnimation(glowOuterOpacity);
       glowInnerOpacity.value = withTiming(0, { duration: 200 });
       glowOuterOpacity.value = withTiming(0, { duration: 200 });
+      if (isFirstDegree) {
+        // Pulse between the min/max opacity (not down to 0) so it reads as a
+        // gentle "breathing" halo rather than blinking off each cycle.
+        ambientGlowOpacity.value = AMBIENT_GLOW_MIN_OPACITY;
+        ambientGlowOpacity.value = withRepeat(
+          withTiming(AMBIENT_GLOW_MAX_OPACITY, {
+            duration: AMBIENT_PULSE_HALF_DURATION,
+            easing: Easing.inOut(Easing.ease),
+          }),
+          -1,
+          true,
+        );
+      } else {
+        cancelAnimation(ambientGlowOpacity);
+        ambientGlowOpacity.value = withTiming(0, { duration: 200 });
+      }
     }
-  }, [isSelected, nodeRadius, glowInnerOpacity, glowOuterOpacity]);
+  }, [isSelected, isFirstDegree, nodeRadius, glowInnerOpacity, glowOuterOpacity, ambientGlowOpacity]);
 
   const glowOuterProps = useAnimatedProps(() => ({
     cx: basePosition.x + (focusPosition.x - basePosition.x) * focusProgress.value,
@@ -125,6 +183,11 @@ function PersonNodeMarker({
     cx: basePosition.x + (focusPosition.x - basePosition.x) * focusProgress.value,
     cy: basePosition.y + (focusPosition.y - basePosition.y) * focusProgress.value,
     opacity: glowInnerOpacity.value,
+  }));
+  const ambientGlowProps = useAnimatedProps(() => ({
+    cx: basePosition.x + (focusPosition.x - basePosition.x) * focusProgress.value,
+    cy: basePosition.y + (focusPosition.y - basePosition.y) * focusProgress.value,
+    opacity: ambientGlowOpacity.value,
   }));
   const nodeProps = useAnimatedProps(() => ({
     cx: basePosition.x + (focusPosition.x - basePosition.x) * focusProgress.value,
@@ -142,6 +205,7 @@ function PersonNodeMarker({
     <G onPress={onPress}>
       <AnimatedCircle r={GLOW_OUTER_RADIUS} fill={ringColor} animatedProps={glowOuterProps} />
       <AnimatedCircle r={GLOW_INNER_RADIUS} fill={ringColor} animatedProps={glowInnerProps} />
+      <AnimatedCircle r={AMBIENT_GLOW_RADIUS} fill={ringColor} animatedProps={ambientGlowProps} />
       <AnimatedCircle
         fill={colors.surface1}
         stroke={ringColor}
@@ -379,6 +443,7 @@ export function GraphCanvas({
                   ringColor={ringColor}
                   isSelected={node.id === selectedPersonId}
                   isMatched={matchedPersonIds.has(node.id)}
+                  isFirstDegree={node.degree === 1}
                   onPress={() => onSelectPerson(node)}
                 />
               );
