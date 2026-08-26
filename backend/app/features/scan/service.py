@@ -13,20 +13,27 @@ from app.features.scan.schemas import (
 )
 
 # card_parser.py classifies fields but does not score them per instance. In place of a
-# real per-field confidence, we use the field-type accuracy measured across move_ocr's
-# validation set (see move_ocr/README.md) — a fixed value per field type rather than a
-# fabricated per-request number. This is what drives the >=90% "needs review" split in
-# ui-spec.md §3-2.
+# real per-field confidence, we use the field-type accuracy measured across a validation
+# set — a fixed value per field type rather than a fabricated per-request number. This is
+# what drives the >=90% "needs review" split in ui-spec.md §3-2.
+#
+# postal_code/region/department/email were recalibrated against the 16 real (non-
+# synthetic) cards in /images — the original move_ocr-prototype-derived values (0.93/
+# 0.93/0.865/0.90) were measured under different conditions and turned out to overstate
+# real-world accuracy badly enough that "확인 필요" never triggered for fields that are
+# in fact wrong or missing more often than not (postal_code recognized on only 3/16 real
+# cards). name/company/title/phone/address stayed close to their original values and are
+# unchanged.
 FIELD_CONFIDENCE: dict[str, float] = {
     "name": 0.98,
     "company": 0.955,
     "title": 0.935,
-    "department": 0.865,
+    "department": 0.40,
     "phone": 0.965,
-    "postal_code": 0.93,
-    "region": 0.93,
+    "postal_code": 0.20,
+    "region": 0.55,
     "address": 0.93,
-    "email": 0.90,
+    "email": 0.70,
 }
 
 FIELD_LABELS: dict[str, str] = {
