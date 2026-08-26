@@ -17,14 +17,20 @@ import { TranscriptPanel } from '../components/TranscriptPanel';
 import { useConversationFlow } from '../hooks/useConversationFlow';
 import { useRecorder } from '../hooks/useRecorder';
 
+/**
+ * Which action sheet item got us here. Mirrors the route in
+ * navigation/RootNavigator.tsx, where `mode` is likewise optional — anything that
+ * navigates without it lands on the recording-first layout, which is the default.
+ */
 type ConversationStackParamList = {
-  ConversationRecord: { personId: number };
+  ConversationRecord: { personId: number; mode?: 'record' | 'upload' };
 };
 
 export default function ConversationRecordScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<ConversationStackParamList>>();
   const route = useRoute<RouteProp<ConversationStackParamList, 'ConversationRecord'>>();
   const personId = route.params?.personId;
+  const mode = route.params?.mode ?? 'record';
 
   const [person, setPerson] = useState<Person | null>(null);
   const flow = useConversationFlow(personId);
@@ -85,22 +91,44 @@ export default function ConversationRecordScreen() {
           />
         ) : (
           <>
-            {/* Recording is the primary action; uploading an existing file sits under it. */}
-            {flow.audio === null ? (
-              <Button
-                label="🎙  지금 녹음 시작"
-                onPress={recorder.start}
-                loading={recorder.preparing}
-                disabled={flow.busy}
-              />
-            ) : null}
-
-            <AudioPickerCard
-              audio={flow.audio}
-              durationSeconds={flow.sttMeta?.duration_seconds}
-              disabled={flow.busy}
-              onPick={flow.pickAndTranscribe}
-            />
+            {/* Whichever action sheet item was tapped goes first. Tapping "업로드" and
+                landing on a screen led by a record button reads like a mis-tap. */}
+            {mode === 'upload' ? (
+              <>
+                <AudioPickerCard
+                  audio={flow.audio}
+                  durationSeconds={flow.sttMeta?.duration_seconds}
+                  disabled={flow.busy}
+                  onPick={flow.pickAndTranscribe}
+                />
+                {flow.audio === null ? (
+                  <Button
+                    label="🎙  대신 지금 녹음하기"
+                    variant="outline"
+                    onPress={recorder.start}
+                    loading={recorder.preparing}
+                    disabled={flow.busy}
+                  />
+                ) : null}
+              </>
+            ) : (
+              <>
+                {flow.audio === null ? (
+                  <Button
+                    label="🎙  지금 녹음 시작"
+                    onPress={recorder.start}
+                    loading={recorder.preparing}
+                    disabled={flow.busy}
+                  />
+                ) : null}
+                <AudioPickerCard
+                  audio={flow.audio}
+                  durationSeconds={flow.sttMeta?.duration_seconds}
+                  disabled={flow.busy}
+                  onPick={flow.pickAndTranscribe}
+                />
+              </>
+            )}
           </>
         )}
 
