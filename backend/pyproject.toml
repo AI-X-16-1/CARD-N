@@ -27,3 +27,7 @@ asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+# FastAPI's DI pattern requires calling Depends()/Query() in argument defaults.
+ignore = ["B008"]
