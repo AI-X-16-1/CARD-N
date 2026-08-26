@@ -47,14 +47,14 @@ SET r.weight = coalesce(r.weight, 0) + 1, r.last_interaction = datetime()
 
 _FIND_PERSON_BY_NAME_QUERY = """
 MATCH (p:Person)
-WHERE toLower(p.name) = toLower($name) AND p.id <> $exclude_id
+WHERE toLower(p.name) = toLower($name)
 RETURN p.id AS id
 """
 
 _SYNC_MENTION_EDGE_QUERY = """
 MATCH (a:Person {id: $person_id}), (b:Person {id: $mentioned_id})
 MERGE (a)-[r:MET_AT]-(b)
-ON CREATE SET r.weight = 1, r.last_interaction = datetime()
+ON CREATE SET r.weight = 1, r.last_interaction = datetime(), r.origin = 'mention'
 ON MATCH SET r.weight = coalesce(r.weight, 0) + 1, r.last_interaction = datetime()
 """
 
@@ -67,9 +67,9 @@ async def bump_conversation_weight(driver: AsyncDriver, *, person_id: int) -> No
         await session.run(_BUMP_WEIGHT_QUERY, me_id=ME_PERSON_ID, person_id=person_id)
 
 
-async def _find_person_ids_by_name(driver: AsyncDriver, name: str, exclude_id: int) -> list[int]:
+async def _find_person_ids_by_name(driver: AsyncDriver, name: str) -> list[int]:
     async with driver.session() as session:
-        result = await session.run(_FIND_PERSON_BY_NAME_QUERY, name=name, exclude_id=exclude_id)
+        result = await session.run(_FIND_PERSON_BY_NAME_QUERY, name=name)
         return [record["id"] async for record in result]
 
 
@@ -93,13 +93,13 @@ async def sync_mentioned_people(
         if not name or confidence < MIN_MENTION_CONFIDENCE:
             continue
 
-        candidate_ids = await _find_person_ids_by_name(driver, name, person_id)
+        candidate_ids = await _find_person_ids_by_name(driver, name)
         if len(candidate_ids) != 1:
             continue
 
         mentioned_id = candidate_ids[0]
         if mentioned_id in (person_id, ME_PERSON_ID):
-            continue
+            continue  # unambiguous match, but it's a self/me reference, not a third party
 
         await _sync_mention_edge(driver, person_id, mentioned_id)
         linked.append(mentioned_id)

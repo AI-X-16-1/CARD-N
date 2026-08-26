@@ -53,7 +53,11 @@
   confidence) against existing contacts and links a confident, unambiguous match as a new
   MET_AT edge between the conversation's contact and the mentioned person. Both are a direct
   import (no graph-owned HTTP endpoint yet, same trade-off as 강민구's `graph_sync.py`) —
-  `ConversationService.save` should call both, best-effort (catch and log), after it commits.
+  `ConversationService.save` should call both, best-effort (catch and log), after it commits,
+  **only on the branch that creates a new Conversation row**. `save` upserts on
+  `(person_id, transcript_hash)`, so calling these on a re-summarize (row overwrite) would
+  double-count the same conversation into `weight`/`conversation_count` and re-strengthen
+  `mentioned_people` edges that were already synced.
 - Navigation: Bottom sheet "Profile" → pushes to PersonDetailScreen (강민구's screen)
 - → 강민구: PersonDetailScreen needs the same "소개 요청" action as GraphScreen's 1st-degree
   bottom sheet (see `ui-spec.md` §5 and `api-spec.md` "Introduction Requests"). The
@@ -80,8 +84,10 @@
 - → 강민구: Calls `POST /api/v1/contacts/{id}/conversations` when saving a summary
 - → 김민경: `ConversationService.save` should call `features/graph/conversation_sync.py`'s
   `bump_conversation_weight` and `sync_mentioned_people` after committing (best-effort —
-  catch and log, don't fail the save). See 김민경's touchpoints above for the exact
-  signatures; not wired up yet.
+  catch and log, don't fail the save), **only when `save` creates a new Conversation row**,
+  not when it overwrites an existing one on re-summarize (same `person_id` +
+  `transcript_hash`) — otherwise the same conversation gets double-counted. See 김민경's
+  touchpoints above for the exact signatures; not wired up yet.
 - Navigation: Entered from the FAB on PersonDetailScreen (강민구's screen), pops back on completion
 
 **Privacy rule**: Raw audio must never be persisted. Delete immediately after processing.
