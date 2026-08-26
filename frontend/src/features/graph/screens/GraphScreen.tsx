@@ -1,3 +1,5 @@
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, LayoutChangeEvent, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -31,7 +33,16 @@ const EMPTY_GRAPH: GraphData = {
   stats: { degree1Count: 0, degree2Count: 0 },
 };
 
+// Kept local (rather than imported from navigation/RootNavigator) so this
+// screen doesn't couple to the exact GraphStack setup — same pattern
+// PersonDetailScreen itself uses for its own route params.
+type GraphStackParamList = {
+  GraphHome: undefined;
+  PersonDetail: { personId: number };
+};
+
 export default function GraphScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<GraphStackParamList>>();
   const [graphData, setGraphData] = useState<GraphData>(EMPTY_GRAPH);
   const [loadState, setLoadState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
@@ -130,12 +141,9 @@ export default function GraphScreen() {
       .slice(0, 2);
   }, [graphData]);
 
-  const handleViewProfile = (_person: GraphNode) => {
-    // Person Detail lives on the Home tab's stack; GraphScreen isn't
-    // nested in a stack yet (see CLAUDE.md's 2+-approval note on
-    // frontend/src/navigation/), so real navigation is wired once that
-    // shared change lands. For now, just dismiss the sheet.
+  const handleViewProfile = (person: GraphNode) => {
     setSelectedPerson(null);
+    navigation.navigate('PersonDetail', { personId: person.id });
   };
 
   const handleViewMutual = (_person: GraphNode) => {
