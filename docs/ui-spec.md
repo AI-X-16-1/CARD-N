@@ -126,6 +126,7 @@ Refer to `design-tokens.md` for color, typography, and spacing values.
 
 ### Header
 - "관계도" (Relationship Graph) + "1촌 {n}명 · 2촌 {n}명" ({n} 1st-degree · {n} 2nd-degree connections)
+- Bell icon, top-right, with a badge showing the count of incoming introduction requests (`GET /graph/introduction-requests`). Hidden when the count is 0.
 
 ### Search & Filter
 - Search input ("이름, 회사, 태그로 검색" — Search by name, company, or tag)
@@ -139,6 +140,9 @@ Refer to `design-tokens.md` for color, typography, and spacing values.
   - 3s pulsing halo animation
   - Name label above, initials inside
 - 2nd-degree: smaller nodes (10px radius), connected to their 1st-degree parent
+  - **Privacy**: a 2nd-degree node only renders once that person has an *approved* introduction
+    request through the connecting 1st-degree contact (see "Introduction Requests" below). Contacts
+    without approval are not drawn at all — not grayed out, not counted in the header's 2촌 {n}.
 - Edge: width = 0.6 + (conversation count × 0.35), cyan 35%
 
 ### Default Bottom Overlay
@@ -147,10 +151,26 @@ Refer to `design-tokens.md` for color, typography, and spacing values.
 
 ### Tap Node → Bottom Sheet
 - Surface-2, radius 18px (top), drag handle
-- Avatar (rounded square) + name + company·role + "1촌" (1st-degree) badge
+- Avatar (rounded square) + name + company·role + "1촌"/"2촌" badge
 - 3 stat tiles: Conversations {n} / Mutual connections {n} / Last conversation {ago} (yellow)
 - "최근 대화 요약" (Recent conversation summary) card (latest timeline entry)
-- Buttons: "프로필" (Profile) (→ Person Detail) + "공통 인맥 보기" (View mutual connections) (Primary)
+- Buttons (1촌 sheet): "프로필" (Profile) (→ Person Detail) + "공통 인맥 보기" (View mutual connections) (Primary)
+- 1촌 sheet also shows a "내 프로필 소개 요청" (Request that this contact introduce me) row below the
+  buttons:
+  - Default state: text button, "이 사람의 인맥에게 내 프로필 소개 요청" → calls
+    `POST /graph/{person_id}/introduction-requests`
+  - `pending`: disabled, "소개 요청 보냄 · 승인 대기중"
+  - `approved`: disabled, checkmark + "소개 승인됨 · 2촌에게 노출 중"
+  - `declined`: text button re-enabled, "다시 요청하기"
+
+### Introduction Requests Sheet (bell icon → sheet)
+- Surface-2 sheet, title "소개 요청" ("Introduction requests")
+- List of incoming requests: avatar, name, company·role, "{ago} 요청" ({ago} ago)
+- Each row has "승인" (Approve, Primary) / "거절" (Decline, Surface-1) buttons →
+  `POST /graph/introduction-requests/{person_id}/approve` / `.../decline`
+- Approving immediately makes that person visible as a 2nd-degree node to the requester (not to me —
+  I already know them as a 1st-degree contact); the sheet updates the row to a dismissible "승인됨" state
+- Empty state: "받은 소개 요청이 없어요" (No introduction requests)
 
 ---
 
@@ -180,6 +200,15 @@ Refer to `design-tokens.md` for color, typography, and spacing values.
 - Tap → dim overlay + action sheet (Surface-3):
   - "🎙 지금 녹음하기 — 대화를 실시간으로 녹음하고 요약" (🎙 Record now — record the conversation live and summarize it)
   - "📁 녹음 파일 업로드 — 기존 녹음 파일을 올려 요약 생성" (📁 Upload recording file — upload an existing recording to generate a summary)
+
+### Introduction Request (cross-team: 그래프 기능과 연동)
+PersonDetailScreen needs the same "소개 요청" action GraphScreen's 1st-degree bottom sheet has
+(see §4's "Tap Node → Bottom Sheet" and `api-spec.md`'s "Introduction Requests"), so it's reachable
+whether the person arrived here from the graph or from the contact list. Same 4 states as the graph
+sheet's row: default ("이 사람의 인맥에게 내 프로필 소개 요청") / `pending` (disabled, "소개 요청 보냄 · 승인
+대기중") / `approved` (disabled, "소개 승인됨 · 2촌에게 노출 중") / `declined` (re-enabled, "다시 요청하기").
+Calls the same `POST /graph/{person_id}/introduction-requests` — no new API needed, this is a
+`features/contacts/` UI addition only.
 
 ---
 

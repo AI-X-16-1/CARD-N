@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.features.contacts.router import router as contacts_router
 from app.features.conversation.router import router as conversation_router
@@ -17,6 +18,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="CARD:N API", version="0.1.0", lifespan=lifespan)
+
+# Local dev only (no deployment, per CLAUDE.md) — needed for the Expo web preview
+# (react-native-web) to call this API from the browser without hitting CORS.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(scan_router, prefix="/api/v1/scan", tags=["scan"])
 app.include_router(contacts_router, prefix="/api/v1/contacts", tags=["contacts"])

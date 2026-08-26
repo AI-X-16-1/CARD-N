@@ -150,6 +150,12 @@ Response 201:
 | `GET` | `/graph/{person_id}/connections` | Connections for a specific person |
 | `GET` | `/graph/{person_id}/mutual` | Retrieve mutual connections |
 | `GET` | `/graph/stats` | Relationship graph statistics (1st-degree/2nd-degree counts, etc.) |
+| `POST` | `/graph/{person_id}/introduction-requests` | Request a 1st-degree contact's permission to be shown as a 2nd-degree connection to their network |
+| `GET` | `/graph/introduction-requests` | List incoming introduction requests awaiting my approval |
+| `POST` | `/graph/introduction-requests/{person_id}/approve` | Approve an incoming introduction request |
+| `POST` | `/graph/introduction-requests/{person_id}/decline` | Decline an incoming introduction request |
+
+**Privacy rule**: a 2nd-degree person is, by definition, someone I have never met — I only know them through a 1st-degree contact. Their name/company/job_class must never be exposed to me without their own consent. `GET /graph` therefore only returns a candidate as a 2nd-degree node if they have an **approved** introduction request through the connecting 1st-degree contact (see "Introduction Requests" below). Until approved, that person is invisible to me — not shown with a placeholder, not counted in `stats.degree_2_count`.
 
 ### GET /graph
 
@@ -175,7 +181,8 @@ Response 200:
       "company": "Kakao",
       "degree": 1,
       "conversation_count": 3,
-      "last_conversation": "2024-03-15T14:00:00Z"
+      "last_conversation": "2024-03-15T14:00:00Z",
+      "introduction_request_status": null
     }
   ],
   "edges": [
@@ -193,6 +200,10 @@ Response 200:
 }
 ```
 
+`introduction_request_status` on a degree-1 node is *my own* outgoing request status toward that
+contact (`null` | `"pending"` | `"approved"` | `"declined"`) — see "Introduction Requests" below.
+Always `null` for degree-2 nodes.
+
 ### GET /graph/{person_id}/mutual
 
 ```
@@ -209,6 +220,94 @@ Response 200:
   ]
 }
 ```
+
+### Introduction Requests
+
+Lets a person opt in to being surfaced as a 2nd-degree connection through a specific 1st-degree
+contact, instead of every 1st-degree contact's network being exposed by default. Two people must
+consent for a 2nd-degree edge to appear in `GET /graph`:
+
+- **Me** (the person who wants wider visibility, e.g. sales/BD roles) sends the request.
+- **The 1st-degree contact** who would be doing the introducing must approve it before their own
+  1st-degree network can see me.
+
+Requires an existing `MET_AT` connection between the two people (you can only ask a contact you
+already know to introduce you — not a stranger).
+
+#### POST /graph/{person_id}/introduction-requests
+
+```
+Path params:
+  - person_id: the 1st-degree contact I'm asking to introduce me
+
+Response 201:
+{
+  "person_id": 3,
+  "status": "pending",
+  "requested_at": "2024-03-20T10:00:00Z"
+}
+
+Errors:
+  409 ALREADY_REQUESTED   - a pending or already-approved request exists for this person
+  404 NOT_FIRST_DEGREE    - person_id is not one of my 1st-degree contacts
+```
+
+#### GET /graph/introduction-requests
+
+Incoming requests from people who want *me* to introduce them to my own 1st-degree network.
+
+```
+Response 200:
+{
+  "requests": [
+    {
+      "person_id": 7,
+      "name": "Hong Gil-dong",
+      "company": "Kakao",
+      "job_class": "sales",
+      "requested_at": "2024-03-20T10:00:00Z"
+    }
+  ]
+}
+```
+
+#### POST /graph/introduction-requests/{person_id}/approve
+
+```
+Response 200:
+{
+  "person_id": 7,
+  "status": "approved",
+  "responded_at": "2024-03-21T09:00:00Z"
+}
+```
+
+#### POST /graph/introduction-requests/{person_id}/decline
+
+```
+Response 200:
+{
+  "person_id": 7,
+  "status": "declined",
+  "responded_at": "2024-03-21T09:00:00Z"
+}
+```
+
+**Neo4j model**: a new `INTRO_CONSENT` relationship, separate from `MET_AT` so approval state never
+touches conversation-count bookkeeping.
+
+```cypher
+(:Person)-[:INTRO_CONSENT {status: "pending" | "approved" | "declined", requested_at, responded_at}]->(:Person)
+```
+
+`(A)-[:INTRO_CONSENT]->(B)` reads as "A asked B to introduce A to B's network." `GET /graph`'s
+2nd-degree query only follows edges where `status = "approved"`.
+
+**Note on auth**: these endpoints resolve "me" the same way `GET /graph` currently does (MVP's
+hardcoded single-user id, see `backend/app/features/graph/queries.py`). The `approve`/`decline`
+endpoints assume the caller is authenticated as the target 1st-degree contact — this becomes
+meaningful once real per-user auth lands; until then, treat this as the documented contract to
+implement against, not something end-to-end testable with two live accounts in the local MVP.
 
 ---
 

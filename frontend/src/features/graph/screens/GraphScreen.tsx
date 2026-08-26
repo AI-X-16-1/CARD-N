@@ -1,28 +1,102 @@
-import { useMemo, useState } from 'react';
-import { LayoutChangeEvent, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, LayoutChangeEvent, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, typography } from '@/shared/theme';
 
+import {
+  approveIntroductionRequest,
+  declineIntroductionRequest,
+  fetchGraph,
+  fetchIncomingIntroductionRequests,
+  fetchMutualConnectionCount,
+  requestIntroduction,
+} from '../api/graphApi';
 import { GraphCanvas } from '../components/GraphCanvas';
+import { IntroductionBell } from '../components/IntroductionBell';
+import { IntroductionRequestsSheet } from '../components/IntroductionRequestsSheet';
 import { PersonBottomSheet } from '../components/PersonBottomSheet';
 import { SearchFilterBar } from '../components/SearchFilterBar';
-import { mockGraphData } from '../data/mockGraph';
-import type { GraphNode, JobClass, JobFilter } from '../types';
+import type {
+  GraphData,
+  GraphNode,
+  IncomingIntroductionRequest,
+  JobClass,
+  JobFilter,
+} from '../types';
+
+const EMPTY_GRAPH: GraphData = { nodes: [], edges: [], stats: { degree1Count: 0 } };
 
 export default function GraphScreen() {
+  const [graphData, setGraphData] = useState<GraphData>(EMPTY_GRAPH);
+  const [loadState, setLoadState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [query, setQuery] = useState('');
   const [selectedJob, setSelectedJob] = useState<JobFilter>('all');
   const [selectedPerson, setSelectedPerson] = useState<GraphNode | null>(null);
+  const [incomingRequests, setIncomingRequests] = useState<IncomingIntroductionRequest[]>([]);
+  const [isRequestsSheetOpen, setIsRequestsSheetOpen] = useState(false);
+  const [mutualCounts, setMutualCounts] = useState<Record<number, number>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setLoadState('loading');
+    fetchGraph()
+      .then((data) => {
+        if (cancelled) return;
+        setGraphData(data);
+        setLoadState('ready');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLoadState('error');
+      });
+
+    fetchIncomingIntroductionRequests()
+      .then((requests) => {
+        if (!cancelled) setIncomingRequests(requests);
+      })
+      .catch(() => {
+        // Non-critical — the bell just stays hidden if this fails.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedPerson || selectedPerson.type !== 'person') return;
+    if (mutualCounts[selectedPerson.id] !== undefined) return;
+
+    let cancelled = false;
+    fetchMutualConnectionCount(selectedPerson.id)
+      .then((count) => {
+        if (!cancelled) setMutualCounts((current) => ({ ...current, [selectedPerson.id]: count }));
+      })
+      .catch(() => {
+        // Leave it unset — the stat tile just falls back to 0.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPerson, mutualCounts]);
+
+  const displayedPerson = useMemo(() => {
+    if (!selectedPerson) return null;
+    const mutualCount = mutualCounts[selectedPerson.id];
+    return mutualCount === undefined ? selectedPerson : { ...selectedPerson, mutualCount };
+  }, [selectedPerson, mutualCounts]);
 
   const availableJobs = useMemo(() => {
     const jobs = new Set<JobClass>();
-    mockGraphData.nodes.forEach((node) => {
+    graphData.nodes.forEach((node) => {
       if (node.jobClass) jobs.add(node.jobClass);
     });
     return [...jobs].sort();
-  }, []);
+  }, [graphData]);
 
   const filteredData = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -35,22 +109,22 @@ export default function GraphScreen() {
       return haystack.includes(normalizedQuery);
     };
 
-    const nodes = mockGraphData.nodes.filter(matches);
+    const nodes = graphData.nodes.filter(matches);
     const visibleIds = new Set(nodes.map((node) => node.id));
-    const edges = mockGraphData.edges.filter(
+    const edges = graphData.edges.filter(
       (edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target)
     );
 
-    return { nodes, edges, stats: mockGraphData.stats };
-  }, [query, selectedJob]);
+    return { nodes, edges, stats: graphData.stats };
+  }, [graphData, query, selectedJob]);
 
   const closestConnections = useMemo(() => {
-    return mockGraphData.nodes
+    return graphData.nodes
       .filter((node) => node.type === 'person')
       .slice()
       .sort((a, b) => (b.conversationCount ?? 0) - (a.conversationCount ?? 0))
       .slice(0, 2);
-  }, []);
+  }, [graphData]);
 
   const handleViewProfile = (_person: GraphNode) => {
     // Person Detail lives on the Home tab's stack; GraphScreen isn't
@@ -69,11 +143,66 @@ export default function GraphScreen() {
     setCanvasSize({ width, height });
   };
 
+  const applyIntroductionStatus = (
+    personId: number,
+    status: GraphNode['introductionRequestStatus']
+  ) => {
+    setGraphData((current) => ({
+      ...current,
+      nodes: current.nodes.map((node) =>
+        node.id === personId ? { ...node, introductionRequestStatus: status } : node
+      ),
+    }));
+    setSelectedPerson((current) =>
+      current && current.id === personId
+        ? { ...current, introductionRequestStatus: status }
+        : current
+    );
+  };
+
+  const handleRequestIntroduction = (person: GraphNode) => {
+    requestIntroduction(person.id)
+      .then((status) => applyIntroductionStatus(person.id, status))
+      .catch(() => {
+        // Leave the button as-is — the person can just tap it again.
+      });
+  };
+
+  const handleApproveRequest = (personId: number) => {
+    approveIntroductionRequest(personId)
+      .then(() => {
+        setIncomingRequests((current) =>
+          current.filter((request) => request.personId !== personId)
+        );
+      })
+      .catch(() => {
+        // Leave it in the list — the person can just tap approve again.
+      });
+  };
+
+  const handleDeclineRequest = (personId: number) => {
+    declineIntroductionRequest(personId)
+      .then(() => {
+        setIncomingRequests((current) =>
+          current.filter((request) => request.personId !== personId)
+        );
+      })
+      .catch(() => {
+        // Leave it in the list — the person can just tap decline again.
+      });
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>관계도</Text>
-        <Text style={styles.subtitle}>1촌 {mockGraphData.stats.degree1Count}명</Text>
+        <View style={styles.headerText}>
+          <Text style={styles.title}>관계도</Text>
+          <Text style={styles.subtitle}>1촌 {graphData.stats.degree1Count}명</Text>
+        </View>
+        <IntroductionBell
+          count={incomingRequests.length}
+          onPress={() => setIsRequestsSheetOpen(true)}
+        />
       </View>
 
       <View style={styles.searchFilterWrap}>
@@ -87,7 +216,17 @@ export default function GraphScreen() {
       </View>
 
       <View style={styles.canvasWrap} onLayout={handleCanvasLayout}>
-        {canvasSize.width > 0 && (
+        {loadState === 'loading' && (
+          <View style={styles.centerState}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        )}
+        {loadState === 'error' && (
+          <View style={styles.centerState}>
+            <Text style={styles.centerStateText}>관계도를 불러오지 못했어요</Text>
+          </View>
+        )}
+        {loadState === 'ready' && canvasSize.width > 0 && (
           <GraphCanvas
             data={filteredData}
             width={canvasSize.width}
@@ -98,28 +237,39 @@ export default function GraphScreen() {
         )}
       </View>
 
-      <View style={styles.closestOverlay}>
-        <View style={styles.closestHeaderRow}>
-          <Text style={styles.closestTitle}>가장 가까운 사람</Text>
-          <Text style={styles.closestViewAll}>전체 보기</Text>
+      {loadState === 'ready' && closestConnections.length > 0 && (
+        <View style={styles.closestOverlay}>
+          <View style={styles.closestHeaderRow}>
+            <Text style={styles.closestTitle}>가장 가까운 사람</Text>
+            <Text style={styles.closestViewAll}>전체 보기</Text>
+          </View>
+          <View style={styles.closestCards}>
+            {closestConnections.map((person) => (
+              <View key={person.id} style={styles.closestCard}>
+                <Text style={styles.closestName}>{person.name}</Text>
+                <Text style={styles.closestMeta}>
+                  대화 {person.conversationCount ?? 0}회 · {person.lastConversationLabel}
+                </Text>
+              </View>
+            ))}
+          </View>
         </View>
-        <View style={styles.closestCards}>
-          {closestConnections.map((person) => (
-            <View key={person.id} style={styles.closestCard}>
-              <Text style={styles.closestName}>{person.name}</Text>
-              <Text style={styles.closestMeta}>
-                대화 {person.conversationCount ?? 0}회 · {person.lastConversationLabel}
-              </Text>
-            </View>
-          ))}
-        </View>
-      </View>
+      )}
 
       <PersonBottomSheet
-        person={selectedPerson}
+        person={displayedPerson}
         onClose={() => setSelectedPerson(null)}
         onViewProfile={handleViewProfile}
         onViewMutual={handleViewMutual}
+        onRequestIntroduction={handleRequestIntroduction}
+      />
+
+      <IntroductionRequestsSheet
+        visible={isRequestsSheetOpen}
+        requests={incomingRequests}
+        onClose={() => setIsRequestsSheetOpen(false)}
+        onApprove={handleApproveRequest}
+        onDecline={handleDeclineRequest}
       />
     </SafeAreaView>
   );
@@ -131,8 +281,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.canvas,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: 12,
+  },
+  headerText: {
     gap: 4,
   },
   title: {
@@ -150,6 +305,15 @@ const styles = StyleSheet.create({
   },
   canvasWrap: {
     flex: 1,
+  },
+  centerState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  centerStateText: {
+    color: colors.textTertiary,
+    fontSize: typography.body.fontSize,
   },
   closestOverlay: {
     marginHorizontal: 20,
