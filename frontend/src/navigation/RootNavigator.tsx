@@ -31,11 +31,16 @@ export type ScanStackParamList = {
   ScanCamera: undefined;
 };
 
+export type GraphStackParamList = {
+  GraphHome: undefined;
+  PersonDetail: { personId: number };
+};
+
 export type TabParamList = {
   홈: NavigatorScreenParams<HomeStackParamList>;
   목록: undefined;
   스캔: undefined;
-  관계도: undefined;
+  관계도: NavigatorScreenParams<GraphStackParamList>;
   게임: NavigatorScreenParams<GameStackParamList>;
 };
 
@@ -47,6 +52,7 @@ export type RootStackParamList = {
 const HomeStack = createNativeStackNavigator<HomeStackParamList>();
 const GameStack = createNativeStackNavigator<GameStackParamList>();
 const ScanStack = createNativeStackNavigator<ScanStackParamList>();
+const GraphStack = createNativeStackNavigator<GraphStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 
@@ -78,6 +84,15 @@ function ScanStackNavigator() {
     <ScanStack.Navigator screenOptions={{ headerShown: false }}>
       <ScanStack.Screen name="ScanCamera" component={ScanCameraScreen} />
     </ScanStack.Navigator>
+  );
+}
+
+function GraphStackNavigator() {
+  return (
+    <GraphStack.Navigator screenOptions={{ headerShown: false }}>
+      <GraphStack.Screen name="GraphHome" component={GraphScreen} />
+      <GraphStack.Screen name="PersonDetail" component={PersonDetailScreen} />
+    </GraphStack.Navigator>
   );
 }
 
@@ -118,7 +133,7 @@ function TabNavigator() {
           },
         })}
       />
-      <Tab.Screen name="관계도" component={GraphScreen} />
+      <Tab.Screen name="관계도" component={GraphStackNavigator} />
       <Tab.Screen
         name="게임"
         component={GameStackNavigator}

@@ -77,7 +77,10 @@ export async function fetchGraph(): Promise<GraphData> {
       target: edge.target,
       weight: edge.weight,
     })),
-    stats: { degree1Count: data.stats.degree_1_count },
+    stats: {
+      degree1Count: data.stats.degree_1_count,
+      degree2Count: data.stats.degree_2_count,
+    },
   };
 }
 
