@@ -200,6 +200,14 @@ Refer to `design-tokens.md` for color, typography, and spacing values.
 - Tap → dim overlay + action sheet (Surface-3):
   - "🎙 지금 녹음하기 — 대화를 실시간으로 녹음하고 요약" (🎙 Record now — record the conversation live and summarize it)
   - "📁 녹음 파일 업로드 — 기존 녹음 파일을 올려 요약 생성" (📁 Upload recording file — upload an existing recording to generate a summary)
+  - "📼 기존 통화 녹음에서 요약 만들기 — 휴대폰에 저장된 통화 녹음을 찾아 요약 생성" (📼 Create a summary from an existing
+    call recording — find a call recording already saved on the phone and generate a summary). Opens an inline panel
+    (`features/contacts/components/CallRecordingFinder.tsx`) that matches the contact's phone number against the
+    device's call-recording folder (Android/Samsung One UI only), then runs the found file through the conversation
+    feature's transcribe → summarize → save pipeline (`api-spec.md`'s Conversation section) — the raw recording is
+    never played back in-app or persisted, only the generated summary is. Each summary generation is gated behind an
+    explicit "did you tell the other party?" confirmation, mirroring the recording-consent notice this section
+    already requires for the live-recording flow.
 
 ### Introduction Request (cross-team: 그래프 기능과 연동)
 PersonDetailScreen needs the same "소개 요청" action GraphScreen's 1st-degree bottom sheet has
