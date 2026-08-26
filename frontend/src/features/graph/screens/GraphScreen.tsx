@@ -4,11 +4,25 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, typography } from '@/shared/theme';
 
-import { fetchGraph } from '../api/graphApi';
+import {
+  approveIntroductionRequest,
+  declineIntroductionRequest,
+  fetchGraph,
+  fetchIncomingIntroductionRequests,
+  requestIntroduction,
+} from '../api/graphApi';
 import { GraphCanvas } from '../components/GraphCanvas';
+import { IntroductionBell } from '../components/IntroductionBell';
+import { IntroductionRequestsSheet } from '../components/IntroductionRequestsSheet';
 import { PersonBottomSheet } from '../components/PersonBottomSheet';
 import { SearchFilterBar } from '../components/SearchFilterBar';
-import type { GraphData, GraphNode, JobClass, JobFilter } from '../types';
+import type {
+  GraphData,
+  GraphNode,
+  IncomingIntroductionRequest,
+  JobClass,
+  JobFilter,
+} from '../types';
 
 const EMPTY_GRAPH: GraphData = { nodes: [], edges: [], stats: { degree1Count: 0 } };
 
@@ -19,6 +33,8 @@ export default function GraphScreen() {
   const [query, setQuery] = useState('');
   const [selectedJob, setSelectedJob] = useState<JobFilter>('all');
   const [selectedPerson, setSelectedPerson] = useState<GraphNode | null>(null);
+  const [incomingRequests, setIncomingRequests] = useState<IncomingIntroductionRequest[]>([]);
+  const [isRequestsSheetOpen, setIsRequestsSheetOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,6 +49,14 @@ export default function GraphScreen() {
       .catch(() => {
         if (cancelled) return;
         setLoadState('error');
+      });
+
+    fetchIncomingIntroductionRequests()
+      .then((requests) => {
+        if (!cancelled) setIncomingRequests(requests);
+      })
+      .catch(() => {
+        // Non-critical — the bell just stays hidden if this fails.
       });
 
     return () => {
@@ -93,11 +117,66 @@ export default function GraphScreen() {
     setCanvasSize({ width, height });
   };
 
+  const applyIntroductionStatus = (
+    personId: number,
+    status: GraphNode['introductionRequestStatus']
+  ) => {
+    setGraphData((current) => ({
+      ...current,
+      nodes: current.nodes.map((node) =>
+        node.id === personId ? { ...node, introductionRequestStatus: status } : node
+      ),
+    }));
+    setSelectedPerson((current) =>
+      current && current.id === personId
+        ? { ...current, introductionRequestStatus: status }
+        : current
+    );
+  };
+
+  const handleRequestIntroduction = (person: GraphNode) => {
+    requestIntroduction(person.id)
+      .then((status) => applyIntroductionStatus(person.id, status))
+      .catch(() => {
+        // Leave the button as-is — the person can just tap it again.
+      });
+  };
+
+  const handleApproveRequest = (personId: number) => {
+    approveIntroductionRequest(personId)
+      .then(() => {
+        setIncomingRequests((current) =>
+          current.filter((request) => request.personId !== personId)
+        );
+      })
+      .catch(() => {
+        // Leave it in the list — the person can just tap approve again.
+      });
+  };
+
+  const handleDeclineRequest = (personId: number) => {
+    declineIntroductionRequest(personId)
+      .then(() => {
+        setIncomingRequests((current) =>
+          current.filter((request) => request.personId !== personId)
+        );
+      })
+      .catch(() => {
+        // Leave it in the list — the person can just tap decline again.
+      });
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>관계도</Text>
-        <Text style={styles.subtitle}>1촌 {graphData.stats.degree1Count}명</Text>
+        <View style={styles.headerText}>
+          <Text style={styles.title}>관계도</Text>
+          <Text style={styles.subtitle}>1촌 {graphData.stats.degree1Count}명</Text>
+        </View>
+        <IntroductionBell
+          count={incomingRequests.length}
+          onPress={() => setIsRequestsSheetOpen(true)}
+        />
       </View>
 
       <View style={styles.searchFilterWrap}>
@@ -156,6 +235,15 @@ export default function GraphScreen() {
         onClose={() => setSelectedPerson(null)}
         onViewProfile={handleViewProfile}
         onViewMutual={handleViewMutual}
+        onRequestIntroduction={handleRequestIntroduction}
+      />
+
+      <IntroductionRequestsSheet
+        visible={isRequestsSheetOpen}
+        requests={incomingRequests}
+        onClose={() => setIsRequestsSheetOpen(false)}
+        onApprove={handleApproveRequest}
+        onDecline={handleDeclineRequest}
       />
     </SafeAreaView>
   );
@@ -167,8 +255,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.canvas,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: 12,
+  },
+  headerText: {
     gap: 4,
   },
   title: {

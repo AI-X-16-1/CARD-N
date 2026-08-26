@@ -1,6 +1,12 @@
 import axios from 'axios';
 
-import type { GraphData, GraphNode, JobClass } from '../types';
+import type {
+  GraphData,
+  GraphNode,
+  IncomingIntroductionRequest,
+  IntroductionRequestStatus,
+  JobClass,
+} from '../types';
 
 // Android emulator can't reach the host machine via localhost — point
 // EXPO_PUBLIC_API_BASE_URL at http://10.0.2.2:8000/api/v1 when running there.
@@ -17,6 +23,7 @@ type GraphNodeApiResponse = {
   degree: number | null;
   conversation_count: number | null;
   last_conversation: string | null;
+  introduction_request_status: IntroductionRequestStatus | null;
 };
 
 type GraphEdgeApiResponse = {
@@ -50,8 +57,10 @@ function toGraphNode(node: GraphNodeApiResponse): GraphNode {
     name: node.name,
     jobClass: node.job_class,
     company: node.company ?? undefined,
+    degree: node.degree ?? undefined,
     conversationCount: node.conversation_count ?? undefined,
     lastConversationLabel: formatRelativeKorean(node.last_conversation),
+    introductionRequestStatus: node.introduction_request_status ?? undefined,
   };
 }
 
@@ -70,4 +79,55 @@ export async function fetchGraph(): Promise<GraphData> {
     })),
     stats: { degree1Count: data.stats.degree_1_count },
   };
+}
+
+type IntroductionRequestApiResponse = {
+  person_id: number;
+  status: IntroductionRequestStatus;
+  requested_at: string | null;
+  responded_at: string | null;
+};
+
+type IncomingIntroductionRequestApiResponse = {
+  person_id: number;
+  name: string;
+  job_class: JobClass | null;
+  company: string | null;
+  requested_at: string;
+};
+
+function toIncomingRequest(
+  request: IncomingIntroductionRequestApiResponse
+): IncomingIntroductionRequest {
+  return {
+    personId: request.person_id,
+    name: request.name,
+    jobClass: request.job_class,
+    company: request.company ?? undefined,
+    requestedAt: request.requested_at,
+  };
+}
+
+/** Asks a 1st-degree contact to introduce me to their own network. */
+export async function requestIntroduction(personId: number): Promise<IntroductionRequestStatus> {
+  const { data } = await client.post<IntroductionRequestApiResponse>(
+    `/${personId}/introduction-requests`
+  );
+  return data.status;
+}
+
+/** Incoming requests from people who want me to introduce them to my network. */
+export async function fetchIncomingIntroductionRequests(): Promise<IncomingIntroductionRequest[]> {
+  const { data } = await client.get<{ requests: IncomingIntroductionRequestApiResponse[] }>(
+    '/introduction-requests'
+  );
+  return data.requests.map(toIncomingRequest);
+}
+
+export async function approveIntroductionRequest(personId: number): Promise<void> {
+  await client.post(`/introduction-requests/${personId}/approve`);
+}
+
+export async function declineIntroductionRequest(personId: number): Promise<void> {
+  await client.post(`/introduction-requests/${personId}/decline`);
 }

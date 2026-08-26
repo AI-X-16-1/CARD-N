@@ -15,6 +15,9 @@ class GraphNodeResponse(BaseModel):
     degree: int | None = None
     conversation_count: int | None = None
     last_conversation: datetime | None = None
+    # My outgoing introduction-request status toward this 1st-degree contact (None = never asked).
+    # Only meaningful for degree == 1 — see docs/api-spec.md "Introduction Requests".
+    introduction_request_status: Literal["pending", "approved", "declined"] | None = None
 
 
 class GraphEdgeResponse(BaseModel):
