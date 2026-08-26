@@ -88,22 +88,21 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
           <Text style={styles.contactLineMuted}>아직 생성된 배틀 카드가 없어요</Text>
         </View>
 
-        <View style={styles.card}>
-          <Pressable
-            style={styles.callRecordingHeader}
-            onPress={() => setCallRecordingFinderOpen((open) => !open)}
-          >
-            <Text style={styles.sectionLabel}>📼 휴대폰에서 통화 녹음 찾기</Text>
-            <Text style={styles.closeInlinePanel}>{callRecordingFinderOpen ? '닫기' : '열기'}</Text>
-          </Pressable>
-          {callRecordingFinderOpen ? (
+        {callRecordingFinderOpen ? (
+          <View style={styles.card}>
+            <View style={styles.callRecordingHeader}>
+              <Text style={styles.sectionLabel}>📼 휴대폰에서 통화 녹음 찾기</Text>
+              <Pressable onPress={() => setCallRecordingFinderOpen(false)} hitSlop={8}>
+                <Text style={styles.closeInlinePanel}>닫기</Text>
+              </Pressable>
+            </View>
             <CallRecordingFinder
               personId={person.id}
               phone={person.phone}
               onSummarySaved={() => setTimelineRefreshKey((k) => k + 1)}
             />
-          ) : null}
-        </View>
+          </View>
+        ) : null}
 
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>대화 기록</Text>
@@ -112,28 +111,52 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
       </ScrollView>
 
       <Pressable style={styles.fab} onPress={() => setActionSheetOpen(true)}>
-        <Text style={styles.fabIcon}>+</Text>
+        <Text style={styles.fabIcon}>🎙</Text>
       </Pressable>
 
       <Modal visible={actionSheetOpen} transparent animationType="fade">
         <Pressable style={styles.backdrop} onPress={() => setActionSheetOpen(false)}>
           <View style={styles.actionSheet}>
-            <Pressable
-              style={styles.actionItem}
-              onPress={() => {
-                setActionSheetOpen(false);
-                // ConversationRecordScreen offers both live recording and file upload
-                // (AudioPickerCard) — mode: 'record' just picks which one it leads with.
-                // Only registered stack routes (e.g. the Home tab) can push
-                // ConversationRecord today; inline (list) mode has no route for it yet.
-                if (!onBack) {
-                  navigation.navigate('ConversationRecord', { personId: person.id, mode: 'record' });
-                }
-              }}
-            >
-              <Text style={styles.actionText}>🎙 녹음</Text>
-              <Text style={styles.actionSubtext}>대화를 녹음하거나 녹음 파일을 올려 요약 생성</Text>
-            </Pressable>
+            <View style={styles.actionGrid}>
+              <Pressable
+                style={styles.actionTile}
+                onPress={() => {
+                  setActionSheetOpen(false);
+                  // Only registered stack routes (e.g. the Home tab) can push
+                  // ConversationRecord today; inline (list) mode has no route for it yet.
+                  if (!onBack) {
+                    navigation.navigate('ConversationRecord', { personId: person.id, mode: 'record' });
+                  }
+                }}
+              >
+                <Text style={styles.actionTileIcon}>🎙</Text>
+                <Text style={styles.actionTileLabel}>녹음</Text>
+              </Pressable>
+              <Pressable
+                style={styles.actionTile}
+                onPress={() => {
+                  setActionSheetOpen(false);
+                  setCallRecordingFinderOpen(true);
+                }}
+              >
+                <Text style={styles.actionTileIcon}>📼</Text>
+                <Text style={styles.actionTileLabel}>자동검색</Text>
+              </Pressable>
+              <Pressable
+                style={styles.actionTile}
+                onPress={() => {
+                  setActionSheetOpen(false);
+                  // mode: 'upload' makes ConversationRecordScreen lead with the file picker
+                  // instead of the record button (#24/#25).
+                  if (!onBack) {
+                    navigation.navigate('ConversationRecord', { personId: person.id, mode: 'upload' });
+                  }
+                }}
+              >
+                <Text style={styles.actionTileIcon}>📁</Text>
+                <Text style={styles.actionTileLabel}>파일 올리기</Text>
+              </Pressable>
+            </View>
           </View>
         </Pressable>
       </Modal>
@@ -237,10 +260,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   fabIcon: {
-    color: colors.textPrimary,
-    fontSize: 28,
-    fontWeight: '600',
-    marginTop: -2,
+    fontSize: 22,
   },
   backdrop: {
     flex: 1,
@@ -251,22 +271,28 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface3,
     borderTopLeftRadius: radius.bottomSheet,
     borderTopRightRadius: radius.bottomSheet,
-    padding: 12,
+    padding: 16,
     paddingBottom: 28,
-    gap: 4,
   },
-  actionItem: {
-    paddingVertical: 14,
-    paddingHorizontal: 12,
+  actionGrid: {
+    flexDirection: 'row',
+    gap: 10,
   },
-  actionText: {
-    fontSize: typography.body.fontSize,
+  actionTile: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 18,
+    backgroundColor: colors.surface2,
+    borderRadius: radius.card,
+  },
+  actionTileIcon: {
+    fontSize: 22,
+  },
+  actionTileLabel: {
+    fontSize: typography.meta.fontSize,
     fontWeight: '600',
     color: colors.textPrimary,
-  },
-  actionSubtext: {
-    fontSize: typography.meta.fontSize,
-    color: colors.textQuaternary,
-    marginTop: 2,
   },
 });
