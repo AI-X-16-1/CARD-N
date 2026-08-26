@@ -111,9 +111,6 @@ Response 200:
 | `GET` | `/contacts/{id}` | Retrieve contact details |
 | `PUT` | `/contacts/{id}` | Update a contact |
 | `DELETE` | `/contacts/{id}` | Delete a contact |
-| `GET` | `/contacts/{id}/conversations` | Retrieve conversation history |
-| `POST` | `/contacts/{id}/conversations` | Save conversation history |
-| `DELETE` | `/contacts/{id}/conversations/{conv_id}` | Delete conversation history |
 | `GET` | `/contacts/me` | Retrieve my business card |
 | `PUT` | `/contacts/me` | Update my business card |
 
@@ -146,38 +143,13 @@ Response 200:
 }
 ```
 
-### POST /contacts/{id}/conversations
+### Conversation history
 
-Saves a conversation summary to the contact's timeline.
+Moved to the Conversation section: `POST /conversations`, `GET /conversations?person_id=`,
+`DELETE /conversations/{conversation_id}`. Conversation records are owned by the
+conversation feature, whose router they live on.
 
-```
-Request:
-{
-  "one_liner": "Discussed Q4 marketing budget and influencer campaign direction",
-  "bullets": [
-    "Reviewing a 15% increase to the Q4 budget",
-    "Recruiting 3 influencers in progress",
-    "Confirmed November launch schedule"
-  ],
-  "todos": [
-    "Deliver proposal draft by Friday"
-  ],
-  "duration_seconds": 1800,
-  "recorded_at": "2024-03-15T14:00:00Z"
-}
-
-Response 201:
-{
-  "id": 15,
-  "person_id": 1,
-  "one_liner": "...",
-  "bullets": [...],
-  "todos": [...],
-  "duration_seconds": 1800,
-  "recorded_at": "...",
-  "created_at": "..."
-}
-```
+Saving a conversation updates this contact's `last_contact`.
 
 ---
 
@@ -354,38 +326,120 @@ implement against, not something end-to-end testable with two live accounts in t
 
 | Method | Path | Description |
 |--------|------|------|
-| `POST` | `/conversations/upload` | Upload recording file → STT + summary |
-| `POST` | `/conversations/summarize` | Direct text input → summary |
+| `POST` | `/conversations/transcribe` | Upload a recording → transcript (STT) |
+| `POST` | `/conversations/summarize` | Transcript → LLM summary |
+| `POST` | `/conversations` | Save a summary to a contact's timeline |
+| `GET` | `/conversations?person_id=` | Read a contact's conversation history |
+| `DELETE` | `/conversations/{conversation_id}` | Delete one saved conversation |
 
-### POST /conversations/upload
+STT and summarization are two calls rather than the single `/conversations/upload` this
+spec originally described. Splitting them lets the user fix a misheard word — a person's
+name especially — before it reaches the summarizer, which is the cheapest available way
+to improve summary quality. It also keeps a slow Whisper pass from being retried whenever
+only the LLM step failed.
 
-Receives an audio file, converts it via STT, then generates an LLM summary.
+### POST /conversations/transcribe
+
+Whisper runs server-side (`faster-whisper`), so the Android app and the web build share
+one code path.
 
 ```
 Request: multipart/form-data
-  - audio: File (WAV/M4A/OGG)
-  - person_id: int
+  - audio: File (m4a / mp3 / wav / webm / ogg / flac / mp4 / aac, max 100MB)
+  - language: string (default "ko"; "auto" to detect)
 
 Response 200:
 {
-  "transcript": "...",  // STT result (for client display only, not stored)
-  "summary": {
-    "one_liner": "Discussed Q4 marketing budget and influencer campaign direction",
-    "bullets": [
-      "Reviewing a 15% increase to the Q4 budget",
-      "Recruiting 3 influencers in progress",
-      "Confirmed November launch schedule"
-    ],
-    "todos": [
-      "Deliver proposal draft by Friday"
-    ],
-    "keywords": ["Q4 budget", "proposal request", "November launch", "influencer recruitment"]
-  },
-  "duration_seconds": 1800
+  "text": "안녕하세요. 지난번 컨퍼런스에서 뵀던 온보딩 개편 건 말인데요. ...",
+  "segments": [
+    { "start": 0.0, "end": 2.0, "text": "안녕하세요." },
+    { "start": 2.0, "end": 7.4, "text": "지난번 컨퍼런스에서 뵀던 온보딩 개편 건 말인데요." }
+  ],
+  "duration_seconds": 17.1,
+  "language": "ko",
+  "model": "small"
 }
 ```
 
-**Note**: Audio files are deleted immediately after processing. They are not persisted on the server.
+**Note**: the audio is written to a temp file, transcribed, and deleted in a `finally`
+block. It is never persisted, and neither is the transcript.
+
+### POST /conversations/summarize
+
+```
+Request:
+{
+  "transcript": "...",
+  "person_id": 1,          // optional
+  "duration_seconds": 372  // optional
+}
+
+Response 200:
+{
+  "model": "gemini-3.5-flash-lite",
+  "prompt_version": "v1",
+  "result": {
+    "one_line": "토스 김서연 디자이너와 온보딩 개편 초안 공유 및 일정 논의",
+    "key_points": ["토스 측에서 온보딩 개편 초안을 공유함", "..."],
+    "mentioned_people": [
+      { "name": "박준호", "relation": "개발 담당 연구원", "confidence": 0.95 }
+    ],
+    "keywords": ["온보딩", "피그마", "법무검토"]
+  },
+  "person": {
+    "id": 1, "name": "김서연", "company": "토스",
+    "title": "프로덕트 디자이너", "meet_count": 3
+  },
+  "history_used": 2
+}
+```
+
+The client sends `person_id` and nothing else about the contact. The server reads the
+name, company and the previous summaries out of its own tables and decides what goes
+into the prompt, so conversation history never travels through the client. `person` and
+`history_used` echo back what was actually used.
+
+`mentioned_people` are third parties named during the conversation — candidate edges for
+the relationship graph. `confidence` is the model's own estimate of whether it heard the
+name correctly; the UI flags anything under 0.7.
+
+The summary deliberately carries no to-do list and no "what to raise next time" hints.
+Both were dropped after review: on real recordings they were the parts most prone to
+being invented, and neither had a screen that acted on them.
+
+### POST /conversations
+
+```
+Request:
+{
+  "person_id": 1,
+  "transcript": "...",   // hashed only, never stored
+  "summary": { ...the `result` object above... },
+  "duration_seconds": 372,
+  "recorded_at": "2026-08-26T14:00:00"   // optional, defaults to now
+}
+
+Response 201:
+{
+  "id": 15,
+  "person_id": 1,
+  "one_liner": "토스 김서연 디자이너와 온보딩 개편 초안 공유 및 일정 논의",
+  "summary": { ... },
+  "duration_seconds": 372,
+  "recorded_at": "2026-08-26T14:00:00",
+  "created_at": "2026-08-26T14:06:11"
+}
+```
+
+`transcript` is only fingerprinted (SHA-256, first 32 hex chars) and then discarded.
+Saving the same recording twice updates the existing row instead of adding a second one,
+so pressing "요약하기" again cannot turn a 4th meeting into a 5th.
+
+Saving also sets the contact's `last_contact`.
+
+**Note**: this replaces the originally specced `/contacts/{id}/conversations`. Conversation
+history is owned by the conversation feature, and `features/*` may not add routes to
+another feature's router (backend/CLAUDE.md).
 
 ---
 
