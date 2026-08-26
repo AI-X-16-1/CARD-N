@@ -201,6 +201,15 @@ Refer to `design-tokens.md` for color, typography, and spacing values.
   - "🎙 지금 녹음하기 — 대화를 실시간으로 녹음하고 요약" (🎙 Record now — record the conversation live and summarize it)
   - "📁 녹음 파일 업로드 — 기존 녹음 파일을 올려 요약 생성" (📁 Upload recording file — upload an existing recording to generate a summary)
 
+### Introduction Request (cross-team: 그래프 기능과 연동)
+PersonDetailScreen needs the same "소개 요청" action GraphScreen's 1st-degree bottom sheet has
+(see §4's "Tap Node → Bottom Sheet" and `api-spec.md`'s "Introduction Requests"), so it's reachable
+whether the person arrived here from the graph or from the contact list. Same 4 states as the graph
+sheet's row: default ("이 사람의 인맥에게 내 프로필 소개 요청") / `pending` (disabled, "소개 요청 보냄 · 승인
+대기중") / `approved` (disabled, "소개 승인됨 · 2촌에게 노출 중") / `declined` (re-enabled, "다시 요청하기").
+Calls the same `POST /graph/{person_id}/introduction-requests` — no new API needed, this is a
+`features/contacts/` UI addition only.
+
 ---
 
 ## 6. Conversation Recording (ConversationRecordScreen)
