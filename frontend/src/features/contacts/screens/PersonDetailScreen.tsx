@@ -88,21 +88,22 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
           <Text style={styles.contactLineMuted}>아직 생성된 배틀 카드가 없어요</Text>
         </View>
 
-        {callRecordingFinderOpen ? (
-          <View style={styles.card}>
-            <View style={styles.callRecordingHeader}>
-              <Text style={styles.sectionLabel}>통화 녹음에서 요약 만들기</Text>
-              <Pressable onPress={() => setCallRecordingFinderOpen(false)} hitSlop={8}>
-                <Text style={styles.closeInlinePanel}>닫기</Text>
-              </Pressable>
-            </View>
+        <View style={styles.card}>
+          <Pressable
+            style={styles.callRecordingHeader}
+            onPress={() => setCallRecordingFinderOpen((open) => !open)}
+          >
+            <Text style={styles.sectionLabel}>📼 휴대폰에서 통화 녹음 찾기</Text>
+            <Text style={styles.closeInlinePanel}>{callRecordingFinderOpen ? '닫기' : '열기'}</Text>
+          </Pressable>
+          {callRecordingFinderOpen ? (
             <CallRecordingFinder
               personId={person.id}
               phone={person.phone}
               onSummarySaved={() => setTimelineRefreshKey((k) => k + 1)}
             />
-          </View>
-        ) : null}
+          ) : null}
+        </View>
 
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>대화 기록</Text>
@@ -121,6 +122,8 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
               style={styles.actionItem}
               onPress={() => {
                 setActionSheetOpen(false);
+                // ConversationRecordScreen offers both live recording and file upload
+                // (AudioPickerCard) — mode: 'record' just picks which one it leads with.
                 // Only registered stack routes (e.g. the Home tab) can push
                 // ConversationRecord today; inline (list) mode has no route for it yet.
                 if (!onBack) {
@@ -128,33 +131,8 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
                 }
               }}
             >
-              <Text style={styles.actionText}>🎙 지금 녹음하기</Text>
-              <Text style={styles.actionSubtext}>대화를 실시간으로 녹음하고 요약</Text>
-            </Pressable>
-            <Pressable
-              style={styles.actionItem}
-              onPress={() => {
-                setActionSheetOpen(false);
-                // mode: 'upload' makes ConversationRecordScreen lead with the file picker
-                // instead of the record button (#24/#25) — otherwise tapping this reads as
-                // having hit the wrong button.
-                if (!onBack) {
-                  navigation.navigate('ConversationRecord', { personId: person.id, mode: 'upload' });
-                }
-              }}
-            >
-              <Text style={styles.actionText}>📁 녹음 파일 업로드</Text>
-              <Text style={styles.actionSubtext}>기존 녹음 파일을 올려 요약 생성</Text>
-            </Pressable>
-            <Pressable
-              style={styles.actionItem}
-              onPress={() => {
-                setActionSheetOpen(false);
-                setCallRecordingFinderOpen(true);
-              }}
-            >
-              <Text style={styles.actionText}>📼 기존 통화 녹음에서 요약 만들기</Text>
-              <Text style={styles.actionSubtext}>휴대폰에 저장된 통화 녹음을 찾아 요약 생성</Text>
+              <Text style={styles.actionText}>🎙 녹음</Text>
+              <Text style={styles.actionSubtext}>대화를 녹음하거나 녹음 파일을 올려 요약 생성</Text>
             </Pressable>
           </View>
         </Pressable>
