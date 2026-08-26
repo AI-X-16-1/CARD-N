@@ -27,6 +27,13 @@ MERGE (person:Person {id: $id})
 SET person.name = $name, person.job_class = $job_class
 WITH person
 MERGE (me:Person {id: $me_id})
+SET me.name = coalesce(me.name, 'Me')  // must not be left null — graph/queries.py's
+                                        // "Me" fallback only applies when the node
+                                        // doesn't exist yet, and Pydantic requires
+                                        // GraphNodeResponse.name to be a str. coalesce
+                                        // (not ON CREATE) so this also self-heals a "me"
+                                        // node that was already created bare before
+                                        // this fix, not just new ones.
 MERGE (me)-[r:MET_AT]-(person)
 ON CREATE SET r.weight = 1, r.last_interaction = datetime()
 WITH person
