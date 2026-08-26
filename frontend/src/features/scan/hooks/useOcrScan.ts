@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import axios from 'axios';
 import { Platform } from 'react-native';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1';
+import { apiClient } from '@/shared/api/client';
 
 export type OcrField = {
   label: string;
@@ -24,7 +24,8 @@ type ScanState =
 // FastAPI's default validation error shape is { detail: string | { loc, msg, type }[] } —
 // on web in particular a malformed request (e.g. a bad multipart file part) surfaces the
 // array form, which must never be handed to <Text> as-is (React can't render an object).
-function extractErrorMessage(error: unknown): string {
+// Exported so callers (e.g. ScanCameraScreen's save flow) don't reimplement this and drift.
+export function extractErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
     const detail = error.response?.data?.detail;
     if (typeof detail === 'string') return detail;
@@ -63,7 +64,7 @@ export function useOcrScan() {
       // No explicit Content-Type here: a multipart boundary must be generated per-request,
       // and hardcoding 'multipart/form-data' without one produces a malformed body that
       // fails before any HTTP response comes back (surfaces as a generic network error).
-      const response = await axios.post<OcrResult>(`${API_BASE_URL}/scan/ocr`, form);
+      const response = await apiClient.post<OcrResult>('/scan/ocr', form);
       setState({ status: 'done', result: response.data });
       return response.data;
     } catch (error) {
