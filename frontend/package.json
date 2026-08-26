@@ -11,6 +11,7 @@
     "expo": "~57.0.16",
     "expo-audio": "~57.0.4",
     "expo-camera": "~57.0.4",
+    "expo-document-picker": "~57.0.1",
     "expo-linear-gradient": "~57.0.1",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",

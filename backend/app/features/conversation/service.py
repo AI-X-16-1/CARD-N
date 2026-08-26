@@ -9,7 +9,6 @@ from datetime import datetime
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
-from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.contacts.models import Person
@@ -157,7 +156,12 @@ class ConversationService:
         )
 
     async def save(self, data: SaveConversationRequest) -> ConversationResponse:
-        """Same person + same recording overwrites rather than stacking up."""
+        """Same person + same recording overwrites rather than stacking up.
+
+        Read-then-write instead of a MySQL ON DUPLICATE KEY UPDATE, so this same code
+        runs against the SQLite the tests use. The unique index stays the real guard —
+        this just keeps the common re-summarize path from raising.
+        """
         person = await self._get_person_or_404(data.person_id)
 
         # Naive local time on purpose: every other timestamp in this schema is a naive
@@ -165,27 +169,6 @@ class ConversationService:
         # against created_at as if it were hours off.
         recorded_at = data.recorded_at or datetime.now()  # noqa: DTZ005
         transcript_hash = fingerprint(data.transcript)
-        values = {
-            "person_id": data.person_id,
-            "transcript_hash": transcript_hash,
-            "one_liner": data.summary.one_line[:300],
-            "summary_json": json.dumps(data.summary.model_dump(), ensure_ascii=False),
-            "duration_seconds": data.duration_seconds,
-            "recorded_at": recorded_at,
-        }
-
-        stmt = mysql_insert(Conversation).values(**values)
-        stmt = stmt.on_duplicate_key_update(
-            one_liner=stmt.inserted.one_liner,
-            summary_json=stmt.inserted.summary_json,
-            duration_seconds=stmt.inserted.duration_seconds,
-            recorded_at=stmt.inserted.recorded_at,
-        )
-        await self.db.execute(stmt)
-
-        # Timeline ordering elsewhere keys off last_contact on the contact record.
-        person.last_contact = recorded_at
-        await self.db.commit()
 
         row = (
             await self.db.execute(
@@ -194,7 +177,22 @@ class ConversationService:
                     Conversation.transcript_hash == transcript_hash,
                 )
             )
-        ).scalar_one()
+        ).scalar_one_or_none()
+
+        if row is None:
+            row = Conversation(person_id=data.person_id, transcript_hash=transcript_hash)
+            self.db.add(row)
+
+        row.one_liner = data.summary.one_line[:300]
+        row.summary_json = json.dumps(data.summary.model_dump(), ensure_ascii=False)
+        row.duration_seconds = data.duration_seconds
+        row.recorded_at = recorded_at
+
+        # Timeline ordering elsewhere keys off last_contact on the contact record.
+        person.last_contact = recorded_at
+
+        await self.db.commit()
+        await self.db.refresh(row)
         return self._to_response(row)
 
     async def list_for_person(
