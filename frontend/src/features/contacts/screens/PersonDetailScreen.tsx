@@ -6,6 +6,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, radius, size, typography } from '@/shared/theme';
 
+import CallRecordingFinder from '../components/CallRecordingFinder';
+import { ConversationTimeline } from '../components/ConversationTimeline';
 import { JobBadge } from '../components/JobBadge';
 import { RelationBadge } from '../components/RelationBadge';
 import { usePersonDetail } from '../hooks/usePersonDetail';
@@ -33,6 +35,8 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
   const personId = personIdProp ?? route.params?.personId;
   const { person, loading, error } = usePersonDetail(personId ?? -1);
   const [actionSheetOpen, setActionSheetOpen] = useState(false);
+  const [callRecordingFinderOpen, setCallRecordingFinderOpen] = useState(false);
+  const [timelineRefreshKey, setTimelineRefreshKey] = useState(0);
   const goBack = onBack ?? (() => navigation.goBack());
 
   if (personId === undefined || loading || !person) {
@@ -83,13 +87,25 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
           <Text style={styles.contactLineMuted}>아직 생성된 배틀 카드가 없어요</Text>
         </View>
 
+        {callRecordingFinderOpen ? (
+          <View style={styles.card}>
+            <View style={styles.callRecordingHeader}>
+              <Text style={styles.sectionLabel}>통화 녹음에서 요약 만들기</Text>
+              <Pressable onPress={() => setCallRecordingFinderOpen(false)} hitSlop={8}>
+                <Text style={styles.closeInlinePanel}>닫기</Text>
+              </Pressable>
+            </View>
+            <CallRecordingFinder
+              personId={person.id}
+              phone={person.phone}
+              onSummarySaved={() => setTimelineRefreshKey((k) => k + 1)}
+            />
+          </View>
+        ) : null}
+
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>대화 기록</Text>
-          <Text style={styles.contactLineMuted}>
-            {person.conversation_count > 0
-              ? `${person.conversation_count}건의 대화 기록`
-              : '아직 대화 기록이 없어요'}
-          </Text>
+          <ConversationTimeline key={timelineRefreshKey} personId={person.id} />
         </View>
       </ScrollView>
 
@@ -117,6 +133,16 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
             <Pressable style={styles.actionItem} onPress={() => setActionSheetOpen(false)}>
               <Text style={styles.actionText}>📁 녹음 파일 업로드</Text>
               <Text style={styles.actionSubtext}>기존 녹음 파일을 올려 요약 생성</Text>
+            </Pressable>
+            <Pressable
+              style={styles.actionItem}
+              onPress={() => {
+                setActionSheetOpen(false);
+                setCallRecordingFinderOpen(true);
+              }}
+            >
+              <Text style={styles.actionText}>📼 기존 통화 녹음에서 요약 만들기</Text>
+              <Text style={styles.actionSubtext}>휴대폰에 저장된 통화 녹음을 찾아 요약 생성</Text>
             </Pressable>
           </View>
         </Pressable>
@@ -199,6 +225,15 @@ const styles = StyleSheet.create({
   contactLineMuted: {
     fontSize: typography.body.fontSize,
     color: colors.textMuted,
+  },
+  callRecordingHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  closeInlinePanel: {
+    fontSize: typography.meta.fontSize,
+    color: colors.textQuaternary,
   },
   fab: {
     position: 'absolute',
