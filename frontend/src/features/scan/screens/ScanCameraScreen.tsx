@@ -3,20 +3,35 @@ import { Alert, Animated, Easing, Pressable, StyleSheet, Text, View } from 'reac
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useNavigation } from '@react-navigation/native';
+import axios from 'axios';
 
 import { colors, radius, typography } from '@/shared/theme';
 import { useOcrScan } from '@/features/scan/hooks/useOcrScan';
-import { OcrFieldList } from '@/features/scan/components/OcrFieldList';
+import { ScanResultPanel } from '@/features/scan/components/ScanResultPanel';
+import { ManualInputForm } from '@/features/scan/components/ManualInputForm';
+import { CardRevealPanel } from '@/features/scan/components/CardRevealPanel';
+import { createPerson, parseOcrFields } from '@/features/scan/api';
+import type { CreatedPerson, ParsedPerson } from '@/features/scan/types';
 
 type CaptureMode = 'single' | 'batch';
+type Step = 'camera' | 'manual' | 'reveal';
 
 const GUIDE_ASPECT_RATIO = 1.7;
+
+function extractErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    return error.response?.data?.detail ?? error.message;
+  }
+  return '저장하지 못했어요. 다시 시도해주세요.';
+}
 
 export default function ScanCameraScreen() {
   const navigation = useNavigation();
   const [permission, requestPermission] = useCameraPermissions();
   const [mode, setMode] = useState<CaptureMode>('single');
-  const [editedValues, setEditedValues] = useState<Record<string, string>>({});
+  const [step, setStep] = useState<Step>('camera');
+  const [saving, setSaving] = useState(false);
+  const [createdPerson, setCreatedPerson] = useState<CreatedPerson | null>(null);
   const cameraRef = useRef<CameraView>(null);
   const scanLineY = useRef(new Animated.Value(0)).current;
   const { state, isScanning, scan, reset } = useOcrScan();
@@ -27,6 +42,13 @@ export default function ScanCameraScreen() {
   const handleClose = () => {
     const parent = navigation.getParent();
     (parent ?? navigation).goBack();
+  };
+
+  const handleDone = () => {
+    reset();
+    setStep('camera');
+    setCreatedPerson(null);
+    handleClose();
   };
 
   useEffect(() => {
@@ -68,40 +90,70 @@ export default function ScanCameraScreen() {
     Alert.alert('준비 중', '갤러리에서 불러오기는 아직 지원하지 않아요.');
   };
 
-  const handleManualInputPress = () => {
-    Alert.alert('준비 중', '직접 입력 화면은 아직 연결되지 않았어요.');
+  const handleManualInputPress = () => setStep('manual');
+
+  const handleSaveFromResult = async (values: Record<string, string>, context: string) => {
+    if (state.status !== 'done') return;
+    setSaving(true);
+    try {
+      const updatedFields = state.result.fields.map((field) => ({
+        ...field,
+        value: values[field.label] ?? field.value,
+      }));
+      const parsed = await parseOcrFields(updatedFields, context);
+      const person = await createPerson(parsed);
+      setCreatedPerson(person);
+      setStep('reveal');
+    } catch (error) {
+      Alert.alert('오류', extractErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleFieldChange = (label: string, value: string) => {
-    setEditedValues((prev) => ({ ...prev, [label]: value }));
+  const handleSaveFromManual = async (person: ParsedPerson) => {
+    setSaving(true);
+    try {
+      const created = await createPerson(person);
+      setCreatedPerson(created);
+      setStep('reveal');
+    } catch (error) {
+      Alert.alert('오류', extractErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
   };
+
+  if (step === 'reveal' && createdPerson) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <CardRevealPanel person={createdPerson} onDone={handleDone} />
+      </SafeAreaView>
+    );
+  }
+
+  if (step === 'manual') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <ManualInputForm
+          onBack={() => setStep('camera')}
+          onSave={handleSaveFromManual}
+          saving={saving}
+        />
+      </SafeAreaView>
+    );
+  }
 
   if (state.status === 'done') {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.resultHeader}>
-          <Pressable onPress={reset}>
-            <Text style={styles.backLink}>‹ 다시 촬영</Text>
-          </Pressable>
-          <Pressable onPress={handleClose} hitSlop={8}>
-            <Text style={styles.closeButton}>✕</Text>
-          </Pressable>
-        </View>
-        <View style={styles.resultBody}>
-          <OcrFieldList
-            fields={state.result.fields}
-            values={editedValues}
-            onChangeValue={handleFieldChange}
-          />
-        </View>
-        <Pressable
-          style={styles.primaryButton}
-          onPress={() =>
-            Alert.alert('준비 중', '카드 생성/저장 흐름은 아직 연결되지 않았어요.')
-          }
-        >
-          <Text style={styles.primaryButtonLabel}>저장하고 카드 만들기</Text>
-        </Pressable>
+        <ScanResultPanel
+          fields={state.result.fields}
+          onRetake={reset}
+          onClose={handleClose}
+          onSave={handleSaveFromResult}
+          saving={saving}
+        />
       </SafeAreaView>
     );
   }
@@ -322,13 +374,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 12,
-  },
-  backLink: {
-    color: colors.textSecondary,
-    fontSize: typography.body.fontSize,
-  },
-  resultBody: {
-    flex: 1,
   },
   primaryButton: {
     backgroundColor: colors.primary,
