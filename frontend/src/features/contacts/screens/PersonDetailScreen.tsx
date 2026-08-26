@@ -12,7 +12,7 @@ import { usePersonDetail } from '../hooks/usePersonDetail';
 
 type PersonDetailStackParamList = {
   PersonDetail: { personId: number };
-  ConversationRecord: { personId: number };
+  ConversationRecord: { personId: number; mode?: 'record' | 'upload' };
 };
 
 function initialsOf(name: string): string {
@@ -118,7 +118,12 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
               style={styles.actionItem}
               onPress={() => {
                 setActionSheetOpen(false);
-                if (!onBack) navigation.navigate('ConversationRecord', { personId: person.id });
+                if (!onBack) {
+                  navigation.navigate('ConversationRecord', {
+                    personId: person.id,
+                    mode: 'upload',
+                  });
+                }
               }}
             >
               <Text style={styles.actionText}>📁 녹음 파일 업로드</Text>
