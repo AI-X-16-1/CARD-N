@@ -1,28 +1,52 @@
-import { useMemo, useState } from 'react';
-import { LayoutChangeEvent, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, LayoutChangeEvent, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, typography } from '@/shared/theme';
 
+import { fetchGraph } from '../api/graphApi';
 import { GraphCanvas } from '../components/GraphCanvas';
 import { PersonBottomSheet } from '../components/PersonBottomSheet';
 import { SearchFilterBar } from '../components/SearchFilterBar';
-import { mockGraphData } from '../data/mockGraph';
-import type { GraphNode, JobClass, JobFilter } from '../types';
+import type { GraphData, GraphNode, JobClass, JobFilter } from '../types';
+
+const EMPTY_GRAPH: GraphData = { nodes: [], edges: [], stats: { degree1Count: 0 } };
 
 export default function GraphScreen() {
+  const [graphData, setGraphData] = useState<GraphData>(EMPTY_GRAPH);
+  const [loadState, setLoadState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [query, setQuery] = useState('');
   const [selectedJob, setSelectedJob] = useState<JobFilter>('all');
   const [selectedPerson, setSelectedPerson] = useState<GraphNode | null>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    setLoadState('loading');
+    fetchGraph()
+      .then((data) => {
+        if (cancelled) return;
+        setGraphData(data);
+        setLoadState('ready');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLoadState('error');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const availableJobs = useMemo(() => {
     const jobs = new Set<JobClass>();
-    mockGraphData.nodes.forEach((node) => {
+    graphData.nodes.forEach((node) => {
       if (node.jobClass) jobs.add(node.jobClass);
     });
     return [...jobs].sort();
-  }, []);
+  }, [graphData]);
 
   const filteredData = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -35,22 +59,22 @@ export default function GraphScreen() {
       return haystack.includes(normalizedQuery);
     };
 
-    const nodes = mockGraphData.nodes.filter(matches);
+    const nodes = graphData.nodes.filter(matches);
     const visibleIds = new Set(nodes.map((node) => node.id));
-    const edges = mockGraphData.edges.filter(
+    const edges = graphData.edges.filter(
       (edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target)
     );
 
-    return { nodes, edges, stats: mockGraphData.stats };
-  }, [query, selectedJob]);
+    return { nodes, edges, stats: graphData.stats };
+  }, [graphData, query, selectedJob]);
 
   const closestConnections = useMemo(() => {
-    return mockGraphData.nodes
+    return graphData.nodes
       .filter((node) => node.type === 'person')
       .slice()
       .sort((a, b) => (b.conversationCount ?? 0) - (a.conversationCount ?? 0))
       .slice(0, 2);
-  }, []);
+  }, [graphData]);
 
   const handleViewProfile = (_person: GraphNode) => {
     // Person Detail lives on the Home tab's stack; GraphScreen isn't
@@ -73,7 +97,7 @@ export default function GraphScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>관계도</Text>
-        <Text style={styles.subtitle}>1촌 {mockGraphData.stats.degree1Count}명</Text>
+        <Text style={styles.subtitle}>1촌 {graphData.stats.degree1Count}명</Text>
       </View>
 
       <View style={styles.searchFilterWrap}>
@@ -87,7 +111,17 @@ export default function GraphScreen() {
       </View>
 
       <View style={styles.canvasWrap} onLayout={handleCanvasLayout}>
-        {canvasSize.width > 0 && (
+        {loadState === 'loading' && (
+          <View style={styles.centerState}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        )}
+        {loadState === 'error' && (
+          <View style={styles.centerState}>
+            <Text style={styles.centerStateText}>관계도를 불러오지 못했어요</Text>
+          </View>
+        )}
+        {loadState === 'ready' && canvasSize.width > 0 && (
           <GraphCanvas
             data={filteredData}
             width={canvasSize.width}
@@ -98,22 +132,24 @@ export default function GraphScreen() {
         )}
       </View>
 
-      <View style={styles.closestOverlay}>
-        <View style={styles.closestHeaderRow}>
-          <Text style={styles.closestTitle}>가장 가까운 사람</Text>
-          <Text style={styles.closestViewAll}>전체 보기</Text>
+      {loadState === 'ready' && closestConnections.length > 0 && (
+        <View style={styles.closestOverlay}>
+          <View style={styles.closestHeaderRow}>
+            <Text style={styles.closestTitle}>가장 가까운 사람</Text>
+            <Text style={styles.closestViewAll}>전체 보기</Text>
+          </View>
+          <View style={styles.closestCards}>
+            {closestConnections.map((person) => (
+              <View key={person.id} style={styles.closestCard}>
+                <Text style={styles.closestName}>{person.name}</Text>
+                <Text style={styles.closestMeta}>
+                  대화 {person.conversationCount ?? 0}회 · {person.lastConversationLabel}
+                </Text>
+              </View>
+            ))}
+          </View>
         </View>
-        <View style={styles.closestCards}>
-          {closestConnections.map((person) => (
-            <View key={person.id} style={styles.closestCard}>
-              <Text style={styles.closestName}>{person.name}</Text>
-              <Text style={styles.closestMeta}>
-                대화 {person.conversationCount ?? 0}회 · {person.lastConversationLabel}
-              </Text>
-            </View>
-          ))}
-        </View>
-      </View>
+      )}
 
       <PersonBottomSheet
         person={selectedPerson}
@@ -150,6 +186,15 @@ const styles = StyleSheet.create({
   },
   canvasWrap: {
     flex: 1,
+  },
+  centerState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  centerStateText: {
+    color: colors.textTertiary,
+    fontSize: typography.body.fontSize,
   },
   closestOverlay: {
     marginHorizontal: 20,
