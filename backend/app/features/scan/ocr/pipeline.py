@@ -3,6 +3,7 @@ on in-memory image bytes inside a FastAPI request instead of a CLI script over a
 folder of files.
 """
 import os
+import threading
 from io import BytesIO
 
 os.environ.setdefault("FLAGS_use_mkldnn", "0")
@@ -17,23 +18,28 @@ from app.features.scan.ocr.card_parser import parse_fields
 MAX_SIDE = 1800  # downscale above this to avoid native OCR engine crashes on huge photos
 
 _ocr = None
+_ocr_lock = threading.Lock()
 
 
 def _get_ocr():
     # Loaded lazily (not at import time) since building it loads PaddleOCR's models,
-    # which is slow and should not happen on every worker startup / test import.
+    # which is slow and should not happen on every worker startup / test import. Each
+    # request runs in its own threadpool thread (see ScanService), so two requests
+    # racing to build the singleton on first use is a real possibility without the lock.
     global _ocr
     if _ocr is None:
-        from paddleocr import PaddleOCR
+        with _ocr_lock:
+            if _ocr is None:
+                from paddleocr import PaddleOCR
 
-        _ocr = PaddleOCR(
-            use_textline_orientation=True,
-            use_doc_orientation_classify=True,
-            use_doc_unwarping=False,
-            enable_mkldnn=False,
-            lang="korean",
-            text_det_unclip_ratio=1.0,
-        )
+                _ocr = PaddleOCR(
+                    use_textline_orientation=True,
+                    use_doc_orientation_classify=True,
+                    use_doc_unwarping=False,
+                    enable_mkldnn=False,
+                    lang="korean",
+                    text_det_unclip_ratio=1.0,
+                )
     return _ocr
 
 

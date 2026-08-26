@@ -1,14 +1,16 @@
-"""사진 속에서 명함처럼 생긴 사각형 영역을 찾아 반듯하게 펴서 잘라낸다(문서 스캐너 앱과 같은 원리).
-배경(책상, 키보드 등)이 같이 찍혔거나 명함이 기울어진/회전된 사진을 전처리하기 위함.
-특정 명함 디자인을 학습한 게 아니라, 윤곽선 검출 + 명함 표준 비율(가로:세로 ≈ 1.6:1) 필터링만 사용하는
-범용 이미지 처리 기법이라 별도 학습 데이터가 필요 없다.
+"""Finds a business-card-shaped rectangle in a photo and warps it flat (same idea as a
+document-scanner app). Meant to preprocess photos where the background (desk, keyboard,
+etc.) got captured too, or the card is tilted/rotated.
+Doesn't train on any specific card design — it's a general-purpose image-processing
+technique (contour detection + filtering by the standard card aspect ratio, ~1.6:1), so
+no training data is needed.
 """
 import cv2
 import numpy as np
 
-CARD_RATIO_RANGE = (1.3, 2.3)  # 표준 명함(90x50mm)은 1.8, 여유를 두고 허용
-MIN_AREA_RATIO = 0.15  # 이보다 작은 윤곽선은 실전 테스트 결과 대부분 명함이 아닌 오탐이었음
-MAX_CARDS = 4  # 한 사진에 명함이 여러 장 찍혀도 너무 많이 검출되면 노이즈일 가능성이 높음
+CARD_RATIO_RANGE = (1.3, 2.3)  # a standard card (90x50mm) is 1.8; allow some slack
+MIN_AREA_RATIO = 0.15  # contours smaller than this were mostly false positives in testing
+MAX_CARDS = 4  # even if multiple cards are in one photo, too many detections is likely noise
 
 
 def order_points(pts):
@@ -32,25 +34,26 @@ def four_point_transform(image, pts):
     dst = np.array([[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]], dtype="float32")
     matrix = cv2.getPerspectiveTransform(rect, dst)
     warped = cv2.warpPerspective(image, matrix, (width, height))
-    # 명함은 가로가 더 길어야 자연스러움 -> 세로로 뒤집혀 있으면 90도 회전
+    # A card should naturally be wider than tall -> rotate 90 degrees if it came out portrait.
     if warped.shape[0] > warped.shape[1]:
         warped = cv2.rotate(warped, cv2.ROTATE_90_CLOCKWISE)
     return warped
 
 
-# 사진마다 카드-배경 대비가 달라 한 가지 검출 설정으로는 놓치는 경우가 많다.
-# 서로 다른 방식/민감도를 모두 시도해서 후보를 모으는 쪽이 "놓치는 것"보다 안전하다
-# (잘못된 후보는 아래 종횡비 검증에서 걸러진다).
-# CLAHE(적응형 히스토그램 균일화) 적용 여부별로 같은 전략을 두 번씩 돌린다.
-# CLAHE를 전 사진에 일괄 적용하면 이미 잘 잡히던 사진의 검출이 오히려 흔들렸지만(실측 확인),
-# 원본 대비 버전과 함께 "후보를 모으는" 방식으로 쓰면 순수하게 검출 범위만 넓어진다
-# (틀린 후보는 어차피 아래 종횡비 검증에서 걸러짐).
+# Card-vs-background contrast varies a lot photo to photo, so a single detection setting
+# misses often. Trying several methods/sensitivities and pooling the candidates is safer
+# than missing a card (wrong candidates get filtered out by the aspect-ratio check below).
+# Each strategy also runs twice, with and without CLAHE (adaptive histogram equalization).
+# Applying CLAHE to every photo uniformly actually made detection worse for photos that
+# already worked well (confirmed by testing) — but used alongside the original-contrast
+# version as a way to "gather more candidates", it purely widens detection coverage
+# (wrong candidates get filtered out by the aspect-ratio check below anyway).
 EDGE_STRATEGIES = [
-    dict(mode="canny_dilate", low=40, high=120, kernel=3, iters=2, clahe=False),  # 대비가 뚜렷한 사진용(기본)
-    dict(mode="canny_close", low=15, high=60, kernel=9, iters=3, clahe=False),    # 대비가 약한 사진용(끊긴 테두리를 넓게 이어붙임)
-    dict(mode="canny_dilate", low=40, high=120, kernel=3, iters=2, clahe=True),
-    dict(mode="canny_close", low=15, high=60, kernel=9, iters=3, clahe=True),
-    dict(mode="adaptive_thresh", block=35, c=10, kernel=7, iters=2, clahe=True),  # 조명이 고르지 않은 사진용
+    {"mode": "canny_dilate", "low": 40, "high": 120, "kernel": 3, "iters": 2, "clahe": False},  # good contrast (default)
+    {"mode": "canny_close", "low": 15, "high": 60, "kernel": 9, "iters": 3, "clahe": False},    # low contrast (bridges broken edges more aggressively)
+    {"mode": "canny_dilate", "low": 40, "high": 120, "kernel": 3, "iters": 2, "clahe": True},
+    {"mode": "canny_close", "low": 15, "high": 60, "kernel": 9, "iters": 3, "clahe": True},
+    {"mode": "adaptive_thresh", "block": 35, "c": 10, "kernel": 7, "iters": 2, "clahe": True},  # uneven lighting
 ]
 
 
@@ -58,7 +61,8 @@ def _find_contours_for_strategy(blur, blur_clahe, strat):
     src = blur_clahe if strat["clahe"] else blur
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (strat["kernel"], strat["kernel"]))
     if strat["mode"] == "adaptive_thresh":
-        # 국소 영역 기준으로 이진화 -> 조명이 한쪽으로 치우친 사진에서도 카드 경계가 살아남는다
+        # Thresholds against local neighborhoods, so card edges survive even in
+        # photos where lighting is uneven across the frame.
         mask = cv2.adaptiveThreshold(src, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                       cv2.THRESH_BINARY, strat["block"], strat["c"])
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=strat["iters"])
@@ -111,7 +115,7 @@ def _find_quads(small, small_area):
 
 
 def _iou_boxes(pts_a, pts_b):
-    """대략적인 겹침 정도(직사각형 bounding box 기준 IoU)로 중복 후보를 걸러낸다."""
+    """Rough overlap (bounding-box IoU) used to filter out duplicate candidates."""
     ax0, ay0 = pts_a.min(axis=0)
     ax1, ay1 = pts_a.max(axis=0)
     bx0, by0 = pts_b.min(axis=0)
@@ -126,7 +130,7 @@ def _iou_boxes(pts_a, pts_b):
 
 
 def _union_find_merge(items, should_merge):
-    """items 인덱스들을 should_merge(i,j) 기준으로 합집합-찾기(union-find)로 묶는다."""
+    """Groups item indices via union-find, based on should_merge(i, j)."""
     n = len(items)
     parent = list(range(n))
 
@@ -149,20 +153,22 @@ def _union_find_merge(items, should_merge):
 
 
 def _bbox_gap(a, b):
-    """두 사각형(x0,y0,x1,y1) 사이의 간격(체비쇼프 거리). 겹치면 0."""
+    """Chebyshev-distance gap between two boxes (x0,y0,x1,y1). 0 if they overlap."""
     xgap = max(0, max(a[0], b[0]) - min(a[2], b[2]))
     ygap = max(0, max(a[1], b[1]) - min(a[3], b[3]))
     return max(xgap, ygap)
 
 
 def cluster_text_boxes(boxes, fine_gap_factor=1.8, merge_size_ratio=0.7):
-    """텍스트 박스 좌표들을 가까운 것끼리 묶는다. 2단계로 진행한다:
-    1) 촘촘한 줄들을 글자 높이 기준으로 세부 묶음(sub-cluster)으로 먼저 뭉친다.
-    2) 세부 묶음끼리는 "간격이 두 묶음 중 큰 쪽의 크기보다 작으면" 같은 명함으로 보고 합친다 —
-       로고/이름 블록과 연락처 블록이 카드 안에서 서로 떨어진 위치에 있어도(디자인상 여백) 하나로
-       묶이지만, 키보드 키처럼 카드 자체보다 훨씬 멀리 떨어진 잡음은 별도로 남는다.
-    카드-배경 명암 대비에 의존하지 않아 대비가 약한 사진에서도 쓸 수 있다.
-    boxes: [(x0,y0,x1,y1), ...]. 반환: 군집 인덱스 리스트(boxes와 같은 길이)."""
+    """Clusters text box coordinates by proximity, in two passes:
+    1) Tightly-packed lines are first grouped into sub-clusters based on text height.
+    2) Sub-clusters are merged into one card if "the gap between them is smaller than
+       the larger sub-cluster's own size" — this keeps a logo/name block and a contact
+       block together even when a card's layout puts whitespace between them, while
+       noise that's far outside the card itself (e.g. a keyboard key in the background)
+       stays separate.
+    Doesn't rely on card-vs-background contrast, so it also works on low-contrast photos.
+    boxes: [(x0,y0,x1,y1), ...]. Returns: a list of cluster indices (same length as boxes)."""
     if not boxes:
         return []
 
@@ -199,10 +205,13 @@ def cluster_text_boxes(boxes, fine_gap_factor=1.8, merge_size_ratio=0.7):
 
 
 def crop_by_text_cluster(image, boxes, margin_ratio=0.2, min_boxes=3):
-    """카드 윤곽선 검출이 실패했을 때의 대체 수단. 텍스트 박스들을 군집화해서 가장 큰 군집(명함 본문일
-    가능성이 높음)의 영역만 여유를 두고 잘라낸다. 원근 보정은 하지 않으므로 카드 검출보다는 부정확할 수
-    있지만, 명암 대비가 약해 윤곽선 검출 자체가 안 되는 사진에서도 배경 잡음(키보드 등)은 제거할 수 있다.
-    boxes: [(x0,y0,x1,y1), ...] (이미지와 같은 좌표계). 신뢰할 만한 군집이 없으면 None."""
+    """Fallback for when card contour detection fails. Clusters text boxes and crops
+    just the largest cluster (most likely the card body) with some margin. No
+    perspective correction, so this is less accurate than card detection, but it still
+    strips background noise (e.g. a keyboard) from photos where contrast is too low for
+    contour detection to work at all.
+    boxes: [(x0,y0,x1,y1), ...] (same coordinate space as the image). Returns None if no
+    cluster looks reliable."""
     if len(boxes) < min_boxes:
         return None
 
@@ -211,8 +220,9 @@ def crop_by_text_cluster(image, boxes, margin_ratio=0.2, min_boxes=3):
     for label, box in zip(labels, boxes):
         clusters.setdefault(label, []).append(box)
 
-    # 박스 "개수"가 아니라 전체 면적으로 고른다 — 키보드 키처럼 짧고 작은 글자가 여러 개
-    # 흩어져 있으면 개수는 많아도 면적은 작아서, 긴 문장 몇 줄로 된 명함 본문에 밀린다.
+    # Pick by total area, not box "count" — small scattered characters (e.g. a keyboard)
+    # can outnumber a card's actual body text while covering far less area, so area
+    # correctly favors a handful of long text lines over many tiny noise boxes.
     best = max(clusters.values(), key=lambda members: sum((b[2] - b[0]) * (b[3] - b[1]) for b in members))
     if len(best) < min_boxes:
         return None
@@ -235,7 +245,8 @@ def crop_by_text_cluster(image, boxes, margin_ratio=0.2, min_boxes=3):
 
 
 def detect_cards(image):
-    """image: cv2로 읽은 BGR ndarray. 반환: 명함으로 추정되는 영역을 편 이미지들의 리스트(없으면 빈 리스트)."""
+    """image: a BGR ndarray read via cv2. Returns: a list of warped images for each
+    region believed to be a business card (empty list if none found)."""
     h, w = image.shape[:2]
     scale = 1000 / max(h, w)
     small = cv2.resize(image, (int(w * scale), int(h * scale)))
@@ -247,7 +258,7 @@ def detect_cards(image):
     kept = []
     for area, pts in quads:
         if any(_iou_boxes(pts, kept_pts) > 0.5 for _, kept_pts in kept):
-            continue  # 서로 다른 설정이 같은 카드를 중복 검출한 경우 제외
+            continue  # a different strategy re-detected the same card — skip the duplicate
         kept.append((area, pts))
         if len(kept) >= MAX_CARDS:
             break
