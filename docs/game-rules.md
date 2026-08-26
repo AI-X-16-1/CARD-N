@@ -95,7 +95,8 @@ Synergies are shown with a mint-colored pill badge.
 1. Tap a card in ready state → select it
 2. Select a target:
    - Tap an enemy field card → attack the card
-   - Tap the enemy hero header → attack the hero (only when the enemy field is empty)
+   - Tap the enemy hero header → attack the hero (only when the enemy field is empty,
+     and never on turn 1 — see "No First-Turn Rush" below)
 3. Damage calculation:
    - To the target: max(1, effATK − floor(effDEF / 2))
    - Counterattack (to the attacker): max(1, floor(targetATK / 2))
@@ -103,6 +104,13 @@ Synergies are shown with a mint-colored pill badge.
 ```
 
 `effATK`, `effDEF` = base stats + combined synergy/skill buffs.
+
+## No First-Turn Rush
+
+Neither side may attack the enemy hero directly on turn 1 (`turnN === 1`), even if the
+enemy field is empty. This closes the ★1 Intern "Enthusiasm" exploit, where a card that
+can attack the same turn it's played would otherwise burst the enemy hero for free before
+they've had a single turn. Field-card-vs-field-card attacks are unaffected.
 
 ## Enemy AI (runs at end of turn)
 
