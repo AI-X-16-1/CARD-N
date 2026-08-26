@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import axios from 'axios';
+import { Platform } from 'react-native';
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1';
 
@@ -20,6 +21,21 @@ type ScanState =
   | { status: 'done'; result: OcrResult }
   | { status: 'error'; message: string };
 
+// FastAPI's default validation error shape is { detail: string | { loc, msg, type }[] } —
+// on web in particular a malformed request (e.g. a bad multipart file part) surfaces the
+// array form, which must never be handed to <Text> as-is (React can't render an object).
+function extractErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    const detail = error.response?.data?.detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) {
+      return detail.map((item) => item?.msg ?? String(item)).join(', ');
+    }
+    return error.message;
+  }
+  return '알 수 없는 오류가 발생했어요';
+}
+
 export function useOcrScan() {
   const [state, setState] = useState<ScanState>({ status: 'idle' });
 
@@ -27,22 +43,31 @@ export function useOcrScan() {
     setState({ status: 'scanning' });
     try {
       const form = new FormData();
-      form.append('image', {
-        uri: photoUri,
-        name: 'card.jpg',
-        type: 'image/jpeg',
-      } as unknown as Blob);
+      if (Platform.OS === 'web') {
+        // Browsers don't understand RN's { uri, name, type } shorthand below, so build a
+        // real Blob from the camera's blob: URL instead.
+        const photoBlob = await (await fetch(photoUri)).blob();
+        form.append('image', photoBlob, 'card.jpg');
+      } else {
+        // RN's FormData/networking bridge expects this shape for a file part — it maps it
+        // to native blob storage internally. A W3C-style Blob (e.g. from expo-blob or
+        // fetch().blob()) isn't recognized the same way and silently fails to reach the
+        // server at all (surfaces as a bare axios "Network Error", no request in the logs).
+        form.append('image', {
+          uri: photoUri,
+          name: 'card.jpg',
+          type: 'image/jpeg',
+        } as unknown as Blob);
+      }
 
-      const response = await axios.post<OcrResult>(`${API_BASE_URL}/scan/ocr`, form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      // No explicit Content-Type here: a multipart boundary must be generated per-request,
+      // and hardcoding 'multipart/form-data' without one produces a malformed body that
+      // fails before any HTTP response comes back (surfaces as a generic network error).
+      const response = await axios.post<OcrResult>(`${API_BASE_URL}/scan/ocr`, form);
       setState({ status: 'done', result: response.data });
       return response.data;
     } catch (error) {
-      const message = axios.isAxiosError(error)
-        ? (error.response?.data?.detail ?? error.message)
-        : '알 수 없는 오류가 발생했어요';
-      setState({ status: 'error', message });
+      setState({ status: 'error', message: extractErrorMessage(error) });
       return null;
     }
   }, []);
