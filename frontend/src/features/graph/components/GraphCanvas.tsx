@@ -43,11 +43,16 @@ const MATCHED_OPACITY = 1;
 const FADED_OPACITY = 0.18;
 const FADE_DURATION = 250;
 // ui-spec.md §4: 1st-degree nodes carry a continuous 3s pulsing halo (idle
-// presence indicator), separate from the stronger, steady glow a tap triggers.
+// presence indicator). Selecting a node swaps this for a bigger, brighter
+// version of the same pulse rather than freezing it into a static glow.
 const AMBIENT_GLOW_RADIUS = NODE_RADIUS + 6;
 const AMBIENT_GLOW_MIN_OPACITY = 0.1;
 const AMBIENT_GLOW_MAX_OPACITY = 0.32;
 const AMBIENT_PULSE_HALF_DURATION = 1500;
+const SELECTED_GLOW_INNER_MIN_OPACITY = 0.2;
+const SELECTED_GLOW_INNER_MAX_OPACITY = 0.35;
+const SELECTED_GLOW_OUTER_MIN_OPACITY = 0.08;
+const SELECTED_GLOW_OUTER_MAX_OPACITY = 0.16;
 // Max px every other node (incl. "나") is pushed away from the selected node.
 const MAX_PUSH_DISTANCE = 26;
 // Nodes farther than this fraction of the canvas's short side from the
@@ -117,14 +122,37 @@ function PersonNodeMarker({
 
   useEffect(() => {
     if (isSelected) {
-      // Selecting a node swaps its idle pulse (if any) for a stronger, steady halo.
+      // Selecting a node swaps its idle pulse (if any) for a bigger, brighter
+      // pulse on the same 3s cadence — it keeps breathing, just more visibly.
       cancelAnimation(ambientGlowOpacity);
       ambientGlowOpacity.value = withTiming(0, { duration: 200 });
       nodeRadius.value = withTiming(SELECTED_NODE_RADIUS, { duration: 200 });
-      glowInnerOpacity.value = withTiming(0.35, { duration: 400 });
-      glowOuterOpacity.value = withTiming(0.16, { duration: 500 });
+
+      cancelAnimation(glowInnerOpacity);
+      glowInnerOpacity.value = SELECTED_GLOW_INNER_MIN_OPACITY;
+      glowInnerOpacity.value = withRepeat(
+        withTiming(SELECTED_GLOW_INNER_MAX_OPACITY, {
+          duration: AMBIENT_PULSE_HALF_DURATION,
+          easing: Easing.inOut(Easing.ease),
+        }),
+        -1,
+        true,
+      );
+
+      cancelAnimation(glowOuterOpacity);
+      glowOuterOpacity.value = SELECTED_GLOW_OUTER_MIN_OPACITY;
+      glowOuterOpacity.value = withRepeat(
+        withTiming(SELECTED_GLOW_OUTER_MAX_OPACITY, {
+          duration: AMBIENT_PULSE_HALF_DURATION,
+          easing: Easing.inOut(Easing.ease),
+        }),
+        -1,
+        true,
+      );
     } else {
       nodeRadius.value = withTiming(NODE_RADIUS, { duration: 200 });
+      cancelAnimation(glowInnerOpacity);
+      cancelAnimation(glowOuterOpacity);
       glowInnerOpacity.value = withTiming(0, { duration: 200 });
       glowOuterOpacity.value = withTiming(0, { duration: 200 });
       if (isFirstDegree) {
