@@ -1,11 +1,13 @@
-import { useState } from 'react';
-import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { Alert, FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { colors, radius, typography } from '@/shared/theme';
 
 import { CategoryChip } from '../components/CategoryChip';
 import { ContactRow } from '../components/ContactRow';
+import { deleteContact } from '../api';
 import { useContactList } from '../hooks/useContactList';
 import { RELATION_LABELS } from '../jobLabels';
 import type { Person, RelationFilter } from '../types';
@@ -15,9 +17,34 @@ const CATEGORIES: RelationFilter[] = ['all', 'client', 'partner', 'networking', 
 
 export default function ContactListScreen() {
   const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null);
-  const { total, contacts, loading, query, setQuery, category, setCategory } = useContactList();
+  const { total, contacts, loading, query, setQuery, category, setCategory, refetch } =
+    useContactList();
+
+  // This screen is a bare tab (not a stack), so bottom tabs keep it mounted — switching
+  // tabs and back would otherwise leave selectedPersonId set and strand the user on the
+  // detail view. Refetch on focus too, so a contact saved via the Scan modal shows up.
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+      return () => setSelectedPersonId(null);
+    }, [refetch]),
+  );
 
   const openPerson = (person: Person) => setSelectedPersonId(person.id);
+
+  const confirmDeletePerson = (person: Person) => {
+    Alert.alert('연락처 삭제', `${person.name}님을 목록에서 삭제할까요?`, [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: async () => {
+          await deleteContact(person.id);
+          refetch();
+        },
+      },
+    ]);
+  };
 
   if (selectedPersonId !== null) {
     return (
@@ -32,7 +59,7 @@ export default function ContactListScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.title}>전체 목록</Text>
-        <Text style={styles.count}>{total}명</Text>
+        <Text style={styles.count}>{total}명 · 길게 눌러 삭제</Text>
       </View>
 
       <TextInput
@@ -63,7 +90,9 @@ export default function ContactListScreen() {
         data={contacts}
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={styles.listContent}
-        renderItem={({ item }) => <ContactRow person={item} onPress={openPerson} />}
+        renderItem={({ item }) => (
+          <ContactRow person={item} onPress={openPerson} onLongPress={confirmDeletePerson} />
+        )}
         ListEmptyComponent={
           !loading ? (
             <View style={styles.empty}>

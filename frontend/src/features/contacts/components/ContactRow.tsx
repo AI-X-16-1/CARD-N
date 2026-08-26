@@ -11,13 +11,18 @@ import type { Person } from '../types';
 type Props = {
   person: Person;
   onPress: (person: Person) => void;
+  onLongPress?: (person: Person) => void;
 };
 
-export function ContactRow({ person, onPress }: Props) {
+export function ContactRow({ person, onPress, onLongPress }: Props) {
   const meta = [jobLabel(person.job_class), person.company].filter(Boolean).join(' · ');
 
   return (
-    <Pressable style={styles.row} onPress={() => onPress(person)}>
+    <Pressable
+      style={styles.row}
+      onPress={() => onPress(person)}
+      onLongPress={onLongPress ? () => onLongPress(person) : undefined}
+    >
       <CardThumbnail jobClass={person.job_class} />
       <View style={styles.body}>
         <View style={styles.nameLine}>

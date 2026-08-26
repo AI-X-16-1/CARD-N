@@ -16,3 +16,7 @@ export async function fetchPerson(personId: number): Promise<Person> {
   const response = await apiClient.get<Person>(`/contacts/${personId}`);
   return response.data;
 }
+
+export async function deleteContact(personId: number): Promise<void> {
+  await apiClient.delete(`/contacts/${personId}`);
+}
