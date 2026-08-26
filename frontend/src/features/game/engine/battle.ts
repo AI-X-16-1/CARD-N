@@ -1,4 +1,4 @@
-import type { BattleCard, BattleState, EffectiveStats, Stats, Synergy } from './types';
+import type { BattleCard, BattleEvent, BattleState, EffectiveStats, Stats, Synergy } from './types';
 
 const SYNERGY_STAT_BONUS: Record<string, Partial<Stats>> = {
   'GTM Team': { atk: 2 },
@@ -90,6 +90,7 @@ export function initBattle(deck: BattleCard[]): BattleState {
     log: [],
     over: null,
     selectedFieldIdx: null,
+    turnEvents: [],
   };
 }
 
@@ -123,6 +124,7 @@ export function playCard(state: BattleState, handIdx: number, fieldSlot: number)
     field,
     cost: state.cost - card.cost,
     log: [...state.log, `${card.name} 카드를 필드에 배치`],
+    turnEvents: [],
   };
 }
 
@@ -184,6 +186,7 @@ export function attack(
     eHp,
     log,
     selectedFieldIdx: null,
+    turnEvents: [],
   };
 
   return { ...next, over: checkGameOver(next) };
@@ -204,6 +207,10 @@ function drawUpTo(
   const room = Math.max(0, HAND_LIMIT - hand.length);
   const draws = Math.min(n, room, deck.length);
   return { deck: deck.slice(draws), hand: [...hand, ...deck.slice(0, draws)] };
+}
+
+function drawEvents(who: 'me' | 'enemy', before: BattleCard[], after: BattleCard[]): BattleEvent[] {
+  return after.slice(before.length).map((card) => ({ type: 'draw', who, cardId: card.id }));
 }
 
 function readyField(field: (BattleCard | null)[]): (BattleCard | null)[] {
@@ -324,6 +331,7 @@ export function useSkill(state: BattleState, myFieldIdx: number): BattleState {
     eHp,
     cost: state.cost - caster.skill.cost,
     log,
+    turnEvents: drawEvents('me', state.hand, hand),
   };
 
   return { ...next, over: checkGameOver(next) };
@@ -331,11 +339,13 @@ export function useSkill(state: BattleState, myFieldIdx: number): BattleState {
 
 export function endTurn(state: BattleState): BattleState {
   const log = [...state.log];
+  const events: BattleEvent[] = [];
 
   // --- Enemy AI turn ---
   const eMaxCost = Math.min(MAX_COST_CAP, state.eMaxCost + 1);
   let eCost = eMaxCost;
   let { deck: eDeck, hand: eHand } = drawUpTo(state.eDeck, state.eHand, 1);
+  events.push(...drawEvents('enemy', state.eHand, eHand));
   const eField = readyField(state.eField);
   let field = [...state.field];
   let myHp = state.myHp;
@@ -359,6 +369,7 @@ export function endTurn(state: BattleState): BattleState {
     };
     eHand = eHand.filter((c) => c.id !== card.id);
     played += 1;
+    events.push({ type: 'play', who: 'enemy', cardId: card.id, slot });
     log.push(`상대가 ${card.name} 카드를 배치`);
   }
 
@@ -377,6 +388,16 @@ export function endTurn(state: BattleState): BattleState {
       if (state.turnN === 1) continue; // no first-turn rush
       myHp -= atkStats.atk;
       eField[i] = { ...attacker, hasActed: true };
+      events.push({
+        type: 'attack',
+        who: 'enemy',
+        attackerSlot: i,
+        target: 'hero',
+        myHp,
+        eHp: state.eHp,
+        attackerHp: attacker.currentHp ?? atkStats.hp,
+        targetHp: null,
+      });
       log.push(`상대의 ${attacker.name} → 내 히어로에게 ${atkStats.atk} 피해`);
       continue;
     }
@@ -400,12 +421,23 @@ export function endTurn(state: BattleState): BattleState {
     field[targetIdx] = defenderHp <= 0 ? null : { ...defender, currentHp: defenderHp };
     eField[i] = attackerHp <= 0 ? null : { ...attacker, currentHp: attackerHp, hasActed: true };
 
+    events.push({
+      type: 'attack',
+      who: 'enemy',
+      attackerSlot: i,
+      target: targetIdx,
+      myHp,
+      eHp: state.eHp,
+      attackerHp: attackerHp <= 0 ? null : attackerHp,
+      targetHp: defenderHp <= 0 ? null : defenderHp,
+    });
     log.push(`상대의 ${attacker.name} → ${defender.name}에게 ${dmgToDefender} 피해 (반격 ${dmgToAttacker})`);
   }
 
   // --- My new turn setup ---
   const maxCost = Math.min(MAX_COST_CAP, state.maxCost + 1);
   const { deck, hand } = drawUpTo(state.deck, state.hand, 1);
+  events.push(...drawEvents('me', state.hand, hand));
   field = readyField(field);
 
   const next: BattleState = {
@@ -425,6 +457,7 @@ export function endTurn(state: BattleState): BattleState {
     turnN: state.turnN + 1,
     log,
     selectedFieldIdx: null,
+    turnEvents: events,
   };
 
   return { ...next, over: checkGameOver(next) };

@@ -335,7 +335,7 @@ const styles = StyleSheet.create({
   },
   tile: {
     width: '23%',
-    minHeight: 86,
+    aspectRatio: 0.65,
     backgroundColor: colors.surface1,
     borderRadius: radius.gameCard,
     borderWidth: 2,

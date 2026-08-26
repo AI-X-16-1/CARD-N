@@ -43,6 +43,27 @@ export interface Synergy {
   description: string;
 }
 
+// Structured record of what happened during a single state transition, for
+// UIs that want to animate individual actions (in particular the AI's, since
+// endTurn() resolves its whole turn atomically and returns only the final
+// state — this is how the caller finds out what the AI actually did).
+export type BattleEvent =
+  | { type: 'draw'; who: 'me' | 'enemy'; cardId: number }
+  | { type: 'play'; who: 'me' | 'enemy'; cardId: number; slot: number }
+  | {
+      type: 'attack';
+      who: 'me' | 'enemy';
+      attackerSlot: number;
+      target: number | 'hero';
+      // Resulting values right after this specific attack resolves, so a UI
+      // can apply them the instant its animation lands instead of waiting
+      // for the rest of the (possibly multi-attack) turn to finish.
+      myHp: number;
+      eHp: number;
+      attackerHp: number | null; // null = the attacker died to counter-damage
+      targetHp: number | null; // null = the target died (or target === 'hero')
+    };
+
 export interface BattleState {
   deck: BattleCard[];
   hand: BattleCard[];
@@ -61,4 +82,8 @@ export interface BattleState {
   log: string[];
   over: 'victory' | 'defeat' | null;
   selectedFieldIdx: number | null;
+
+  // Events produced by the call that returned this state (empty/absent for
+  // states that weren't just returned from an action, e.g. test fixtures).
+  turnEvents?: BattleEvent[];
 }

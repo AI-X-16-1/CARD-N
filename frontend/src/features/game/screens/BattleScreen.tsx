@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, {
@@ -16,7 +16,116 @@ import { CardDetailPanel } from '@/features/game/components/CardDetailPanel';
 import { StatRow } from '@/features/game/components/StatRow';
 import { attack, calcEffStats, checkSynergies, endTurn, initBattle, playCard, useSkill } from '@/features/game/engine/battle';
 import { createStarterDeck } from '@/features/game/engine/starterDeck';
-import type { BattleCard, BattleState, Synergy } from '@/features/game/engine/types';
+import type { BattleCard, BattleEvent, BattleState, Synergy } from '@/features/game/engine/types';
+
+type Rect = { x: number; y: number; w: number; h: number };
+
+// Distance a card must travel (from center to center) before its edge meets
+// the target's, plus a deliberate overlap so the collision is unambiguous —
+// shared by the player's own attack bump and the mirrored AI one below.
+function computeBumpPoint(from: Rect, to: Rect): { x: number; y: number } {
+  const acx = from.x + from.w / 2;
+  const acy = from.y + from.h / 2;
+  const bcx = to.x + to.w / 2;
+  const bcy = to.y + to.h / 2;
+  const dx = bcx - acx;
+  const dy = bcy - acy;
+  const dist = Math.hypot(dx, dy) || 1;
+  const ux = dx / dist;
+  const uy = dy / dist;
+  const reach = (halfW: number, halfH: number) =>
+    Math.min(Math.abs(ux) > 1e-6 ? halfW / Math.abs(ux) : Infinity, Math.abs(uy) > 1e-6 ? halfH / Math.abs(uy) : Infinity);
+  const halfA = reach(from.w / 2, from.h / 2);
+  const halfB = reach(to.w / 2, to.h / 2);
+  const overlap = Math.min(from.w, to.w) * 0.6;
+  const travel = Math.max(0, dist - halfA - halfB + overlap);
+  return { x: from.x + ux * travel, y: from.y + uy * travel };
+}
+
+type GhostMotion =
+  | { kind: 'move'; to: Rect; duration: number; easing?: (v: number) => number }
+  | { kind: 'bump'; to: { x: number; y: number }; outDuration: number; backDuration: number };
+
+// One-shot animated card used to replay a single turnEvent (draw/play/attack)
+// for whichever side didn't trigger it directly through the UI — in
+// practice, the AI's turn. Each instance owns its animation and unmounts
+// itself via onDone when finished, so several can play in sequence just by
+// swapping which one is rendered. onImpact (optional) fires when the card's
+// effect should actually land — immediately for a 'move' (nothing happens
+// after arrival), but at the *outbound* half of a 'bump', before the return
+// trip, so callers can apply real-time results (HP, etc.) right on impact.
+function ActionGhost({
+  card,
+  faceDown,
+  from,
+  motion,
+  onImpact,
+  onDone,
+}: {
+  card: BattleCard | null;
+  faceDown?: boolean;
+  from: Rect;
+  motion: GhostMotion;
+  onImpact?: () => void;
+  onDone: () => void;
+}) {
+  const x = useSharedValue(from.x);
+  const y = useSharedValue(from.y);
+  const w = useSharedValue(from.w);
+  const h = useSharedValue(from.h);
+  const opacity = useSharedValue(motion.kind === 'move' ? 0 : 1);
+
+  useEffect(() => {
+    if (motion.kind === 'move') {
+      opacity.value = withTiming(1, { duration: 80 });
+      const cfg = { duration: motion.duration, easing: motion.easing ?? Easing.out(Easing.cubic) };
+      x.value = withTiming(motion.to.x, cfg);
+      y.value = withTiming(motion.to.y, cfg);
+      w.value = withTiming(motion.to.w, cfg);
+      h.value = withTiming(motion.to.h, cfg, (finished) => {
+        if (!finished) return;
+        if (onImpact) runOnJS(onImpact)();
+        runOnJS(onDone)();
+      });
+    } else {
+      const outCfg = { duration: motion.outDuration, easing: Easing.out(Easing.quad) };
+      const backCfg = { duration: motion.backDuration, easing: Easing.in(Easing.quad) };
+      x.value = withSequence(withTiming(motion.to.x, outCfg), withTiming(from.x, backCfg));
+      y.value = withSequence(
+        withTiming(motion.to.y, outCfg, (finished) => {
+          if (finished && onImpact) runOnJS(onImpact)();
+        }),
+        withTiming(from.y, backCfg, (finished) => {
+          if (finished) runOnJS(onDone)();
+        }),
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const style = useAnimatedStyle(() => ({
+    left: x.value,
+    top: y.value,
+    width: w.value,
+    height: h.value,
+    opacity: opacity.value,
+  }));
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[styles.flyingCard, { borderColor: !faceDown && card ? JOB_COLOR[card.jobClass] : colors.borderMedium }, style]}
+    >
+      {faceDown || !card ? (
+        <Text style={styles.cardBackMark}>◆</Text>
+      ) : (
+        <Text style={styles.cardName} numberOfLines={1}>
+          ★{card.grade} {card.name}
+        </Text>
+      )}
+    </Animated.View>
+  );
+}
 
 type Props = {
   initialDeck?: BattleCard[];
@@ -27,6 +136,31 @@ function isReady(card: BattleCard): boolean {
   return !card.hasActed && (!card.justPlayed || card.grade === 1);
 }
 
+const HAND_CARD_WIDTH = 84;
+const HAND_FAN_SPAN = 340; // usable width budget so up to 7 cards fit in one row
+const HAND_FAN_ANGLE = 6; // degrees of rotation per card away from center
+const HAND_FAN_CURVE = 5; // px of vertical drop per (offset from center)^2
+const HAND_FAN_LIFT = 28; // px the selected card rises above the rest of the fan
+
+// Overlapping, arced "held in hand" layout — like Hearthstone/Slay the
+// Spire — instead of wrapping to a second row once the hand grows past ~4
+// cards. Overlap only kicks in once cards stop fitting side by side.
+// The selected card is un-rotated, lifted, and brought to the front so its
+// full info is readable above its overlapping neighbors.
+function fanCardStyle(i: number, n: number, selected: boolean) {
+  const step = n > 1 ? Math.min(HAND_CARD_WIDTH + 8, (HAND_FAN_SPAN - HAND_CARD_WIDTH) / (n - 1)) : 0;
+  const offset = i - (n - 1) / 2;
+  const baseY = offset * offset * HAND_FAN_CURVE;
+  return {
+    marginLeft: i === 0 ? 0 : step - HAND_CARD_WIDTH,
+    zIndex: selected ? 100 : i,
+    transform: [
+      { translateY: selected ? baseY - HAND_FAN_LIFT : baseY },
+      { rotate: selected ? '0deg' : `${offset * HAND_FAN_ANGLE}deg` },
+    ],
+  };
+}
+
 export default function BattleScreen({ initialDeck, onExit }: Props) {
   // Coming from the Deck Builder means a deck was already chosen, so start
   // immediately instead of making the player tap "새 배틀 시작" a second time.
@@ -35,6 +169,13 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
   const [selectedAttackerIdx, setSelectedAttackerIdx] = useState<number | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [viewingCard, setViewingCard] = useState<{ card: BattleCard; mine: boolean } | null>(null);
+
+  // Root of the animated overlays' positioning context. Coordinates from
+  // measureInWindow() are window-absolute, but the overlays render inside
+  // this View — so every measured position must be offset by this View's
+  // own window position before being used as left/top (it isn't at (0,0)
+  // once something like the web phone-frame wrapper offsets the screen).
+  const rootRef = useRef<View | null>(null);
 
   // Hearthstone-style "flies from hand to the target slot" placement animation.
   const [flying, setFlying] = useState<{ card: BattleCard; handIdx: number } | null>(null);
@@ -70,6 +211,27 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
     opacity: atkOpacity.value,
   }));
 
+  // Replays the AI's turn (and my own skill/turn draws) one event at a time
+  // using turnEvents from the engine, mirroring the placement/attack
+  // animations above in the opposite direction. The board only updates once
+  // the whole sequence finishes playing.
+  const [ghost, setGhost] = useState<{
+    id: number;
+    card: BattleCard | null;
+    faceDown?: boolean;
+    from: Rect;
+    motion: GhostMotion;
+    onImpact?: () => void;
+    onDone: () => void;
+  } | null>(null);
+  const ghostIdRef = useRef(0);
+  // Guards against a stray callback from an already-unmounted ghost (the one
+  // whose lethal impact just ended the game) resuming the event queue.
+  const turnStoppedRef = useRef(false);
+  const myHeroRef = useRef<View | null>(null);
+  const handRowRef = useRef<View | null>(null);
+  const enemyHandRowRef = useRef<View | null>(null);
+
   function startBattle() {
     setState(initBattle(initialDeck ?? createStarterDeck()));
     setSelectedHandIdx(null);
@@ -78,6 +240,8 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
     setViewingCard(null);
     setFlying(null);
     setAttacking(null);
+    setGhost(null);
+    turnStoppedRef.current = false;
   }
 
   function openDetail(card: BattleCard, mine: boolean) {
@@ -118,28 +282,31 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
     const card = state.hand[handIdx];
     const handEl = handRefs.current[handIdx];
     const slotEl = fieldRefs.current[slotIdx];
+    const rootEl = rootRef.current;
     setSelectedHandIdx(null);
 
-    if (!card || !handEl || !slotEl) {
+    if (!card || !handEl || !slotEl || !rootEl) {
       run((s) => playCard(s, handIdx, slotIdx));
       return;
     }
 
-    handEl.measureInWindow((hx, hy, hw, hh) => {
-      slotEl.measureInWindow((sx, sy, sw, sh) => {
-        flyX.value = hx;
-        flyY.value = hy;
-        flyW.value = hw;
-        flyH.value = hh;
-        flyOpacity.value = 1;
-        setFlying({ card, handIdx });
+    rootEl.measureInWindow((rx, ry) => {
+      handEl.measureInWindow((hx, hy, hw, hh) => {
+        slotEl.measureInWindow((sx, sy, sw, sh) => {
+          flyX.value = hx - rx;
+          flyY.value = hy - ry;
+          flyW.value = hw;
+          flyH.value = hh;
+          flyOpacity.value = 1;
+          setFlying({ card, handIdx });
 
-        const config = { duration: 320, easing: Easing.out(Easing.cubic) };
-        flyX.value = withTiming(sx, config);
-        flyY.value = withTiming(sy, config);
-        flyW.value = withTiming(sw, config);
-        flyH.value = withTiming(sh, config, (finished) => {
-          if (finished) runOnJS(commitPlay)(handIdx, slotIdx);
+          const config = { duration: 320, easing: Easing.out(Easing.cubic) };
+          flyX.value = withTiming(sx - rx, config);
+          flyY.value = withTiming(sy - ry, config);
+          flyW.value = withTiming(sw, config);
+          flyH.value = withTiming(sh, config, (finished) => {
+            if (finished) runOnJS(commitPlay)(handIdx, slotIdx);
+          });
         });
       });
     });
@@ -163,33 +330,37 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
     const attacker = state.field[myIdx];
     const myEl = fieldRefs.current[myIdx];
     const targetEl = target === 'hero' ? enemyHeroRef.current : enemyFieldRefs.current[target];
+    const rootEl = rootRef.current;
 
-    if (!attacker || !myEl || !targetEl) {
+    if (!attacker || !myEl || !targetEl || !rootEl) {
       run((s) => attack(s, myIdx, target));
       return;
     }
 
-    myEl.measureInWindow((ax, ay, aw, ah) => {
-      targetEl.measureInWindow((bx, by) => {
-        const bumpX = ax + (bx - ax) * 0.6;
-        const bumpY = ay + (by - ay) * 0.6;
+    rootEl.measureInWindow((rx, ry) => {
+      myEl.measureInWindow((ax0, ay0, aw, ah) => {
+        targetEl.measureInWindow((bx0, by0, bw, bh) => {
+          const from: Rect = { x: ax0 - rx, y: ay0 - ry, w: aw, h: ah };
+          const to: Rect = { x: bx0 - rx, y: by0 - ry, w: bw, h: bh };
+          const bump = computeBumpPoint(from, to);
 
-        atkX.value = ax;
-        atkY.value = ay;
-        atkW.value = aw;
-        atkH.value = ah;
-        atkOpacity.value = 1;
-        setAttacking({ card: attacker, myIdx });
+          atkX.value = from.x;
+          atkY.value = from.y;
+          atkW.value = from.w;
+          atkH.value = from.h;
+          atkOpacity.value = 1;
+          setAttacking({ card: attacker, myIdx });
 
-        const outCfg = { duration: 150, easing: Easing.out(Easing.quad) };
-        const backCfg = { duration: 150, easing: Easing.in(Easing.quad) };
-        atkX.value = withSequence(withTiming(bumpX, outCfg), withTiming(ax, backCfg));
-        atkY.value = withSequence(
-          withTiming(bumpY, outCfg),
-          withTiming(ay, backCfg, (finished) => {
-            if (finished) runOnJS(commitAttack)(myIdx, target);
-          }),
-        );
+          const outCfg = { duration: 150, easing: Easing.out(Easing.quad) };
+          const backCfg = { duration: 150, easing: Easing.in(Easing.quad) };
+          atkX.value = withSequence(withTiming(bump.x, outCfg), withTiming(from.x, backCfg));
+          atkY.value = withSequence(
+            withTiming(bump.y, outCfg),
+            withTiming(from.y, backCfg, (finished) => {
+              if (finished) runOnJS(commitAttack)(myIdx, target);
+            }),
+          );
+        });
       });
     });
   }
@@ -200,7 +371,221 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
   }
 
   function useSkillOnSelected() {
-    if (selectedAttackerIdx !== null) run((s) => useSkill(s, selectedAttackerIdx));
+    if (selectedAttackerIdx !== null) runWithEvents(() => useSkill(state!, selectedAttackerIdx));
+  }
+
+  // --- AI turn / event replay --------------------------------------------
+
+  function measureRelative(el: View, cb: (r: Rect) => void) {
+    const rootEl = rootRef.current;
+    if (!rootEl) return;
+    rootEl.measureInWindow((rx, ry) => {
+      el.measureInWindow((x, y, w, h) => cb({ x: x - rx, y: y - ry, w, h }));
+    });
+  }
+
+  function cardBoxAt(rect: Rect, w: number, h: number): Rect {
+    return { x: rect.x, y: rect.y, w, h };
+  }
+
+  function runEndTurn() {
+    if (!state) return;
+    runWithEvents(() => endTurn(state));
+  }
+
+  function runWithEvents(computeNext: () => BattleState) {
+    if (!state) return;
+    let next: BattleState;
+    try {
+      next = computeNext();
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    setErrorMsg(null);
+    setSelectedHandIdx(null);
+    setSelectedAttackerIdx(null);
+    turnStoppedRef.current = false;
+    playEventQueue(next.turnEvents ?? [], 0, next);
+  }
+
+  function playEventQueue(events: BattleEvent[], i: number, next: BattleState) {
+    if (turnStoppedRef.current) return;
+    if (i >= events.length) {
+      setGhost(null);
+      setState(next);
+      return;
+    }
+    const done = () => playEventQueue(events, i + 1, next);
+    if (!animateEvent(events[i], next, done)) done();
+  }
+
+  // Applies one attack's result (HP, the attacker's/target's currentHp, or
+  // their removal) directly to the live board the instant it lands, instead
+  // of waiting for the rest of the turn's animations. Returns true if this
+  // was lethal, so the caller can end the game right there rather than
+  // waiting for every remaining queued animation to finish first.
+  function applyAttackImpact(ev: Extract<BattleEvent, { type: 'attack' }>): boolean {
+    setState((prev) => {
+      if (!prev) return prev;
+      const patched: BattleState = { ...prev };
+
+      const attackerField = ev.who === 'enemy' ? [...prev.eField] : [...prev.field];
+      const attackerCard = attackerField[ev.attackerSlot];
+      attackerField[ev.attackerSlot] =
+        ev.attackerHp === null || !attackerCard ? null : { ...attackerCard, currentHp: ev.attackerHp, hasActed: true };
+      if (ev.who === 'enemy') patched.eField = attackerField;
+      else patched.field = attackerField;
+
+      if (ev.target !== 'hero') {
+        const targetField = ev.who === 'enemy' ? [...prev.field] : [...prev.eField];
+        const targetCard = targetField[ev.target];
+        targetField[ev.target] = ev.targetHp === null || !targetCard ? null : { ...targetCard, currentHp: ev.targetHp };
+        if (ev.who === 'enemy') patched.field = targetField;
+        else patched.eField = targetField;
+      }
+
+      patched.myHp = ev.myHp;
+      patched.eHp = ev.eHp;
+      if (ev.myHp <= 0) patched.over = 'defeat';
+      else if (ev.eHp <= 0) patched.over = 'victory';
+
+      return patched;
+    });
+    return ev.myHp <= 0 || ev.eHp <= 0;
+  }
+
+  // Places the card the instant its "play" ghost lands, so the field slot
+  // doesn't sit visibly empty again for the rest of the turn's animations.
+  function applyPlayImpact(ev: Extract<BattleEvent, { type: 'play' }>, next: BattleState) {
+    setState((prev) => {
+      if (!prev) return prev;
+      if (ev.who === 'enemy') {
+        const eField = [...prev.eField];
+        eField[ev.slot] = next.eField[ev.slot];
+        return { ...prev, eField, eHand: prev.eHand.filter((c) => c.id !== ev.cardId) };
+      }
+      const field = [...prev.field];
+      field[ev.slot] = next.field[ev.slot];
+      return { ...prev, field, hand: prev.hand.filter((c) => c.id !== ev.cardId) };
+    });
+  }
+
+  // Returns false (and does nothing) when a required ref/position isn't
+  // available, so the caller can just skip straight to the next event.
+  function animateEvent(ev: BattleEvent, next: BattleState, onDone: () => void): boolean {
+    if (ev.type === 'draw') {
+      const destEl = ev.who === 'me' ? handRowRef.current : enemyHandRowRef.current;
+      const rootEl = rootRef.current;
+      if (!destEl || !rootEl) return false;
+
+      if (ev.who === 'me') {
+        // Slides in gently from the right, rather than from the deck label —
+        // reads more like "a card arriving". Starting exactly at the frame's
+        // edge got clipped by its overflow:hidden for almost the whole trip
+        // (only the last few px before landing were ever visible), so start
+        // fully inside the visible area instead — still clearly "from the
+        // right" without being invisible. Uses measureRelative for both
+        // measurements (like every other event type) instead of a separate
+        // raw measureInWindow call.
+        measureRelative(rootEl, (rootRect) => {
+          measureRelative(destEl, (to) => {
+            const size = { w: HAND_CARD_WIDTH, h: HAND_CARD_WIDTH / 0.65 };
+            const startX = Math.min(rootRect.w - size.w - 8, to.x + 150);
+            const from: Rect = { x: startX, y: to.y, w: size.w, h: size.h };
+            const card = next.hand.find((c) => c.id === ev.cardId) ?? null;
+            setGhost({
+              id: ghostIdRef.current++,
+              card,
+              faceDown: false,
+              from,
+              motion: { kind: 'move', to: cardBoxAt(to, size.w, size.h), duration: 600 },
+              onDone,
+            });
+          });
+        });
+        return true;
+      }
+
+      const sourceEl = enemyHeroRef.current;
+      if (!sourceEl) return false;
+      measureRelative(sourceEl, (from) => {
+        measureRelative(destEl, (to) => {
+          setGhost({
+            id: ghostIdRef.current++,
+            card: null,
+            faceDown: true,
+            from,
+            motion: { kind: 'move', to: cardBoxAt(to, 28, 40), duration: 260 },
+            onDone,
+          });
+        });
+      });
+      return true;
+    }
+
+    if (ev.type === 'play') {
+      const sourceEl = ev.who === 'enemy' ? enemyHandRowRef.current : handRowRef.current;
+      const destEl = ev.who === 'enemy' ? enemyFieldRefs.current[ev.slot] : fieldRefs.current[ev.slot];
+      if (!sourceEl || !destEl) return false;
+      const card = (ev.who === 'enemy' ? next.eField[ev.slot] : next.field[ev.slot]) ?? null;
+      measureRelative(sourceEl, (from) => {
+        measureRelative(destEl, (to) => {
+          setGhost({
+            id: ghostIdRef.current++,
+            card,
+            faceDown: false,
+            from: ev.who === 'enemy' ? cardBoxAt(from, 28, 40) : from,
+            motion: { kind: 'move', to, duration: 300 },
+            onImpact: () => applyPlayImpact(ev, next),
+            onDone,
+          });
+        });
+      });
+      return true;
+    }
+
+    // attack
+    const attackerEl = ev.who === 'enemy' ? enemyFieldRefs.current[ev.attackerSlot] : fieldRefs.current[ev.attackerSlot];
+    const targetEl =
+      ev.target === 'hero'
+        ? ev.who === 'enemy'
+          ? myHeroRef.current
+          : enemyHeroRef.current
+        : ev.who === 'enemy'
+          ? fieldRefs.current[ev.target]
+          : enemyFieldRefs.current[ev.target];
+    if (!attackerEl || !targetEl) return false;
+    // Prefer the post-turn state, but fall back to the pre-turn snapshot in
+    // case this attacker died to counter-damage later in the same turn.
+    const card =
+      (ev.who === 'enemy'
+        ? (next.eField[ev.attackerSlot] ?? state?.eField[ev.attackerSlot])
+        : (next.field[ev.attackerSlot] ?? state?.field[ev.attackerSlot])) ?? null;
+    measureRelative(attackerEl, (from) => {
+      measureRelative(targetEl, (to) => {
+        const bump = computeBumpPoint(from, to);
+        // The AI's attacks read as too fast at the player's own 150/150 —
+        // slow them to half speed. Mine stays snappy since that wasn't the complaint.
+        const speed = ev.who === 'enemy' ? { outDuration: 300, backDuration: 300 } : { outDuration: 150, backDuration: 150 };
+        setGhost({
+          id: ghostIdRef.current++,
+          card,
+          faceDown: false,
+          from,
+          motion: { kind: 'bump', to: bump, ...speed },
+          onImpact: () => {
+            const lethal = applyAttackImpact(ev);
+            if (lethal) {
+              turnStoppedRef.current = true;
+              setGhost(null); // end right here — don't wait for the return trip or any queued events after it
+            }
+          },
+          onDone,
+        });
+      });
+    });
+    return true;
   }
 
   if (!state) {
@@ -227,7 +612,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
   const canUseSkill = !!selectedCard && !selectedCard.hasActed && state.cost >= selectedCard.skill.cost;
 
   return (
-    <View style={styles.root}>
+    <View style={styles.root} ref={rootRef}>
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.topRow}>
@@ -261,7 +646,12 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
             enemyHeroRef.current = el;
           }}
         />
-        <EnemyHandBackRow count={state.eHand.length} />
+        <EnemyHandBackRow
+          count={state.eHand.length}
+          registerRef={(el) => {
+            enemyHandRowRef.current = el;
+          }}
+        />
         <SynergyRow synergies={eSynergies} />
         <FieldRow
           cards={state.eField}
@@ -295,22 +685,35 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
           }}
         />
         <SynergyRow synergies={mySynergies} />
-        <HeroRow label="나" hp={state.myHp} deckCount={state.deck.length} handCount={state.hand.length} maxCost={state.maxCost} cost={state.cost} />
+        <HeroRow
+          label="나"
+          hp={state.myHp}
+          deckCount={state.deck.length}
+          handCount={state.hand.length}
+          maxCost={state.maxCost}
+          cost={state.cost}
+          registerRef={(el) => {
+            myHeroRef.current = el;
+          }}
+        />
 
-        {selectedCard && (
-          <Pressable
-            style={[styles.skillButton, !canUseSkill && styles.disabledButton]}
-            onPress={useSkillOnSelected}
-            disabled={!canUseSkill}
-          >
-            <Text style={styles.buttonText}>
-              {selectedCard.skill.name} 사용 (cost {selectedCard.skill.cost})
-            </Text>
-            <Text style={styles.skillDesc}>{selectedCard.skill.description}</Text>
-          </Pressable>
-        )}
+        {/* Always rendered at a fixed minHeight (hidden via opacity when nothing's
+            selected) so the hand/end-turn button below never shifts. Later polish
+            pass: move this to a docked/floating action bar instead. */}
+        <Pressable
+          style={[styles.skillButton, !selectedCard ? styles.skillButtonHidden : !canUseSkill && styles.disabledButton]}
+          onPress={useSkillOnSelected}
+          disabled={!selectedCard || !canUseSkill}
+        >
+          <Text style={styles.buttonText}>
+            {selectedCard ? `${selectedCard.skill.name} 사용 (cost ${selectedCard.skill.cost})` : ' '}
+          </Text>
+          <Text style={styles.skillDesc} numberOfLines={2}>
+            {selectedCard ? selectedCard.skill.description : ' '}
+          </Text>
+        </Pressable>
 
-        <View style={styles.handRow}>
+        <View style={styles.handRow} ref={handRowRef}>
           {state.hand.map((card, i) => (
             <Pressable
               key={`${card.id}-${i}`}
@@ -325,6 +728,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
                 card.cost > state.cost && styles.unaffordable,
                 selectedHandIdx === i && styles.selectedSlot,
                 flying?.handIdx === i && styles.hiddenCard,
+                fanCardStyle(i, state.hand.length, selectedHandIdx === i),
               ]}
             >
               <View style={[styles.infoBadge, styles.noPointerEvents]}>
@@ -339,7 +743,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
           ))}
         </View>
 
-        <Pressable style={styles.primaryButton} onPress={() => run(endTurn)}>
+        <Pressable style={styles.primaryButton} onPress={runEndTurn}>
           <Text style={styles.buttonText}>턴 종료</Text>
         </Pressable>
 
@@ -407,6 +811,18 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
         </Text>
       </Animated.View>
     )}
+
+    {ghost && (
+      <ActionGhost
+        key={ghost.id}
+        card={ghost.card}
+        faceDown={ghost.faceDown}
+        from={ghost.from}
+        motion={ghost.motion}
+        onImpact={ghost.onImpact}
+        onDone={ghost.onDone}
+      />
+    )}
     </View>
   );
 }
@@ -454,10 +870,9 @@ function SynergyRow({ synergies }: { synergies: Synergy[] }) {
   );
 }
 
-function EnemyHandBackRow({ count }: { count: number }) {
-  if (count === 0) return null;
+function EnemyHandBackRow({ count, registerRef }: { count: number; registerRef?: (el: View | null) => void }) {
   return (
-    <View style={styles.enemyHandRow}>
+    <View style={styles.enemyHandRow} ref={registerRef}>
       {Array.from({ length: count }).map((_, i) => (
         <View key={i} style={styles.cardBack}>
           <Text style={styles.cardBackMark}>◆</Text>
@@ -651,7 +1066,7 @@ const styles = StyleSheet.create({
   },
   slot: {
     flex: 1,
-    minHeight: 64,
+    aspectRatio: 0.65,
     backgroundColor: colors.surface1,
     borderRadius: radius.gameCard,
     borderWidth: 2,
@@ -687,16 +1102,20 @@ const styles = StyleSheet.create({
   },
   handRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    flexWrap: 'nowrap',
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    paddingTop: 12,
   },
   handCard: {
     width: 84,
+    aspectRatio: 0.65,
     backgroundColor: colors.surface1,
     borderRadius: radius.gameCard,
     borderTopWidth: 3,
     padding: 8,
     gap: 2,
+    justifyContent: 'center',
     position: 'relative',
   },
   infoBadge: {
@@ -757,7 +1176,12 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 16,
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 2,
+    minHeight: 66, // reserved for the 2-line worst case so nothing below shifts when a card is (de)selected
+  },
+  skillButtonHidden: {
+    opacity: 0,
   },
   skillDesc: {
     color: colors.textPrimary,

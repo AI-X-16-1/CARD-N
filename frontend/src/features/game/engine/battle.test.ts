@@ -263,6 +263,15 @@ describe('playCard', () => {
     expect(state.field).toEqual([null, null, null, null, null]);
     expect(state.cost).toBe(2);
   });
+
+  test('clears turnEvents left over from a previous endTurn call', () => {
+    const card = makeCard('dev', 1, { cost: 1 });
+    const state = makeState({ hand: [card], cost: 2, turnEvents: [{ type: 'draw', who: 'me', cardId: 999 }] });
+
+    const next = playCard(state, 0, 0);
+
+    expect(next.turnEvents).toEqual([]);
+  });
 });
 
 describe('attack', () => {
@@ -412,6 +421,20 @@ describe('attack', () => {
     expect(state.field[0]).toMatchObject({ currentHp: 10, hasActed: false });
     expect(state.eField[0]).toMatchObject({ currentHp: 8 });
   });
+
+  test('clears turnEvents left over from a previous endTurn call', () => {
+    const attacker = makeCard('sales', 3, { finalStats: { atk: 9, def: 3, int: 4, hp: 10 }, currentHp: 10 });
+    const state = makeState({
+      field: [attacker, null, null, null, null],
+      eField: [null, null, null, null, null],
+      turnN: 2,
+      turnEvents: [{ type: 'draw', who: 'me', cardId: 999 }],
+    });
+
+    const next = attack(state, 0, 'hero');
+
+    expect(next.turnEvents).toEqual([]);
+  });
 });
 
 describe('useSkill', () => {
@@ -487,6 +510,7 @@ describe('useSkill', () => {
     expect(next.field[1]?.buffs?.hp).toBe(2);
     expect(next.hand).toEqual([drawCard]);
     expect(next.deck).toEqual([]);
+    expect(next.turnEvents).toEqual([{ type: 'draw', who: 'me', cardId: drawCard.id }]);
   });
 
   test('Austerity Budget (finance): +3 DEF buff to all allies', () => {
@@ -546,6 +570,10 @@ describe('useSkill', () => {
 
     expect(next.hand).toEqual([c1, c2]);
     expect(next.deck).toEqual([c3]);
+    expect(next.turnEvents).toEqual([
+      { type: 'draw', who: 'me', cardId: c1.id },
+      { type: 'draw', who: 'me', cardId: c2.id },
+    ]);
   });
 
   test('draws never exceed the 7-card hand limit', () => {
@@ -748,5 +776,121 @@ describe('endTurn', () => {
     expect(state.turnN).toBe(1);
     expect(state.cost).toBe(0);
     expect(state.field[0]).toMatchObject({ hasActed: true, justPlayed: true });
+  });
+
+  describe('turnEvents', () => {
+    test('records a play event with the card id and slot when the AI plays a card', () => {
+      const eCard = makeCard('dev', 1, { cost: 1 });
+      const state = makeState({
+        turnN: 2,
+        eMaxCost: 2,
+        eHand: [eCard],
+        eField: [null, null, null, null, null],
+        eDeck: [],
+      });
+
+      const next = endTurn(state);
+
+      expect(next.turnEvents).toContainEqual({ type: 'play', who: 'enemy', cardId: eCard.id, slot: 0 });
+    });
+
+    test('records an attack event with the attacker slot and target slot when the AI attacks my card', () => {
+      const eAttacker = makeCard('sales', 3, {
+        finalStats: { atk: 9, def: 3, int: 4, hp: 10 },
+        currentHp: 10,
+        hasActed: false,
+        justPlayed: false,
+      });
+      const myCard = makeCard('hr', 1, { finalStats: { atk: 4, def: 5, int: 6, hp: 10 }, currentHp: 10 });
+      const state = makeState({
+        turnN: 2,
+        field: [myCard, null, null, null, null],
+        eField: [eAttacker, null, null, null, null],
+        eDeck: [],
+      });
+
+      const next = endTurn(state);
+
+      // dmg to myCard: max(1, 9 - floor(5/2)) = 7 -> 10-7=3; counter to eAttacker: max(1, floor(4/2)) = 2 -> 10-2=8
+      expect(next.turnEvents).toContainEqual({
+        type: 'attack',
+        who: 'enemy',
+        attackerSlot: 0,
+        target: 0,
+        myHp: 30,
+        eHp: 30,
+        attackerHp: 8,
+        targetHp: 3,
+      });
+    });
+
+    test('records targetHp as null when the attack kills the target', () => {
+      const eAttacker = makeCard('sales', 1, {
+        finalStats: { atk: 20, def: 3, int: 4, hp: 10 },
+        currentHp: 10,
+        hasActed: false,
+        justPlayed: false,
+      });
+      const myCard = makeCard('hr', 1, { finalStats: { atk: 1, def: 0, int: 6, hp: 5 }, currentHp: 5 });
+      const state = makeState({
+        turnN: 2,
+        field: [myCard, null, null, null, null],
+        eField: [eAttacker, null, null, null, null],
+        eDeck: [],
+      });
+
+      const next = endTurn(state);
+
+      expect(next.turnEvents).toContainEqual(
+        expect.objectContaining({ type: 'attack', attackerSlot: 0, target: 0, targetHp: null, attackerHp: 9 }),
+      );
+    });
+
+    test('records an attack event targeting the hero when the AI attacks my hero', () => {
+      const eAttacker = makeCard('sales', 3, {
+        finalStats: { atk: 9, def: 3, int: 4, hp: 10 },
+        currentHp: 10,
+        hasActed: false,
+        justPlayed: false,
+      });
+      const state = makeState({
+        turnN: 2,
+        field: [null, null, null, null, null],
+        eField: [eAttacker, null, null, null, null],
+        eDeck: [],
+      });
+
+      const next = endTurn(state);
+
+      expect(next.turnEvents).toContainEqual({
+        type: 'attack',
+        who: 'enemy',
+        attackerSlot: 0,
+        target: 'hero',
+        myHp: 21,
+        eHp: 30,
+        attackerHp: 10,
+        targetHp: null,
+      });
+    });
+
+    test('records a draw event for me and for the enemy when each draws a card', () => {
+      const myDraw = makeCard('dev', 1);
+      const eDraw = makeCard('pm', 1);
+      const state = makeState({ deck: [myDraw], hand: [], eDeck: [eDraw], eHand: [] });
+
+      const next = endTurn(state);
+
+      expect(next.turnEvents).toContainEqual({ type: 'draw', who: 'me', cardId: myDraw.id });
+      expect(next.turnEvents).toContainEqual({ type: 'draw', who: 'enemy', cardId: eDraw.id });
+    });
+
+    test('does not record a draw event when there is no card left to draw', () => {
+      const state = makeState({ deck: [], hand: [], eDeck: [], eHand: [] });
+
+      const next = endTurn(state);
+
+      expect(next.turnEvents?.some((e) => e.type === 'draw')).toBe(false);
+    });
   });
 });
