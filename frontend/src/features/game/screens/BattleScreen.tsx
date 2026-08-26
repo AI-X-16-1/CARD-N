@@ -1,10 +1,19 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, {
+  Easing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { colors, radius, typography } from '@/shared/theme';
 import { JOB_COLOR } from '@/features/game/constants';
 import { CardDetailPanel } from '@/features/game/components/CardDetailPanel';
+import { StatRow } from '@/features/game/components/StatRow';
 import { attack, calcEffStats, checkSynergies, endTurn, initBattle, playCard, useSkill } from '@/features/game/engine/battle';
 import { createStarterDeck } from '@/features/game/engine/starterDeck';
 import type { BattleCard, BattleState, Synergy } from '@/features/game/engine/types';
@@ -27,12 +36,48 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [viewingCard, setViewingCard] = useState<{ card: BattleCard; mine: boolean } | null>(null);
 
+  // Hearthstone-style "flies from hand to the target slot" placement animation.
+  const [flying, setFlying] = useState<{ card: BattleCard; handIdx: number } | null>(null);
+  const handRefs = useRef<Record<number, View | null>>({});
+  const fieldRefs = useRef<Record<number, View | null>>({});
+  const flyX = useSharedValue(0);
+  const flyY = useSharedValue(0);
+  const flyW = useSharedValue(0);
+  const flyH = useSharedValue(0);
+  const flyOpacity = useSharedValue(0);
+  const flyingStyle = useAnimatedStyle(() => ({
+    left: flyX.value,
+    top: flyY.value,
+    width: flyW.value,
+    height: flyH.value,
+    opacity: flyOpacity.value,
+  }));
+
+  // Hearthstone-style "bumps into the target once, then returns" attack animation.
+  const [attacking, setAttacking] = useState<{ card: BattleCard; myIdx: number } | null>(null);
+  const enemyFieldRefs = useRef<Record<number, View | null>>({});
+  const enemyHeroRef = useRef<View | null>(null);
+  const atkX = useSharedValue(0);
+  const atkY = useSharedValue(0);
+  const atkW = useSharedValue(0);
+  const atkH = useSharedValue(0);
+  const atkOpacity = useSharedValue(0);
+  const atkStyle = useAnimatedStyle(() => ({
+    left: atkX.value,
+    top: atkY.value,
+    width: atkW.value,
+    height: atkH.value,
+    opacity: atkOpacity.value,
+  }));
+
   function startBattle() {
     setState(initBattle(initialDeck ?? createStarterDeck()));
     setSelectedHandIdx(null);
     setSelectedAttackerIdx(null);
     setErrorMsg(null);
     setViewingCard(null);
+    setFlying(null);
+    setAttacking(null);
   }
 
   function openDetail(card: BattleCard, mine: boolean) {
@@ -65,15 +110,93 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
       setSelectedAttackerIdx((prev) => (prev === idx ? null : idx));
       return;
     }
-    if (selectedHandIdx !== null) run((s) => playCard(s, selectedHandIdx, idx));
+    if (selectedHandIdx !== null) playCardWithFlight(selectedHandIdx, idx);
+  }
+
+  function playCardWithFlight(handIdx: number, slotIdx: number) {
+    if (!state) return;
+    const card = state.hand[handIdx];
+    const handEl = handRefs.current[handIdx];
+    const slotEl = fieldRefs.current[slotIdx];
+    setSelectedHandIdx(null);
+
+    if (!card || !handEl || !slotEl) {
+      run((s) => playCard(s, handIdx, slotIdx));
+      return;
+    }
+
+    handEl.measureInWindow((hx, hy, hw, hh) => {
+      slotEl.measureInWindow((sx, sy, sw, sh) => {
+        flyX.value = hx;
+        flyY.value = hy;
+        flyW.value = hw;
+        flyH.value = hh;
+        flyOpacity.value = 1;
+        setFlying({ card, handIdx });
+
+        const config = { duration: 320, easing: Easing.out(Easing.cubic) };
+        flyX.value = withTiming(sx, config);
+        flyY.value = withTiming(sy, config);
+        flyW.value = withTiming(sw, config);
+        flyH.value = withTiming(sh, config, (finished) => {
+          if (finished) runOnJS(commitPlay)(handIdx, slotIdx);
+        });
+      });
+    });
+  }
+
+  function commitPlay(handIdx: number, slotIdx: number) {
+    setFlying(null);
+    run((s) => playCard(s, handIdx, slotIdx));
   }
 
   function tapEnemySlot(idx: number) {
-    if (selectedAttackerIdx !== null) run((s) => attack(s, selectedAttackerIdx, idx));
+    if (selectedAttackerIdx !== null) attackWithBump(selectedAttackerIdx, idx);
   }
 
   function tapEnemyHero() {
-    if (selectedAttackerIdx !== null) run((s) => attack(s, selectedAttackerIdx, 'hero'));
+    if (selectedAttackerIdx !== null) attackWithBump(selectedAttackerIdx, 'hero');
+  }
+
+  function attackWithBump(myIdx: number, target: number | 'hero') {
+    if (!state) return;
+    const attacker = state.field[myIdx];
+    const myEl = fieldRefs.current[myIdx];
+    const targetEl = target === 'hero' ? enemyHeroRef.current : enemyFieldRefs.current[target];
+
+    if (!attacker || !myEl || !targetEl) {
+      run((s) => attack(s, myIdx, target));
+      return;
+    }
+
+    myEl.measureInWindow((ax, ay, aw, ah) => {
+      targetEl.measureInWindow((bx, by) => {
+        const bumpX = ax + (bx - ax) * 0.6;
+        const bumpY = ay + (by - ay) * 0.6;
+
+        atkX.value = ax;
+        atkY.value = ay;
+        atkW.value = aw;
+        atkH.value = ah;
+        atkOpacity.value = 1;
+        setAttacking({ card: attacker, myIdx });
+
+        const outCfg = { duration: 150, easing: Easing.out(Easing.quad) };
+        const backCfg = { duration: 150, easing: Easing.in(Easing.quad) };
+        atkX.value = withSequence(withTiming(bumpX, outCfg), withTiming(ax, backCfg));
+        atkY.value = withSequence(
+          withTiming(bumpY, outCfg),
+          withTiming(ay, backCfg, (finished) => {
+            if (finished) runOnJS(commitAttack)(myIdx, target);
+          }),
+        );
+      });
+    });
+  }
+
+  function commitAttack(myIdx: number, target: number | 'hero') {
+    setAttacking(null);
+    run((s) => attack(s, myIdx, target));
   }
 
   function useSkillOnSelected() {
@@ -104,6 +227,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
   const canUseSkill = !!selectedCard && !selectedCard.hasActed && state.cost >= selectedCard.skill.cost;
 
   return (
+    <View style={styles.root}>
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.topRow}>
@@ -126,7 +250,17 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
           </View>
         )}
 
-        <HeroRow label="상대" hp={state.eHp} deckCount={state.eDeck.length} handCount={state.eHand.length} maxCost={state.eMaxCost} onPress={tapEnemyHero} />
+        <HeroRow
+          label="상대"
+          hp={state.eHp}
+          deckCount={state.eDeck.length}
+          handCount={state.eHand.length}
+          maxCost={state.eMaxCost}
+          onPress={tapEnemyHero}
+          registerRef={(el) => {
+            enemyHeroRef.current = el;
+          }}
+        />
         <EnemyHandBackRow count={state.eHand.length} />
         <SynergyRow synergies={eSynergies} />
         <FieldRow
@@ -136,6 +270,9 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
           canTarget={selectedAttackerIdx !== null}
           onPressSlot={tapEnemySlot}
           onInfoPress={(card) => openDetail(card, false)}
+          registerSlotRef={(idx, el) => {
+            enemyFieldRefs.current[idx] = el;
+          }}
         />
 
         <Text style={styles.hintText}>
@@ -150,8 +287,12 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
           mine
           synergies={mySynergies}
           selectedIdx={selectedAttackerIdx}
+          hiddenIdx={attacking?.myIdx ?? null}
           onPressSlot={tapMySlot}
           onInfoPress={(card) => openDetail(card, true)}
+          registerSlotRef={(idx, el) => {
+            fieldRefs.current[idx] = el;
+          }}
         />
         <SynergyRow synergies={mySynergies} />
         <HeroRow label="나" hp={state.myHp} deckCount={state.deck.length} handCount={state.hand.length} maxCost={state.maxCost} cost={state.cost} />
@@ -165,6 +306,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
             <Text style={styles.buttonText}>
               {selectedCard.skill.name} 사용 (cost {selectedCard.skill.cost})
             </Text>
+            <Text style={styles.skillDesc}>{selectedCard.skill.description}</Text>
           </Pressable>
         )}
 
@@ -172,6 +314,9 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
           {state.hand.map((card, i) => (
             <Pressable
               key={`${card.id}-${i}`}
+              ref={(el) => {
+                handRefs.current[i] = el;
+              }}
               onPress={() => tapHand(i)}
               onLongPress={() => openDetail(card, true)}
               style={[
@@ -179,6 +324,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
                 { borderTopColor: JOB_COLOR[card.jobClass] },
                 card.cost > state.cost && styles.unaffordable,
                 selectedHandIdx === i && styles.selectedSlot,
+                flying?.handIdx === i && styles.hiddenCard,
               ]}
             >
               <View style={[styles.infoBadge, styles.noPointerEvents]}>
@@ -188,9 +334,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
               <Text style={styles.cardName}>
                 ★{card.grade} {card.name}
               </Text>
-              <Text style={styles.metaText}>
-                {card.jobLabel} · {card.finalStats.atk}/{card.finalStats.hp}
-              </Text>
+              <StatRow stats={card.finalStats} />
             </Pressable>
           ))}
         </View>
@@ -241,6 +385,29 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
         </Pressable>
       )}
     </SafeAreaView>
+
+    {flying && (
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.flyingCard, { borderColor: JOB_COLOR[flying.card.jobClass] }, flyingStyle]}
+      >
+        <Text style={styles.cardName} numberOfLines={1}>
+          ★{flying.card.grade} {flying.card.name}
+        </Text>
+      </Animated.View>
+    )}
+
+    {attacking && (
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.flyingCard, { borderColor: JOB_COLOR[attacking.card.jobClass] }, atkStyle]}
+      >
+        <Text style={styles.cardName} numberOfLines={1}>
+          ★{attacking.card.grade} {attacking.card.name}
+        </Text>
+      </Animated.View>
+    )}
+    </View>
   );
 }
 
@@ -252,6 +419,7 @@ function HeroRow({
   maxCost,
   cost,
   onPress,
+  registerRef,
 }: {
   label: string;
   hp: number;
@@ -260,9 +428,10 @@ function HeroRow({
   maxCost: number;
   cost?: number;
   onPress?: () => void;
+  registerRef?: (el: View | null) => void;
 }) {
   return (
-    <Pressable style={styles.heroRow} onPress={onPress}>
+    <Pressable style={styles.heroRow} onPress={onPress} ref={registerRef}>
       <Text style={styles.heroLabel}>{label}</Text>
       <Text style={styles.metaText}>❤️ {hp}</Text>
       <Text style={styles.metaText}>덱 {deckCount}장</Text>
@@ -304,23 +473,32 @@ function FieldRow({
   synergies,
   selectedIdx,
   canTarget,
+  hiddenIdx,
   onPressSlot,
   onInfoPress,
+  registerSlotRef,
 }: {
   cards: (BattleCard | null)[];
   mine: boolean;
   synergies: Synergy[];
   selectedIdx?: number | null;
   canTarget?: boolean;
+  hiddenIdx?: number | null;
   onPressSlot: (idx: number, card: BattleCard | null) => void;
   onInfoPress: (card: BattleCard) => void;
+  registerSlotRef?: (idx: number, el: View | null) => void;
 }) {
   return (
     <View style={styles.fieldRow}>
       {cards.map((card, i) => {
         if (!card) {
           return (
-            <Pressable key={i} style={[styles.slot, styles.emptySlot]} onPress={() => onPressSlot(i, null)}>
+            <Pressable
+              key={i}
+              ref={registerSlotRef ? (el) => registerSlotRef(i, el) : undefined}
+              style={[styles.slot, styles.emptySlot]}
+              onPress={() => onPressSlot(i, null)}
+            >
               <Text style={styles.emptySlotText}>빈 자리</Text>
             </Pressable>
           );
@@ -340,6 +518,7 @@ function FieldRow({
         return (
           <Pressable
             key={i}
+            ref={registerSlotRef ? (el) => registerSlotRef(i, el) : undefined}
             onPress={() => onPressSlot(i, card)}
             onLongPress={() => onInfoPress(card)}
             style={[
@@ -347,6 +526,7 @@ function FieldRow({
               { borderColor: JOB_COLOR[card.jobClass] },
               selectedIdx === i && styles.selectedSlot,
               mine && !ready && styles.notReadySlot,
+              mine && hiddenIdx === i && styles.hiddenCard,
             ]}
           >
             <View style={[styles.infoBadge, styles.noPointerEvents]}>
@@ -355,9 +535,7 @@ function FieldRow({
             <Text style={styles.cardName}>
               ★{card.grade} {card.name}
             </Text>
-            <Text style={styles.metaText}>
-              {eff.atk} / {card.currentHp ?? eff.hp}
-            </Text>
+            <StatRow stats={{ ...eff, hp: card.currentHp ?? eff.hp }} />
             {caption ? <Text style={styles.captionText}>{caption}</Text> : null}
           </Pressable>
         );
@@ -367,9 +545,25 @@ function FieldRow({
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     backgroundColor: colors.canvas,
+  },
+  hiddenCard: {
+    opacity: 0,
+  },
+  flyingCard: {
+    position: 'absolute',
+    backgroundColor: colors.surface1,
+    borderRadius: radius.gameCard,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 4,
+    zIndex: 50,
   },
   centered: {
     flex: 1,
@@ -561,7 +755,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.secondary,
     borderRadius: radius.pill,
     paddingVertical: 10,
+    paddingHorizontal: 16,
     alignItems: 'center',
+    gap: 2,
+  },
+  skillDesc: {
+    color: colors.textPrimary,
+    fontSize: typography.micro.fontSize,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   disabledButton: {
     opacity: 0.4,

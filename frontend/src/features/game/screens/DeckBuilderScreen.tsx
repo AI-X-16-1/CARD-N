@@ -6,9 +6,10 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { colors, radius, typography } from '@/shared/theme';
 import { JOB_COLOR } from '@/features/game/constants';
+import { StatRow } from '@/features/game/components/StatRow';
 import { averageCost, compendiumCompletion } from '@/features/game/engine/deckStats';
 import { completeDeckTo15, groupCompendium, type CompendiumSlot } from '@/features/game/engine/mockCollection';
-import type { BattleCard, JobClass, Stats } from '@/features/game/engine/types';
+import type { BattleCard, JobClass } from '@/features/game/engine/types';
 import { MAX_DECK_SIZE, useGameStore } from '@/features/game/store/gameStore';
 import type { GameStackParamList } from '@/navigation/RootNavigator';
 
@@ -142,7 +143,7 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
                 <Text style={styles.tileSkill} numberOfLines={1}>
                   {card.skill.name}
                 </Text>
-                <TileStats stats={card.finalStats} />
+                <StatRow stats={card.finalStats} />
               </Pressable>
             );
           })}
@@ -192,7 +193,7 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
                 <Text style={styles.tileSkill} numberOfLines={1}>
                   {sample.skill.name}
                 </Text>
-                <TileStats stats={sample.finalStats} />
+                <StatRow stats={sample.finalStats} />
               </Pressable>
             );
           })}
@@ -244,17 +245,6 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
         </Pressable>
       )}
     </SafeAreaView>
-  );
-}
-
-function TileStats({ stats }: { stats: Stats }) {
-  return (
-    <View style={styles.statsRow}>
-      <Text style={[styles.statNum, { color: colors.gameAccent }]}>{stats.atk}</Text>
-      <Text style={[styles.statNum, { color: colors.secondary }]}>{stats.def}</Text>
-      <Text style={[styles.statNum, { color: colors.primaryLight }]}>{stats.int}</Text>
-      <Text style={[styles.statNum, { color: colors.jobHr }]}>{stats.hp}</Text>
-    </View>
   );
 }
 
@@ -407,14 +397,6 @@ const styles = StyleSheet.create({
   tileSkill: {
     color: colors.textQuaternary,
     fontSize: 8,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 4,
-  },
-  statNum: {
-    fontSize: 9,
-    fontWeight: '800',
   },
   chipRow: {
     flexDirection: 'row',
