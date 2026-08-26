@@ -7,9 +7,19 @@ updates in place instead of inflating the meeting count, and that the prompt con
 the server assembles reflects that.
 """
 
-from fastapi.testclient import TestClient
+from collections.abc import AsyncIterator
 
+import pytest_asyncio
+from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
+
+from app.core.base import Base
+from app.features.contacts.models import Person
 from app.features.conversation import models  # noqa: F401  registers the table on Base.metadata
+from app.features.conversation import service as service_module
+from app.features.conversation.schemas import ConversationSummary, SaveConversationRequest
+from app.features.conversation.service import ConversationService
 
 SUMMARY = {
     "one_line": "온보딩 개편 초안 공유 및 11월 배포 일정 논의",
@@ -17,6 +27,36 @@ SUMMARY = {
     "mentioned_people": [{"name": "박준호", "relation": "개발 담당 연구원", "confidence": 0.95}],
     "keywords": ["온보딩", "피그마"],
 }
+
+
+@pytest_asyncio.fixture()
+async def db_session() -> AsyncIterator[AsyncSession]:
+    """A session for the tests that drive ConversationService directly.
+
+    The `client` fixture wires its own engine into the app; these tests bypass HTTP to
+    watch what save() hands the graph feature, so they need a session of their own.
+    """
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+        yield session
+
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture()
+async def person_id(db_session: AsyncSession) -> int:
+    person = Person(name="김서연", company="토스")
+    db_session.add(person)
+    await db_session.commit()
+    await db_session.refresh(person)
+    return person.id
 
 
 def _create_person(client: TestClient, name: str = "김서연") -> int:
@@ -119,3 +159,89 @@ def test_unknown_person_is_404(client: TestClient) -> None:
 def test_summarize_rejects_empty_transcript(client: TestClient) -> None:
     res = client.post("/api/v1/conversations/summarize", json={"transcript": "   "})
     assert res.status_code == 400
+
+
+# ─────────────────────────────────────────────────────────────
+# Graph sync (docs/features.md touchpoint with 김민경)
+# ─────────────────────────────────────────────────────────────
+
+
+class _FakeDriver:
+    """Stands in for AsyncDriver — the sync functions are stubbed, so it is never used."""
+
+
+def _patch_sync(monkeypatch) -> dict[str, list]:
+    """Record what ConversationService.save hands to the graph feature."""
+    calls: dict[str, list] = {"bump": [], "mentions": []}
+
+    async def fake_bump(driver, *, person_id):
+        calls["bump"].append(person_id)
+
+    async def fake_sync(driver, *, person_id, mentions):
+        calls["mentions"].append((person_id, mentions))
+        return []
+
+    monkeypatch.setattr(service_module, "bump_conversation_weight", fake_bump)
+    monkeypatch.setattr(service_module, "sync_mentioned_people", fake_sync)
+    return calls
+
+
+async def _save(person_id: int, transcript: str, summary: dict, db_session) -> None:
+    await ConversationService(db_session, _FakeDriver()).save(
+        SaveConversationRequest(
+            person_id=person_id,
+            transcript=transcript,
+            summary=ConversationSummary.model_validate(summary),
+        )
+    )
+
+
+async def test_graph_sync_runs_once_per_recording(monkeypatch, db_session, person_id) -> None:
+    calls = _patch_sync(monkeypatch)
+
+    await _save(person_id, "첫 대화", SUMMARY, db_session)
+    assert calls["bump"] == [person_id]
+    assert calls["mentions"][0][1] == [
+        {"name": "박준호", "relation": "개발 담당 연구원", "confidence": 0.95}
+    ]
+
+    # Re-summarizing overwrites the row, so the graph must not count it again.
+    await _save(person_id, "첫 대화", {**SUMMARY, "one_line": "다시 요약"}, db_session)
+    assert calls["bump"] == [person_id], "re-summarize must not bump the weight again"
+    assert len(calls["mentions"]) == 1
+
+    # A different recording is a real second conversation.
+    await _save(person_id, "두 번째 대화", SUMMARY, db_session)
+    assert calls["bump"] == [person_id, person_id]
+
+
+async def test_graph_sync_dedupes_repeated_names(monkeypatch, db_session, person_id) -> None:
+    calls = _patch_sync(monkeypatch)
+    summary = {
+        **SUMMARY,
+        "mentioned_people": [
+            {"name": "박준호", "relation": "개발 담당", "confidence": 0.95},
+            {"name": " 박준호 ", "relation": "전 직장 동료", "confidence": 0.9},
+            {"name": "최유진", "relation": "컨설턴트", "confidence": 0.8},
+        ],
+    }
+
+    await _save(person_id, "같은 사람을 두 번 언급", summary, db_session)
+
+    names = [m["name"] for m in calls["mentions"][0][1]]
+    assert names == ["박준호", "최유진"], "one conversation is one piece of evidence"
+
+
+async def test_graph_sync_is_skipped_without_a_driver(monkeypatch, db_session, person_id) -> None:
+    calls = _patch_sync(monkeypatch)
+
+    await ConversationService(db_session, None).save(
+        SaveConversationRequest(
+            person_id=person_id,
+            transcript="드라이버 없음",
+            summary=ConversationSummary.model_validate(SUMMARY),
+        )
+    )
+
+    assert calls["bump"] == []
+    assert calls["mentions"] == []
