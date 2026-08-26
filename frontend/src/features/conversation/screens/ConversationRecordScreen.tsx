@@ -11,9 +11,11 @@ import type { Person } from '@/shared/types/person';
 import { fetchPerson } from '../api';
 import { AudioPickerCard } from '../components/AudioPickerCard';
 import { ProgressPanel } from '../components/ProgressPanel';
+import { RecordingPanel } from '../components/RecordingPanel';
 import { SummaryPanel } from '../components/SummaryPanel';
 import { TranscriptPanel } from '../components/TranscriptPanel';
 import { useConversationFlow } from '../hooks/useConversationFlow';
+import { useRecorder } from '../hooks/useRecorder';
 
 type ConversationStackParamList = {
   ConversationRecord: { personId: number };
@@ -26,6 +28,12 @@ export default function ConversationRecordScreen() {
 
   const [person, setPerson] = useState<Person | null>(null);
   const flow = useConversationFlow(personId);
+  const recorder = useRecorder();
+
+  const handleStopRecording = async () => {
+    const file = await recorder.stop();
+    if (file) await flow.transcribe(file);
+  };
 
   useEffect(() => {
     if (personId === undefined) return;
@@ -64,23 +72,49 @@ export default function ConversationRecordScreen() {
 
         <View style={styles.notice}>
           <Text style={styles.noticeText}>
-            녹음은 상대방의 동의를 받은 뒤 진행해 주세요. 올린 파일은 텍스트 변환이 끝나면 서버에서
-            바로 삭제되고, 기록에는 요약본만 저장됩니다.
+            녹음은 상대방의 동의를 받은 뒤 진행해 주세요. 녹음한 음성과 올린 파일 모두 텍스트 변환이
+            끝나면 서버에서 바로 삭제되고, 기록에는 요약본만 저장됩니다.
           </Text>
         </View>
 
-        <AudioPickerCard
-          audio={flow.audio}
-          durationSeconds={flow.sttMeta?.duration_seconds}
-          disabled={flow.busy}
-          onPick={flow.pickAndTranscribe}
-        />
+        {recorder.isRecording ? (
+          <RecordingPanel
+            durationSeconds={recorder.durationSeconds}
+            metering={recorder.metering}
+            onStop={handleStopRecording}
+          />
+        ) : (
+          <>
+            {/* Recording is the primary action; uploading an existing file sits under it. */}
+            {flow.audio === null ? (
+              <Button
+                label="🎙  지금 녹음 시작"
+                onPress={recorder.start}
+                loading={recorder.preparing}
+                disabled={flow.busy}
+              />
+            ) : null}
+
+            <AudioPickerCard
+              audio={flow.audio}
+              durationSeconds={flow.sttMeta?.duration_seconds}
+              disabled={flow.busy}
+              onPick={flow.pickAndTranscribe}
+            />
+          </>
+        )}
 
         <ProgressPanel
           phase={flow.phase}
           uploadPercent={flow.uploadPercent}
           elapsed={flow.elapsed}
         />
+
+        {recorder.error ? (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>{recorder.error}</Text>
+          </View>
+        ) : null}
 
         {flow.error ? (
           <View style={styles.errorBox}>

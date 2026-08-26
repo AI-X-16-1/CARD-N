@@ -76,6 +76,38 @@ export function useConversationFlow(personId: number | undefined) {
     setSaved(false);
   }, []);
 
+  /**
+   * Upload one audio file and run STT on it.
+   *
+   * Both entry points land here — the file picker and the microphone — so the rest of
+   * the flow never has to know where the audio came from.
+   */
+  const transcribe = useCallback(
+    async (file: PickedAudio) => {
+      reset();
+      setAudio(file);
+      setPhase('uploading');
+
+      try {
+        const result = await transcribeAudio(file, 'ko', (percent) => {
+          setUploadPercent(percent);
+          // Upload finished; the server is now busy with Whisper.
+          if (percent >= 100) setPhase('transcribing');
+        });
+        setSttMeta(result);
+        setTranscript(result.text);
+        setPhase(result.text.trim() ? 'transcribed' : 'error');
+        if (!result.text.trim()) {
+          setError('음성에서 텍스트를 찾지 못했어요. 다시 녹음하거나 다른 파일로 시도해 보세요.');
+        }
+      } catch (e) {
+        setError(messageOf(e, '음성 인식에 실패했어요.'));
+        setPhase('error');
+      }
+    },
+    [reset],
+  );
+
   /** Open the system file picker and run STT on whatever comes back. */
   const pickAndTranscribe = useCallback(async () => {
     const picked = await DocumentPicker.getDocumentAsync({
@@ -86,35 +118,14 @@ export function useConversationFlow(personId: number | undefined) {
     if (picked.canceled || !picked.assets?.[0]) return;
 
     const asset = picked.assets[0];
-    const file: PickedAudio = {
+    await transcribe({
       uri: asset.uri,
       name: asset.name ?? 'recording.m4a',
       mimeType: asset.mimeType ?? null,
       size: asset.size ?? null,
       file: (asset as { file?: unknown }).file,
-    };
-
-    reset();
-    setAudio(file);
-    setPhase('uploading');
-
-    try {
-      const result = await transcribeAudio(file, 'ko', (percent) => {
-        setUploadPercent(percent);
-        // Upload finished; the server is now busy with Whisper.
-        if (percent >= 100) setPhase('transcribing');
-      });
-      setSttMeta(result);
-      setTranscript(result.text);
-      setPhase(result.text.trim() ? 'transcribed' : 'error');
-      if (!result.text.trim()) {
-        setError('음성에서 텍스트를 찾지 못했어요. 다른 파일로 시도해 보세요.');
-      }
-    } catch (e) {
-      setError(messageOf(e, '음성 인식에 실패했어요.'));
-      setPhase('error');
-    }
-  }, [reset]);
+    });
+  }, [transcribe]);
 
   /** Summarize the (possibly hand-corrected) transcript. */
   const runSummary = useCallback(async () => {
@@ -170,6 +181,7 @@ export function useConversationFlow(personId: number | undefined) {
     elapsed,
     error,
     saved,
+    transcribe,
     pickAndTranscribe,
     runSummary,
     save,
