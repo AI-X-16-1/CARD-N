@@ -11,7 +11,6 @@ export type GraphNode = {
   title?: string;
   degree?: number;
   conversationCount?: number;
-  mutualCount?: number;
   lastConversationLabel?: string;
   recentSummary?: string;
   /** My own outgoing introduction request toward this 1st-degree contact, if any. */

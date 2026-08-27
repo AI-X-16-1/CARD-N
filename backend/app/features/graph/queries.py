@@ -77,16 +77,6 @@ RETURN from.id AS person_id, from.name AS name, from.job_class AS job_class,
 ORDER BY c.requested_at ASC
 """
 
-# Mutual connections are always people I already have MET_AT with, so this doesn't need the
-# INTRO_CONSENT gate that fetch_second_degree uses — nothing new is exposed to me.
-_MUTUAL_CONNECTIONS_QUERY = """
-MATCH (me:Person {id: $me_id})-[:MET_AT]-(mutual:Person)-[:MET_AT]-(target:Person {id: $target_id})
-WHERE mutual.id <> $me_id AND mutual.id <> $target_id
-OPTIONAL MATCH (mutual)-[:WORKS_AT]->(company:Company)
-RETURN DISTINCT mutual.id AS id, mutual.name AS name, mutual.job_class AS job_class,
-       company.name AS company
-"""
-
 
 async def fetch_me(driver: AsyncDriver, me_id: int) -> dict:
     async with driver.session() as session:
@@ -158,10 +148,4 @@ async def respond_to_intro_request(
 async def fetch_incoming_intro_requests(driver: AsyncDriver, me_id: int) -> list[dict]:
     async with driver.session() as session:
         result = await session.run(_INCOMING_INTRO_REQUESTS_QUERY, me_id=me_id)
-        return [_row(record) async for record in result]
-
-
-async def fetch_mutual_connections(driver: AsyncDriver, me_id: int, target_id: int) -> list[dict]:
-    async with driver.session() as session:
-        result = await session.run(_MUTUAL_CONNECTIONS_QUERY, me_id=me_id, target_id=target_id)
         return [_row(record) async for record in result]

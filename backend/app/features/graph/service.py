@@ -15,8 +15,6 @@ from app.features.graph.schemas import (
     IncomingIntroductionRequestsResponse,
     IntroductionRequestResponse,
     IntroductionRequestStatusResponse,
-    MutualConnectionResponse,
-    MutualConnectionsResponse,
 )
 
 
@@ -174,13 +172,4 @@ class GraphService:
         return GraphStatsResponse(
             degree_1_count=len(first_degree),
             degree_2_count=len(second_degree),
-        )
-
-    async def get_mutual_connections(self, target_person_id: int) -> MutualConnectionsResponse:
-        rows = await queries.fetch_mutual_connections(
-            self.driver, queries.ME_PERSON_ID, target_person_id
-        )
-        return MutualConnectionsResponse(
-            person_id=target_person_id,
-            mutual_connections=[MutualConnectionResponse(**row) for row in rows],
         )

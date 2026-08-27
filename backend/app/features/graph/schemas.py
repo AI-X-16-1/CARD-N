@@ -66,15 +66,3 @@ class IncomingIntroductionRequest(BaseModel):
 
 class IncomingIntroductionRequestsResponse(BaseModel):
     requests: list[IncomingIntroductionRequest]
-
-
-class MutualConnectionResponse(BaseModel):
-    id: int
-    name: str
-    job_class: str | None = None
-    company: str | None = None
-
-
-class MutualConnectionsResponse(BaseModel):
-    person_id: int
-    mutual_connections: list[MutualConnectionResponse]

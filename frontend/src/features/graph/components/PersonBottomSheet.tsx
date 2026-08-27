@@ -15,7 +15,6 @@ type Props = {
   person: GraphNode | null;
   onClose: () => void;
   onViewProfile: (person: GraphNode) => void;
-  onViewMutual: (person: GraphNode) => void;
   onRequestIntroduction: (person: GraphNode) => void;
 };
 
@@ -38,7 +37,6 @@ export function PersonBottomSheet({
   person,
   onClose,
   onViewProfile,
-  onViewMutual,
   onRequestIntroduction,
 }: Props) {
   const [displayPerson, setDisplayPerson] = useState<GraphNode | null>(null);
@@ -103,10 +101,6 @@ export function PersonBottomSheet({
             <Text style={styles.statLabel}>대화</Text>
           </View>
           <View style={styles.statTile}>
-            <Text style={styles.statValue}>{displayPerson.mutualCount ?? 0}</Text>
-            <Text style={styles.statLabel}>공통 인맥</Text>
-          </View>
-          <View style={styles.statTile}>
             <Text style={[styles.statValue, styles.statValueHighlight]}>
               {displayPerson.lastConversationLabel ?? '-'}
             </Text>
@@ -124,9 +118,6 @@ export function PersonBottomSheet({
         <View style={styles.buttonRow}>
           <Pressable style={styles.profileButton} onPress={() => onViewProfile(displayPerson)}>
             <Text style={styles.profileButtonLabel}>프로필</Text>
-          </Pressable>
-          <Pressable style={styles.mutualButton} onPress={() => onViewMutual(displayPerson)}>
-            <Text style={styles.mutualButtonLabel}>공통 인맥 보기</Text>
           </Pressable>
         </View>
 
@@ -267,21 +258,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
   },
+  // Sole action in the sheet now that "공통 인맥 보기" is gone, so it takes the row and
+  // the Primary fill that button used to carry.
   profileButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderRadius: radius.card,
-    borderWidth: 1,
-    borderColor: colors.borderMedium,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  profileButtonLabel: {
-    color: colors.textPrimary,
-    fontSize: typography.body.fontSize,
-    fontWeight: '600',
-  },
-  mutualButton: {
     flex: 1,
     paddingVertical: 14,
     borderRadius: radius.card,
@@ -289,7 +268,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  mutualButtonLabel: {
+  profileButtonLabel: {
     color: colors.textPrimary,
     fontSize: typography.body.fontSize,
     fontWeight: '700',

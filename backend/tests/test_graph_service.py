@@ -219,17 +219,3 @@ async def test_get_stats_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert result.degree_1_count == 1
     assert result.degree_2_count == 2
-
-
-async def test_get_mutual_connections_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_fetch_mutual_connections(driver, me_id, target_id):
-        assert target_id == 5
-        return [{"id": 9, "name": "김디자인", "job_class": "design", "company": "카카오"}]
-
-    monkeypatch.setattr(queries, "fetch_mutual_connections", fake_fetch_mutual_connections)
-
-    result = await _service().get_mutual_connections(5)
-
-    assert result.person_id == 5
-    assert len(result.mutual_connections) == 1
-    assert result.mutual_connections[0].name == "김디자인"

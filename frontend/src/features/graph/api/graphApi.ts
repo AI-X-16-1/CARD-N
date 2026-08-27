@@ -134,14 +134,3 @@ export async function approveIntroductionRequest(personId: number): Promise<void
 export async function declineIntroductionRequest(personId: number): Promise<void> {
   await client.post(`/introduction-requests/${personId}/decline`);
 }
-
-type MutualConnectionsApiResponse = {
-  person_id: number;
-  mutual_connections: unknown[];
-};
-
-/** People I already know who also know `personId` — used for the bottom sheet's stat tile. */
-export async function fetchMutualConnectionCount(personId: number): Promise<number> {
-  const { data } = await client.get<MutualConnectionsApiResponse>(`/${personId}/mutual`);
-  return data.mutual_connections.length;
-}
