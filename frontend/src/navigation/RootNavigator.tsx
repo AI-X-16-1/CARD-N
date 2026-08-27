@@ -48,9 +48,20 @@ export type GraphStackParamList = {
   PersonDetail: { personId: number };
 };
 
+// Was a bare tab screen (ContactListScreen managed PersonDetail as local state,
+// with no route for ConversationRecord at all — the record/upload FAB entries in
+// PersonDetailScreen silently no-op when reached this way). Promoted to a real
+// stack, same shape as HomeStack, so 목록 can push both like every other entry
+// point into PersonDetail already does.
+export type ListStackParamList = {
+  ContactList: undefined;
+  PersonDetail: { personId: number };
+  ConversationRecord: { personId: number; mode?: 'record' | 'upload' };
+};
+
 export type TabParamList = {
   홈: NavigatorScreenParams<HomeStackParamList>;
-  목록: undefined;
+  목록: NavigatorScreenParams<ListStackParamList>;
   스캔: undefined;
   관계도: NavigatorScreenParams<GraphStackParamList>;
   게임: NavigatorScreenParams<GameStackParamList>;
@@ -65,6 +76,7 @@ const HomeStack = createNativeStackNavigator<HomeStackParamList>();
 const GameStack = createNativeStackNavigator<GameStackParamList>();
 const ScanStack = createNativeStackNavigator<ScanStackParamList>();
 const GraphStack = createNativeStackNavigator<GraphStackParamList>();
+const ListStack = createNativeStackNavigator<ListStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 
@@ -105,6 +117,16 @@ function GraphStackNavigator() {
       <GraphStack.Screen name="GraphHome" component={GraphScreen} />
       <GraphStack.Screen name="PersonDetail" component={PersonDetailScreen} />
     </GraphStack.Navigator>
+  );
+}
+
+function ListStackNavigator() {
+  return (
+    <ListStack.Navigator screenOptions={{ headerShown: false }}>
+      <ListStack.Screen name="ContactList" component={ContactListScreen} />
+      <ListStack.Screen name="PersonDetail" component={PersonDetailScreen} />
+      <ListStack.Screen name="ConversationRecord" component={ConversationRecordScreen} />
+    </ListStack.Navigator>
   );
 }
 
@@ -156,8 +178,16 @@ function TabNavigator() {
       />
       <Tab.Screen
         name="목록"
-        component={ContactListScreen}
+        component={ListStackNavigator}
         options={{ tabBarIcon: ({ color }) => <ListIcon color={color} /> }}
+        listeners={({ navigation, route }) => ({
+          // Same fix as the 홈 tab above — now a real stack, so it needs the same
+          // reset-unless-mid-recording guard.
+          tabPress: () => {
+            if (getFocusedRouteNameFromRoute(route) === 'ConversationRecord') return;
+            navigation.navigate('목록', { screen: 'ContactList' });
+          },
+        })}
       />
       <Tab.Screen
         name="스캔"
