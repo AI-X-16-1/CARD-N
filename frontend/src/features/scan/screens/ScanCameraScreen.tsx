@@ -186,7 +186,7 @@ export default function ScanCameraScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={handleClose} hitSlop={8} style={styles.closeButtonWrap}>
+        <Pressable onPress={handleClose} hitSlop={8} style={styles.closeButtonWrap} disabled={isScanning}>
           <Text style={styles.closeButton}>✕</Text>
         </Pressable>
         <Text style={styles.title}>명함 스캔</Text>
@@ -194,6 +194,7 @@ export default function ScanCameraScreen() {
           <Pressable
             style={[styles.toggleOption, mode === 'single' && styles.toggleOptionActive]}
             onPress={() => setMode('single')}
+            disabled={isScanning}
           >
             <Text style={[styles.toggleLabel, mode === 'single' && styles.toggleLabelActive]}>
               단일
@@ -202,6 +203,7 @@ export default function ScanCameraScreen() {
           <Pressable
             style={[styles.toggleOption, mode === 'batch' && styles.toggleOptionActive]}
             onPress={() => setMode('batch')}
+            disabled={isScanning}
           >
             <Text style={[styles.toggleLabel, mode === 'batch' && styles.toggleLabelActive]}>
               연속
@@ -243,11 +245,11 @@ export default function ScanCameraScreen() {
       </Text>
 
       <View style={styles.bottomBar}>
-        <Pressable style={styles.sideButton} onPress={handleGalleryPress}>
+        <Pressable style={styles.sideButton} onPress={handleGalleryPress} disabled={isScanning}>
           <Text style={styles.sideButtonLabel}>갤러리</Text>
         </Pressable>
         <Pressable style={styles.shutter} onPress={handleShutterPress} disabled={isScanning} />
-        <Pressable style={styles.sideButton} onPress={handleManualInputPress}>
+        <Pressable style={styles.sideButton} onPress={handleManualInputPress} disabled={isScanning}>
           <Text style={styles.manualInputLabel}>직접 입력</Text>
         </Pressable>
       </View>
