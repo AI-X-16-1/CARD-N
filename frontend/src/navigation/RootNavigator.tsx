@@ -6,7 +6,7 @@ import {
 } from '@react-navigation/native-stack';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, radius, size } from '@/shared/theme';
+import { colors, radius, size, typography } from '@/shared/theme';
 import HomeScreen from '@/features/home/screens/HomeScreen';
 import ScanCameraScreen from '@/features/scan/screens/ScanCameraScreen';
 import ContactListScreen from '@/features/contacts/screens/ContactListScreen';
@@ -15,6 +15,14 @@ import GraphScreen from '@/features/graph/screens/GraphScreen';
 import ConversationRecordScreen from '@/features/conversation/screens/ConversationRecordScreen';
 import GameHomeScreen from '@/features/game/screens/GameHomeScreen';
 import CardDetailOverlay from '@/features/game/screens/CardDetailOverlay';
+
+import {
+  CameraIcon,
+  GraphIcon,
+  HomeIcon,
+  ListIcon,
+  SwordsIcon,
+} from './icons/TabIcons';
 
 export type HomeStackParamList = {
   Home: undefined;
@@ -109,7 +117,9 @@ function FabButton({ onPress, accessibilityState }: BottomTabBarButtonProps) {
       accessibilityState={accessibilityState}
       style={styles.fabButton}
     >
-      <View style={styles.fab} />
+      <View style={styles.fab}>
+        <CameraIcon color={colors.textPrimary} size={size.fabIcon} />
+      </View>
     </Pressable>
   );
 }
@@ -122,11 +132,13 @@ function TabNavigator() {
         tabBarActiveTintColor: colors.primaryLight,
         tabBarInactiveTintColor: colors.tabIconInactive,
         tabBarStyle: { backgroundColor: colors.tabBarSurface },
+        tabBarLabelStyle: typography.tabLabel,
       }}
     >
       <Tab.Screen
         name="홈"
         component={HomeStackNavigator}
+        options={{ tabBarIcon: ({ color }) => <HomeIcon color={color} /> }}
         listeners={({ navigation, route }) => ({
           // The Home tab is a real stack, so switching away and back (or even
           // re-tapping it while already focused) otherwise resumes wherever the
@@ -142,7 +154,11 @@ function TabNavigator() {
           },
         })}
       />
-      <Tab.Screen name="목록" component={ContactListScreen} />
+      <Tab.Screen
+        name="목록"
+        component={ContactListScreen}
+        options={{ tabBarIcon: ({ color }) => <ListIcon color={color} /> }}
+      />
       <Tab.Screen
         name="스캔"
         component={ScanCameraScreen}
@@ -157,6 +173,7 @@ function TabNavigator() {
       <Tab.Screen
         name="관계도"
         component={GraphStackNavigator}
+        options={{ tabBarIcon: ({ color }) => <GraphIcon color={color} /> }}
         listeners={({ navigation }) => ({
           // Same fix as the 홈 tab above — GraphStack has the identical
           // stays-on-PersonDetail issue since it's also a real stack.
@@ -168,7 +185,10 @@ function TabNavigator() {
       <Tab.Screen
         name="게임"
         component={GameStackNavigator}
-        options={{ tabBarActiveTintColor: colors.gameAccent }}
+        options={{
+          tabBarActiveTintColor: colors.gameAccent,
+          tabBarIcon: ({ color }) => <SwordsIcon color={color} />,
+        }}
       />
     </Tab.Navigator>
   );
@@ -198,5 +218,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.fab,
     backgroundColor: colors.primary,
     marginTop: size.fabRaise,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
