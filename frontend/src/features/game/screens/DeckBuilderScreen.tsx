@@ -8,6 +8,7 @@ import { colors, radius, typography } from '@/shared/theme';
 import { JOB_COLOR } from '@/features/game/constants';
 import { StatRow } from '@/features/game/components/StatRow';
 import { averageCost, compendiumCompletion } from '@/features/game/engine/deckStats';
+import { JOB_CLASSES, JOB_LABEL, SKILL } from '@/features/game/engine/cardData';
 import { completeDeckTo15, groupCompendium, type CompendiumSlot } from '@/features/game/engine/mockCollection';
 import type { BattleCard, JobClass } from '@/features/game/engine/types';
 import { MAX_DECK_SIZE, useGameStore } from '@/features/game/store/gameStore';
@@ -17,28 +18,37 @@ type Props = {
   onStartBattle: (deck: BattleCard[]) => void;
 };
 
-type FilterKey = 'all' | 'grade4plus' | 'dev' | 'marketing' | 'sales' | 'notOwned';
+type FilterKey = 'all' | 'grade3minus' | 'grade4plus' | JobClass;
 
-const FILTERS: { key: FilterKey; label: string }[] = [
+const FILTER_OPTIONS: { key: FilterKey; label: string }[] = [
   { key: 'all', label: '전체' },
-  { key: 'grade4plus', label: '★4↑' },
-  { key: 'dev', label: '개발' },
-  { key: 'marketing', label: '마케팅' },
-  { key: 'sales', label: '영업' },
-  { key: 'notOwned', label: '미획득' },
+  { key: 'grade3minus', label: '★3 이하' },
+  { key: 'grade4plus', label: '★4 이상' },
+  ...JOB_CLASSES.map((jc) => ({ key: jc as FilterKey, label: JOB_LABEL[jc] })),
 ];
+
+const FILTER_LABEL = FILTER_OPTIONS.reduce<Record<string, string>>((acc, o) => {
+  acc[o.key] = o.label;
+  return acc;
+}, {});
 
 function matchesFilter(slot: CompendiumSlot, filter: FilterKey): boolean {
   switch (filter) {
     case 'all':
       return true;
+    case 'grade3minus':
+      return slot.grade <= 3;
     case 'grade4plus':
       return slot.grade >= 4;
-    case 'notOwned':
-      return slot.owned.length === 0;
     default:
-      return slot.jobClass === (filter as JobClass);
+      return slot.jobClass === filter;
   }
+}
+
+// 획득 / 미획득 are independent toggles rather than dropdown entries: a slot
+// shows when its ownership state is still enabled. Both off => nothing.
+function matchesOwnership(slot: CompendiumSlot, showOwned: boolean, showNotOwned: boolean): boolean {
+  return slot.owned.length > 0 ? showOwned : showNotOwned;
 }
 
 export default function DeckBuilderScreen({ onStartBattle }: Props) {
@@ -48,6 +58,9 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
   const toggleSelected = useGameStore((s) => s.toggleSelected);
 
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [showOwned, setShowOwned] = useState(true);
+  const [showNotOwned, setShowNotOwned] = useState(true);
   const [viewingSlot, setViewingSlot] = useState<CompendiumSlot | null>(null);
   const [listError, setListError] = useState<string | null>(null);
 
@@ -59,10 +72,32 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
     [selectedIds, collection],
   );
   const avgCost = averageCost(deckCards);
-  const visibleSlots = slots.filter((s) => matchesFilter(s, activeFilter));
+  const visibleSlots = slots.filter(
+    (s) => matchesFilter(s, activeFilter) && matchesOwnership(s, showOwned, showNotOwned),
+  );
 
   function goToCardDetail(cardId: number) {
     navigation.navigate('CardDetail', { cardId });
+  }
+
+  // 획득 / 미획득 must never both be off (that would hide every card). Turning
+  // off the only one that's still on flips the selection to the other side.
+  function toggleOwned() {
+    if (showOwned && !showNotOwned) {
+      setShowOwned(false);
+      setShowNotOwned(true);
+    } else {
+      setShowOwned((v) => !v);
+    }
+  }
+
+  function toggleNotOwned() {
+    if (showNotOwned && !showOwned) {
+      setShowNotOwned(false);
+      setShowOwned(true);
+    } else {
+      setShowNotOwned((v) => !v);
+    }
   }
 
   function startBattle() {
@@ -149,17 +184,27 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
           })}
         </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-          {FILTERS.map((f) => (
-            <Pressable
-              key={f.key}
-              onPress={() => setActiveFilter(f.key)}
-              style={[styles.chip, activeFilter === f.key && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, activeFilter === f.key && styles.chipTextActive]}>{f.label}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+        <View style={styles.filterRow}>
+          <Text style={styles.filterCaption}>필터</Text>
+          <Pressable style={styles.dropdown} onPress={() => setFilterOpen(true)}>
+            <Text style={styles.dropdownText}>{FILTER_LABEL[activeFilter]}</Text>
+            <Text style={styles.dropdownCaret}>▼</Text>
+          </Pressable>
+        </View>
+        <View style={styles.checkboxRow}>
+          <Pressable style={styles.checkbox} onPress={toggleOwned}>
+            <View style={[styles.checkboxBox, showOwned && styles.checkboxBoxChecked]}>
+              {showOwned && <Text style={styles.checkboxMark}>✓</Text>}
+            </View>
+            <Text style={styles.checkboxLabel}>획득</Text>
+          </Pressable>
+          <Pressable style={styles.checkbox} onPress={toggleNotOwned}>
+            <View style={[styles.checkboxBox, showNotOwned && styles.checkboxBoxChecked]}>
+              {showNotOwned && <Text style={styles.checkboxMark}>✓</Text>}
+            </View>
+            <Text style={styles.checkboxLabel}>미획득</Text>
+          </Pressable>
+        </View>
 
         <View style={styles.grid}>
           {visibleSlots.map((slot) => {
@@ -167,9 +212,17 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
             const key = `${slot.jobClass}-${slot.grade}`;
 
             if (!owned) {
+              // Not owned yet: show the same card info minus the stat line,
+              // in a disabled (dimmed, non-interactive) state.
               return (
-                <View key={key} style={[styles.tile, styles.tileLocked]}>
-                  <Text style={styles.lockedIcon}>🔒</Text>
+                <View key={key} style={[styles.tile, styles.tileDisabled]}>
+                  <Text style={styles.tileStars}>{'★'.repeat(slot.grade)}</Text>
+                  <Text style={styles.tileName} numberOfLines={1}>
+                    {JOB_LABEL[slot.jobClass]}
+                  </Text>
+                  <Text style={styles.tileSkill} numberOfLines={1}>
+                    {SKILL[slot.jobClass].name}
+                  </Text>
                   <Text style={styles.lockedText}>미획득</Text>
                 </View>
               );
@@ -203,6 +256,37 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
       <Pressable style={styles.bottomCta} onPress={startBattle}>
         <Text style={styles.bottomCtaText}>🛡 배틀 시작</Text>
       </Pressable>
+
+      {filterOpen && (
+        <Pressable style={styles.backdrop} onPress={() => setFilterOpen(false)}>
+          <Pressable style={styles.filterSheet} onPress={() => {}}>
+            <Pressable style={styles.closeBadge} hitSlop={8} onPress={() => setFilterOpen(false)}>
+              <Text style={styles.closeText}>✕</Text>
+            </Pressable>
+            <Text style={styles.instanceTitle}>필터</Text>
+            <ScrollView>
+              {FILTER_OPTIONS.map((o) => {
+                const active = o.key === activeFilter;
+                return (
+                  <Pressable
+                    key={o.key}
+                    style={[styles.filterOption, active && styles.filterOptionActive]}
+                    onPress={() => {
+                      setActiveFilter(o.key);
+                      setFilterOpen(false);
+                    }}
+                  >
+                    <Text style={[styles.filterOptionText, active && styles.filterOptionTextActive]}>
+                      {o.label}
+                    </Text>
+                    {active && <Text style={styles.filterOptionCheck}>✓</Text>}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      )}
 
       {viewingSlot && (
         <Pressable style={styles.backdrop} onPress={closeSlot}>
@@ -354,13 +438,9 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 18,
   },
-  tileLocked: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    opacity: 0.6,
-  },
-  lockedIcon: {
-    fontSize: 16,
+  tileDisabled: {
+    borderStyle: 'dashed',
+    opacity: 0.4,
   },
   lockedText: {
     color: colors.textMuted,
@@ -398,28 +478,110 @@ const styles = StyleSheet.create({
     color: colors.textQuaternary,
     fontSize: 8,
   },
-  chipRow: {
+  filterRow: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    gap: 10,
     paddingVertical: 4,
   },
-  chip: {
+  filterCaption: {
+    color: colors.textSecondary,
+    fontSize: typography.meta.fontSize,
+    fontWeight: '700',
+  },
+  dropdown: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     backgroundColor: colors.surface1,
-    borderRadius: radius.pill,
+    borderRadius: radius.gameCard,
+    borderWidth: 1,
+    borderColor: colors.borderMedium,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
   },
-  chipActive: {
+  dropdownText: {
+    color: colors.textPrimary,
+    fontSize: typography.meta.fontSize,
+    fontWeight: '600',
+  },
+  dropdownCaret: {
+    color: colors.textTertiary,
+    fontSize: 10,
+  },
+  checkboxRow: {
+    flexDirection: 'row',
+    gap: 20,
+    paddingVertical: 2,
+    paddingLeft: 2,
+  },
+  checkbox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  checkboxBox: {
+    width: 16,
+    height: 16,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: colors.borderMedium,
+    backgroundColor: colors.surface1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxBoxChecked: {
     backgroundColor: colors.gameAccent,
+    borderColor: colors.gameAccent,
   },
-  chipText: {
+  checkboxMark: {
+    color: colors.canvas,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  checkboxLabel: {
     color: colors.textSecondary,
     fontSize: typography.meta.fontSize,
     fontWeight: '600',
   },
-  chipTextActive: {
-    color: colors.canvas,
-    fontWeight: '700',
+  filterSheet: {
+    width: '100%',
+    maxWidth: 320,
+    maxHeight: '70%',
+    backgroundColor: colors.surface3,
+    borderRadius: radius.card,
+    padding: 20,
+    gap: 12,
+  },
+  filterOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.surface1,
+    borderRadius: radius.gameCard,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  filterOptionActive: {
+    borderColor: colors.gameAccent,
+  },
+  filterOptionText: {
+    color: colors.textSecondary,
+    fontSize: typography.meta.fontSize,
+    fontWeight: '600',
+  },
+  filterOptionTextActive: {
+    color: colors.textPrimary,
+    fontWeight: '800',
+  },
+  filterOptionCheck: {
+    color: colors.gameAccent,
+    fontSize: typography.micro.fontSize,
+    fontWeight: '800',
   },
   bottomCta: {
     position: 'absolute',
