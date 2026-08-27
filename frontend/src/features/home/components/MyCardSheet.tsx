@@ -13,11 +13,15 @@ type Props = {
   onSave: (card: MyCard) => void;
 };
 
-const EDIT_FIELDS: { field: 'name' | 'company' | 'title' | 'phone'; placeholder: string }[] = [
+const EDIT_FIELDS: { field: keyof MyCard; placeholder: string }[] = [
   { field: 'name', placeholder: '이름' },
   { field: 'company', placeholder: '회사' },
-  { field: 'title', placeholder: '직함' },
+  { field: 'department', placeholder: '부서' },
+  { field: 'grade', placeholder: '직급' },
+  { field: 'job_function', placeholder: '직무' },
   { field: 'phone', placeholder: '연락처' },
+  { field: 'email', placeholder: '이메일' },
+  { field: 'address', placeholder: '주소' },
 ];
 
 export function MyCardSheet({ visible, card, onClose, onSave }: Props) {

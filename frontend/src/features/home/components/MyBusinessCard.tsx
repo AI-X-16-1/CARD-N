@@ -13,6 +13,12 @@ export function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+// 부서/직급/직무 replaced the old single "직함" (title) field — joined into one line so
+// the card face keeps the same slot it always had, rather than growing a new row per field.
+function positionLine(card: MyCard): string {
+  return [card.department, card.grade, card.job_function].filter(Boolean).join(' · ');
+}
+
 // Pure card visual — shared by the Home tile (MyBusinessCard, below) and MyCardSheet's
 // detail header, so the same card face carries over when the sheet transitions in.
 export function CardFace({ card }: { card: MyCard }) {
@@ -39,13 +45,18 @@ export function CardFace({ card }: { card: MyCard }) {
 
       <View style={styles.middle}>
         <Text style={styles.name}>{card.name || '이름을 입력해주세요'}</Text>
-        <Text style={styles.title}>{card.title}</Text>
+        <Text style={styles.title}>{positionLine(card)}</Text>
       </View>
 
       <View style={styles.bottomRow}>
         <View>
           {!!card.phone && <Text style={styles.contact}>{card.phone}</Text>}
           {!!card.email && <Text style={styles.contact}>{card.email}</Text>}
+          {!!card.address && (
+            <Text style={styles.contact} numberOfLines={1}>
+              {card.address}
+            </Text>
+          )}
         </View>
         <View style={styles.qrPlaceholder} />
       </View>

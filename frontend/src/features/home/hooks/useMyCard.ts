@@ -5,7 +5,16 @@ import type { MyCard } from '../types';
 
 const STORAGE_KEY = 'cardn-my-card';
 
-const EMPTY_CARD: MyCard = { name: '', company: '', title: '', phone: '', email: '' };
+const EMPTY_CARD: MyCard = {
+  name: '',
+  company: '',
+  department: '',
+  grade: '',
+  job_function: '',
+  phone: '',
+  email: '',
+  address: '',
+};
 
 export function useMyCard() {
   const [card, setCard] = useState<MyCard>(EMPTY_CARD);
