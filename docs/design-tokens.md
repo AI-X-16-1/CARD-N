@@ -136,3 +136,8 @@ Bottom tab bar (fixed, `rgba(20,20,31,0.92)` + blur, 1px hairline on top).
 
 Inactive icons: 1.6px stroke, 21px, white 42% opacity.
 Label: 9.5px / 600.
+The FAB's camera glyph sits at 24px in `textPrimary`, so it stays legible against
+the filled `primary` circle rather than matching the 21px bar icons.
+
+Tokens: `size.tabIcon` (21), `size.fabIcon` (24), `stroke.tabIcon` (1.6),
+`typography.tabLabel` (9.5 / 600), `colors.tabIconInactive`, `colors.tabBarSurface`.

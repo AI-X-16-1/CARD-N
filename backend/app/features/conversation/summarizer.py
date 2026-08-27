@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 
 from app.config import settings
@@ -27,6 +28,20 @@ logger = logging.getLogger(__name__)
 
 PROMPT_VERSION = "v2"  # bump when the prompt changes — it invalidates the cache
 MAX_RETRY = 3
+
+# 429 is the one 4xx worth sleeping on — the quota resets. Every other client error
+# (missing key, revoked key, unknown model name) answers identically however many times
+# we ask, so retrying only delays telling the user what is actually wrong.
+RETRYABLE_STATUS = {429}
+
+
+class SummaryUnavailable(RuntimeError):
+    """A failure retrying cannot fix — bad configuration, not a bad moment.
+
+    The retry loop lets this through untouched. The message reaches the user via the
+    router's 502 detail, so it says what to change rather than what went wrong.
+    """
+
 
 # Prompt tuning burns through the free tier fast, so an identical prompt is answered
 # from disk instead of the API.
@@ -149,7 +164,7 @@ def _get_client() -> genai.Client:
     global _client
     if _client is None:
         if not settings.gemini_api_key:
-            raise RuntimeError(
+            raise SummaryUnavailable(
                 "GEMINI_API_KEY가 설정되지 않았습니다. "
                 "backend/.env 에 GEMINI_API_KEY=발급받은_키 를 추가하세요. "
                 "키 발급: https://aistudio.google.com/apikey"
@@ -170,6 +185,19 @@ def _call_llm(prompt: str) -> str:
         ),
     )
     return response.text
+
+
+def _permanent(error: Exception) -> SummaryUnavailable | None:
+    """The error to raise straight through, or None if another attempt might still work."""
+    if isinstance(error, SummaryUnavailable):
+        return error
+    if isinstance(error, genai_errors.ClientError) and error.code not in RETRYABLE_STATUS:
+        return SummaryUnavailable(
+            f"Gemini가 요청을 거부했습니다 ({error}). "
+            "backend/.env 의 GEMINI_API_KEY 와 GEMINI_MODEL 을 확인해 주세요. "
+            "키 발급: https://aistudio.google.com/apikey"
+        )
+    return None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -201,7 +229,12 @@ def summarize(
         except json.JSONDecodeError as e:
             last_error = e
             logger.warning("summary JSON parse failed (%s/%s) — retrying", attempt, MAX_RETRY)
-        except Exception as e:  # noqa: BLE001 — retry rate limits and transient errors alike
+        # Anything left here is a bad moment rather than a bad setup: rate limits,
+        # dropped connections, a 5xx from the other side. Those are worth another try.
+        except Exception as e:
+            if (permanent := _permanent(e)) is not None:
+                logger.error("summary call failed permanently, not retrying: %s", e)
+                raise permanent from e
             last_error = e
             wait = 2**attempt
             logger.warning(

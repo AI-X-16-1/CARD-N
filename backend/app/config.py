@@ -9,9 +9,14 @@ class Settings(BaseSettings):
     neo4j_user: str = "neo4j"
     neo4j_password: str = "cardncardn123"
     # Conversation feature — Whisper STT runs in-process (app/features/conversation/stt.py).
-    # "small" is the sweet spot for Korean on CPU; "large-v3-turbo" is markedly better if
-    # a GPU is available. Set whisper_device to "cuda" and compute_type to "float16" there.
-    whisper_model: str = "small"
+    # Team-wide default, deliberately not the smallest one. `small` mishears Korean
+    # proper nouns often enough to matter here: the names in a summary's
+    # mentioned_people are matched against contact names to build graph edges, so a
+    # misheard name loses an edge with nothing to show it happened. Set in .env.example
+    # too, but repeated here — anyone who copied that file before this changed still
+    # has the old value, and this is what actually decides it for them.
+    # On a GPU, set whisper_device to "cuda" and whisper_compute_type to "float16".
+    whisper_model: str = "large-v3-turbo"
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
     # Conversation summaries. Key: https://aistudio.google.com/apikey

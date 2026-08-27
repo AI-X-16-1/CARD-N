@@ -2,10 +2,11 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from neo4j import AsyncDriver
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.dependencies import get_db
+from app.dependencies import get_db, get_neo4j_driver
 from app.features.conversation.schemas import (
     ConversationListResponse,
     ConversationResponse,
@@ -27,8 +28,11 @@ MAX_AUDIO_BYTES = 100 * 1024 * 1024
 MAX_TRANSCRIPT_CHARS = 100_000
 
 
-def _service(db: AsyncSession = Depends(get_db)) -> ConversationService:
-    return ConversationService(db)
+def _service(
+    db: AsyncSession = Depends(get_db),
+    neo4j_driver: AsyncDriver = Depends(get_neo4j_driver),
+) -> ConversationService:
+    return ConversationService(db, neo4j_driver)
 
 
 @router.get("/ping")
