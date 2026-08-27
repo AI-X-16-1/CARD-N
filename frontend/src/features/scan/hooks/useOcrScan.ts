@@ -37,6 +37,27 @@ export function extractErrorMessage(error: unknown): string {
   return '알 수 없는 오류가 발생했어요';
 }
 
+// Like Home's cold-start retry: the backend may still be coming up right after an app/
+// Docker restart. Only retry when the request never reached the server at all (no
+// `response` — connection refused / timed out) — a real 4xx/5xx from the server is a
+// genuine failure and should surface immediately, not get silently retried.
+const RETRY_DELAYS_MS = [1000, 2000, 4000];
+
+function isConnectionError(error: unknown): boolean {
+  return axios.isAxiosError(error) && !error.response;
+}
+
+async function postOcrWithRetry(form: FormData) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await apiClient.post<OcrResult>('/scan/ocr', form, { timeout: 60000 });
+    } catch (error) {
+      if (attempt >= RETRY_DELAYS_MS.length || !isConnectionError(error)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+    }
+  }
+}
+
 export function useOcrScan() {
   const [state, setState] = useState<ScanState>({ status: 'idle' });
 
@@ -66,7 +87,7 @@ export function useOcrScan() {
       // fails before any HTTP response comes back (surfaces as a generic network error).
       // Longer timeout than apiClient's default 10s: OCR inference on a full-size photo
       // (plus PaddleOCR's one-time model warmup on a cold backend) can run past that.
-      const response = await apiClient.post<OcrResult>('/scan/ocr', form, { timeout: 60000 });
+      const response = await postOcrWithRetry(form);
       setState({ status: 'done', result: response.data });
       return response.data;
     } catch (error) {
