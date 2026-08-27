@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRef } from 'react';
+import { PanResponder, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import QRCode from 'react-native-qrcode-svg';
 import Svg, { Circle } from 'react-native-svg';
@@ -98,16 +99,36 @@ export function CardFace({ card }: { card: MyCard }) {
   );
 }
 
+const SWIPE_THRESHOLD = 24; // px of horizontal travel before a touch counts as a swipe, not a tap
+
 type Props = {
   card: MyCard;
-  onPress: () => void;
+  onPress: () => void; // tap -> enlarge
+  onSwipe: () => void; // swipe -> edit
 };
 
-export function MyBusinessCard({ card, onPress }: Props) {
+export function MyBusinessCard({ card, onPress, onSwipe }: Props) {
+  // Plain PanResponder (no extra gesture-handler setup needed) rather than Pressable:
+  // a single tap and a horizontal swipe need to resolve to two different actions here,
+  // which Pressable's onPress alone can't tell apart.
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_evt, gesture) => Math.abs(gesture.dx) > 4,
+      onPanResponderRelease: (_evt, gesture) => {
+        if (Math.abs(gesture.dx) > SWIPE_THRESHOLD) {
+          onSwipe();
+        } else if (Math.abs(gesture.dx) < 4 && Math.abs(gesture.dy) < 4) {
+          onPress();
+        }
+      },
+    }),
+  ).current;
+
   return (
-    <Pressable style={styles.wrap} onPress={onPress}>
+    <View style={styles.wrap} {...panResponder.panHandlers}>
       <CardFace card={card} />
-    </Pressable>
+    </View>
   );
 }
 
