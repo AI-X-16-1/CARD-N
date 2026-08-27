@@ -1,3 +1,5 @@
+import axios from 'axios';
+
 import { apiClient } from '@/shared/api/client';
 
 import type {
@@ -59,23 +61,15 @@ export async function deleteContact(personId: number): Promise<void> {
 // in this feature's own contacts db), so unlike the graph sheet's row this never needs a
 // degree check. Calls the graph feature's endpoints directly rather than importing anything
 // from features/graph/ — same cross-feature-at-the-API-boundary rule as the conversation calls
-// above. No dedicated "status for one person" endpoint exists, so this reads it off the depth-1
-// graph fetch, same as GraphScreen does.
-
-type GraphNodeStatusResponse = {
-  id: number;
-  type: 'me' | 'person';
-  introduction_request_status: IntroductionRequestStatus;
-};
+// above.
 
 export async function fetchIntroductionRequestStatus(
   personId: number,
 ): Promise<IntroductionRequestStatus> {
-  const response = await apiClient.get<{ nodes: GraphNodeStatusResponse[] }>('/graph', {
-    params: { depth: 1 },
-  });
-  const node = response.data.nodes.find((n) => n.type === 'person' && n.id === personId);
-  return node?.introduction_request_status ?? null;
+  const response = await apiClient.get<{ status: IntroductionRequestStatus }>(
+    `/graph/${personId}/introduction-requests`,
+  );
+  return response.data.status;
 }
 
 export async function requestIntroduction(personId: number): Promise<IntroductionRequestStatus> {
@@ -83,6 +77,18 @@ export async function requestIntroduction(personId: number): Promise<Introductio
     `/graph/${personId}/introduction-requests`,
   );
   return response.data.status;
+}
+
+// POST /graph/{person_id}/introduction-requests 404s with this exact detail when the
+// contact has no Neo4j node yet — which happens for real, since contacts/service.py syncs
+// to Neo4j best-effort. Retrying the request itself can never succeed in that state; only
+// re-saving the contact (also best-effort synced, see ContactsService.update_person) can.
+export function isNotFirstDegreeError(error: unknown): boolean {
+  return (
+    axios.isAxiosError(error) &&
+    error.response?.status === 404 &&
+    error.response.data?.detail === 'NOT_FIRST_DEGREE'
+  );
 }
 
 // --- Call recording import (see features/contacts/components/CallRecordingFinder.tsx) ---
