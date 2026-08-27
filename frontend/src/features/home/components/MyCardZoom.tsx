@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 import { CardFace } from './MyBusinessCard';
 import type { MyCard } from '../types';
@@ -15,6 +17,18 @@ type Props = {
 // "hold this up so someone can scan it" view benefits from a larger, easier-to-scan code.
 // Reached by swiping the card instead of tapping it opens MyCardSheet (edit) instead.
 export function MyCardZoom({ visible, card, onClose }: Props) {
+  // The app is portrait-locked globally (app.json) so every other screen's layout can
+  // assume portrait — that's not something to touch just for this one view. Instead,
+  // unlock rotation only while this modal is open, and relock to portrait the moment it
+  // closes, so nothing else in the app is affected.
+  useEffect(() => {
+    if (!visible) return;
+    ScreenOrientation.unlockAsync();
+    return () => {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+    };
+  }, [visible]);
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>

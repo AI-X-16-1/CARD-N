@@ -138,7 +138,7 @@ export function MyBusinessCard({ card, onPress, onSwipe }: Props) {
 
   return (
     <View style={styles.wrap} {...panResponder.panHandlers}>
-      <CardFace card={card} />
+      <CardFace card={card} qrSize={56} />
     </View>
   );
 }
