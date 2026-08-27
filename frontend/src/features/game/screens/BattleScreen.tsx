@@ -705,12 +705,21 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
           }}
         />
 
-        <Text style={styles.hintText}>
-          {selectedHandIdx !== null && '빈 자리를 탭해서 카드를 배치하세요'}
-          {selectedAttackerIdx !== null && '상대 카드나 히어로를 탭해서 공격, 또는 스킬 사용'}
-          {selectedHandIdx === null && selectedAttackerIdx === null && '핸드 카드나 내 필드 카드를 탭하세요'}
-        </Text>
-        <Text style={styles.hintText}>카드를 길게 누르면 상세정보를 볼 수 있어요</Text>
+        {/* End Turn lives here — between the two fields, right-aligned — so it
+            stays on screen on a phone instead of being buried below the hand. */}
+        <View style={styles.midBar}>
+          <View style={styles.midHints}>
+            <Text style={styles.hintText}>
+              {selectedHandIdx !== null && '빈 자리를 탭해서 카드를 배치하세요'}
+              {selectedAttackerIdx !== null && '상대 카드나 히어로를 탭해서 공격, 또는 스킬 사용'}
+              {selectedHandIdx === null && selectedAttackerIdx === null && '핸드 카드나 내 필드 카드를 탭하세요'}
+            </Text>
+            <Text style={styles.hintText}>카드를 길게 누르면 상세정보를 볼 수 있어요</Text>
+          </View>
+          <Pressable style={styles.endTurnMini} onPress={runEndTurn}>
+            <Text style={styles.endTurnMiniText}>턴 종료</Text>
+          </Pressable>
+        </View>
 
         <FieldRow
           cards={state.field}
@@ -782,10 +791,6 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
             </Pressable>
           ))}
         </View>
-
-        <Pressable style={styles.primaryButton} onPress={runEndTurn}>
-          <Text style={styles.buttonText}>턴 종료</Text>
-        </Pressable>
 
         <View style={styles.logBox}>
           {state.log.slice(-6).map((line, i) => (
@@ -1092,6 +1097,25 @@ const styles = StyleSheet.create({
   errorText: {
     color: colors.gameAccent,
     fontSize: typography.meta.fontSize,
+  },
+  midBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  midHints: {
+    flex: 1,
+  },
+  endTurnMini: {
+    backgroundColor: colors.primary,
+    borderRadius: radius.pill,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  endTurnMiniText: {
+    color: colors.textPrimary,
+    fontSize: typography.meta.fontSize,
+    fontWeight: '800',
   },
   hintText: {
     color: colors.textTertiary,
