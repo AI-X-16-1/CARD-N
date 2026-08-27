@@ -43,9 +43,13 @@ at each part.
 """
 import re
 
-# Some phone numbers use spaces instead of dashes as separators too (e.g. "T032 553 0714"),
-# so both are accepted.
-PHONE_RE = re.compile(r"\d{2,3}[- ]?\d{3,4}[- ]?\d{4}")
+# Some phone numbers use spaces or dots instead of dashes as separators (e.g.
+# "T032 553 0714", "02.597.0443") — all three are accepted. Without "." here, a
+# dot-separated number is never extracted at all: it doesn't match this regex, so
+# take_matches() below leaves it untouched, and if it sits on the same line as an
+# address it gets swallowed whole into the address field instead (confirmed on a real
+# card: "...4,5층 Tel:02.597.0443~4 Fax:02.597.0445" ended up entirely inside address).
+PHONE_RE = re.compile(r"\d{2,3}[-. ]?\d{3,4}[-. ]?\d{4}")
 # OCR sometimes inserts a spurious space around "@" (observed: "shwang51 @raonclinic.co.kr"),
 # so the space is allowed here and then stripped back out of the matched value in
 # take_matches below to reconstruct a valid email.
@@ -276,7 +280,24 @@ def is_address_line(line):
     return len(unit_words) >= 2
 
 
+# Contact-info label words that are pure Hangul and 2-4 characters — the exact same
+# shape is_name_candidate_token accepts. Normally these get consumed as part of a
+# phone/email match and disappear, but when a label sits on its own line or survives as
+# a take_matches() leftover (e.g. a line reading just "직통번호:070.4756.5296" once the
+# phone number is cut out), the bare label word is left behind and — with nothing else
+# to rule it out — can get wrongly picked as the name (confirmed on a real card: "직통
+# 번호" ended up as the saved contact's name). English labels ("Tel", "Mobile", ...)
+# don't need this: is_name_candidate_token already requires pure Hangul.
+CONTACT_LABEL_WORDS = {
+    "전화", "전화번호", "직통", "직통번호", "내선", "내선번호",
+    "휴대폰", "휴대전화", "이동전화", "핸드폰",
+    "팩스", "팩스번호", "이메일", "메일", "홈페이지", "웹사이트", "주소",
+}
+
+
 def is_name_candidate_token(tok):
+    if tok in CONTACT_LABEL_WORDS:
+        return False
     return bool(re.fullmatch(r"[가-힣]+", tok)) and 2 <= len(tok) <= 4
 
 
