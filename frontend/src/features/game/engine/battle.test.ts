@@ -277,7 +277,8 @@ describe('playCard', () => {
 describe('attack', () => {
   test('deals damage to the target card and counter-damage to the attacker', () => {
     const attacker = makeCard('sales', 3, { finalStats: { atk: 9, def: 3, int: 4, hp: 10 }, currentHp: 10, hasActed: false, justPlayed: false });
-    const defender = makeCard('finance', 3, { finalStats: { atk: 4, def: 9, int: 6, hp: 8 }, currentHp: 8, hasActed: false, justPlayed: false });
+    // pm defender: a role with no defensive passive, so this stays a test of the base combat formula
+    const defender = makeCard('pm', 3, { finalStats: { atk: 4, def: 9, int: 6, hp: 8 }, currentHp: 8, hasActed: false, justPlayed: false });
     const state = makeState({
       field: [attacker, null, null, null, null],
       eField: [defender, null, null, null, null],
@@ -361,7 +362,8 @@ describe('attack', () => {
   });
 
   test('attacking the hero deals full ATK with no mitigation and no counter-damage', () => {
-    const attacker = makeCard('sales', 3, { finalStats: { atk: 9, def: 3, int: 4, hp: 10 }, currentHp: 10 });
+    // pm attacker: no hero-attack passive, so this stays a test of the base hero-attack rule
+    const attacker = makeCard('pm', 3, { finalStats: { atk: 9, def: 3, int: 4, hp: 10 }, currentHp: 10 });
     const state = makeState({ turnN: 2, field: [attacker, null, null, null, null], eField: [null, null, null, null, null], eHp: 30 });
 
     const next = attack(state, 0, 'hero');
@@ -691,7 +693,7 @@ describe('endTurn', () => {
   });
 
   test('AI attacks my hero directly when my field is empty', () => {
-    const eAttacker = makeCard('sales', 3, {
+    const eAttacker = makeCard('pm', 3, {
       finalStats: { atk: 9, def: 3, int: 4, hp: 10 },
       currentHp: 10,
       hasActed: false,
@@ -853,7 +855,7 @@ describe('endTurn', () => {
     });
 
     test('records an attack event targeting the hero when the AI attacks my hero', () => {
-      const eAttacker = makeCard('sales', 3, {
+      const eAttacker = makeCard('pm', 3, {
         finalStats: { atk: 9, def: 3, int: 4, hp: 10 },
         currentHp: 10,
         hasActed: false,
@@ -898,5 +900,278 @@ describe('endTurn', () => {
 
       expect(next.turnEvents?.some((e) => e.type === 'draw')).toBe(false);
     });
+  });
+});
+
+describe('passives', () => {
+  test('dev (밤샘코딩): its attack applies only half of the target DEF mitigation', () => {
+    const dev = makeCard('dev', 3, { finalStats: { atk: 10, def: 3, int: 7, hp: 8 }, currentHp: 8 });
+    const wall = makeCard('pm', 3, { finalStats: { atk: 2, def: 8, int: 6, hp: 20 }, currentHp: 20 });
+    const state = makeState({
+      field: [dev, null, null, null, null],
+      eField: [wall, null, null, null, null],
+      turnN: 2,
+    });
+
+    const next = attack(state, 0, 0);
+
+    // normal mitigation floor(8/2)=4 -> 6 dmg; dev floor(8/4)=2 -> 8 dmg
+    expect(next.eField[0]?.currentHp).toBe(12);
+    expect(next.log.some((l) => l.includes('밤샘코딩'))).toBe(true);
+  });
+
+  test('finance (짠돌이): this card takes 1 less damage from an incoming attack', () => {
+    const attacker = makeCard('sales', 3, { finalStats: { atk: 9, def: 3, int: 4, hp: 10 }, currentHp: 10 });
+    const fin = makeCard('finance', 3, { finalStats: { atk: 4, def: 6, int: 6, hp: 20 }, currentHp: 20 });
+    const state = makeState({
+      field: [attacker, null, null, null, null],
+      eField: [fin, null, null, null, null],
+      turnN: 2,
+    });
+
+    const next = attack(state, 0, 0);
+
+    // normal: 9 - floor(6/2)=3 -> 6 ; 짠돌이 -1 -> 5
+    expect(next.eField[0]?.currentHp).toBe(15);
+    expect(next.log.some((l) => l.includes('짠돌이'))).toBe(true);
+  });
+
+  test('finance (짠돌이): the reduction also applies to counterattack damage it takes', () => {
+    const fin = makeCard('finance', 3, { finalStats: { atk: 8, def: 6, int: 6, hp: 20 }, currentHp: 20 });
+    const target = makeCard('pm', 3, { finalStats: { atk: 6, def: 4, int: 6, hp: 20 }, currentHp: 20 });
+    const state = makeState({
+      field: [fin, null, null, null, null],
+      eField: [target, null, null, null, null],
+      turnN: 2,
+    });
+
+    const next = attack(state, 0, 0);
+
+    // counter to fin: max(1, floor(6/2)=3) = 3 ; 짠돌이 -1 -> 2
+    expect(next.field[0]?.currentHp).toBe(18);
+  });
+
+  test('legal (빈틈없음): this card takes no counterattack damage when it attacks', () => {
+    const legal = makeCard('legal', 3, { finalStats: { atk: 6, def: 8, int: 7, hp: 6 }, currentHp: 6 });
+    const target = makeCard('pm', 3, { finalStats: { atk: 8, def: 4, int: 6, hp: 20 }, currentHp: 20 });
+    const state = makeState({
+      field: [legal, null, null, null, null],
+      eField: [target, null, null, null, null],
+      turnN: 2,
+    });
+
+    const next = attack(state, 0, 0);
+
+    // counter would be max(1, floor(8/2)) = 4; 빈틈없음 negates it
+    expect(next.field[0]?.currentHp).toBe(6);
+    expect(next.log.some((l) => l.includes('빈틈없음'))).toBe(true);
+  });
+
+  test('sales (영업왕): +2 damage when it attacks the enemy hero', () => {
+    const sales = makeCard('sales', 3, { finalStats: { atk: 9, def: 3, int: 4, hp: 10 }, currentHp: 10 });
+    const state = makeState({
+      field: [sales, null, null, null, null],
+      eField: [null, null, null, null, null],
+      turnN: 2,
+      eHp: 30,
+    });
+
+    const next = attack(state, 0, 'hero');
+
+    expect(next.eHp).toBe(19); // 30 - (9 + 2)
+    expect(next.log.some((l) => l.includes('영업왕'))).toBe(true);
+  });
+
+  test('sales (영업왕): the +2 also applies when an enemy sales card hits my hero', () => {
+    const sales = makeCard('sales', 3, { finalStats: { atk: 9, def: 3, int: 4, hp: 10 }, currentHp: 10 });
+    const state = makeState({
+      field: [null, null, null, null, null],
+      eField: [sales, null, null, null, null],
+      turnN: 2,
+      myHp: 30,
+      eHand: [],
+      eDeck: [],
+    });
+
+    const next = endTurn(state);
+
+    expect(next.myHp).toBe(19); // 30 - (9 + 2)
+  });
+
+  test('design (디테일광): an attacker that hits this card permanently loses 1 ATK', () => {
+    const attacker = makeCard('pm', 3, { finalStats: { atk: 6, def: 6, int: 6, hp: 20 }, currentHp: 20 });
+    const dsg = makeCard('design', 3, { finalStats: { atk: 4, def: 5, int: 9, hp: 20 }, currentHp: 20 });
+    const state = makeState({
+      field: [attacker, null, null, null, null],
+      eField: [dsg, null, null, null, null],
+      turnN: 2,
+    });
+
+    const next = attack(state, 0, 0);
+
+    expect(next.field[0]?.buffs?.atk).toBe(-1);
+    expect(next.log.some((l) => l.includes('디테일광'))).toBe(true);
+  });
+
+  test('design (디테일광): the debuff also lands when an enemy card attacks my design card', () => {
+    const dsg = makeCard('design', 3, { finalStats: { atk: 4, def: 5, int: 9, hp: 20 }, currentHp: 20 });
+    const eAttacker = makeCard('pm', 3, {
+      finalStats: { atk: 6, def: 6, int: 6, hp: 20 },
+      currentHp: 20,
+      hasActed: false,
+      justPlayed: false,
+    });
+    const state = makeState({
+      turnN: 2,
+      field: [dsg, null, null, null, null],
+      eField: [eAttacker, null, null, null, null],
+      eDeck: [],
+      eHand: [],
+    });
+
+    const next = endTurn(state);
+
+    expect(next.eField[0]?.buffs?.atk).toBe(-1);
+  });
+
+  test('marketing (트렌드세터): playing this card gives every other ally on the field +1 ATK', () => {
+    const mkt = makeCard('marketing', 2, {});
+    const ally = makeCard('dev', 1, {});
+    const state = makeState({
+      hand: [mkt],
+      field: [ally, null, null, null, null],
+      cost: 5,
+    });
+
+    const next = playCard(state, 0, 1);
+
+    expect(next.field[0]?.buffs?.atk).toBe(1); // the pre-existing ally
+    expect(next.field[1]?.buffs?.atk ?? 0).toBe(0); // not the marketing card itself
+    expect(next.log.some((l) => l.includes('트렌드세터'))).toBe(true);
+  });
+
+  test('marketing (트렌드세터): the buff also fires when the AI plays a marketing card', () => {
+    const mkt = makeCard('marketing', 2, {});
+    const ally = makeCard('finance', 1, {});
+    const state = makeState({
+      turnN: 2,
+      eHand: [mkt],
+      eDeck: [],
+      eField: [ally, null, null, null, null],
+      field: [null, null, null, null, null],
+      myHp: 40,
+    });
+
+    const next = endTurn(state);
+
+    expect(next.eField.find((c) => c?.jobClass === 'finance')?.buffs?.atk).toBe(1);
+  });
+
+  test('hr (복지왕): at turn start, heals the allies in the two adjacent slots by 1', () => {
+    const wounded = makeCard('dev', 3, { finalStats: { atk: 7, def: 3, int: 7, hp: 10 }, currentHp: 4 });
+    const hrCard = makeCard('hr', 3, {});
+    const state = makeState({
+      turnN: 2,
+      field: [wounded, hrCard, null, null, null],
+      eField: [null, null, null, null, null],
+      deck: [],
+      hand: [],
+      eDeck: [],
+      eHand: [],
+    });
+
+    const next = endTurn(state);
+
+    expect(next.field[0]?.currentHp).toBe(5);
+    expect(next.log.some((l) => l.includes('복지왕'))).toBe(true);
+  });
+
+  test('hr (복지왕): does not heal a neighbour already at full HP', () => {
+    const full = makeCard('dev', 3, { finalStats: { atk: 7, def: 3, int: 7, hp: 10 }, currentHp: 10 });
+    const hrCard = makeCard('hr', 3, {});
+    const state = makeState({
+      turnN: 2,
+      field: [full, hrCard, null, null, null],
+      eField: [null, null, null, null, null],
+      deck: [],
+      hand: [],
+      eDeck: [],
+      eHand: [],
+    });
+
+    const next = endTurn(state);
+
+    expect(next.field[0]?.currentHp).toBe(10);
+  });
+
+  test('hr (복지왕): the regen also runs for the enemy at the start of its turn', () => {
+    const eWounded = makeCard('dev', 3, { finalStats: { atk: 7, def: 3, int: 7, hp: 10 }, currentHp: 4 });
+    const eHr = makeCard('hr', 3, {});
+    const state = makeState({
+      turnN: 2,
+      field: [null, null, null, null, null],
+      eField: [eWounded, eHr, null, null, null],
+      eDeck: [],
+      eHand: [],
+      myHp: 40,
+    });
+
+    const next = endTurn(state);
+
+    expect(next.eField.find((c) => c?.jobClass === 'dev')?.currentHp).toBe(5);
+  });
+
+  test('pm (일정관리): draws 1 extra at turn start when my hand is down to 2 or fewer', () => {
+    const pmCard = makeCard('pm', 3, {});
+    const state = makeState({
+      turnN: 2,
+      field: [pmCard, null, null, null, null],
+      eField: [null, null, null, null, null],
+      hand: [makeCard('dev', 1)],
+      deck: [makeCard('dev', 1), makeCard('hr', 1), makeCard('sales', 1)],
+      eDeck: [],
+      eHand: [],
+    });
+
+    const next = endTurn(state);
+
+    // normal draw -> hand 2 ; pm sees <=2 -> draws 1 more -> hand 3
+    expect(next.hand).toHaveLength(3);
+    expect(next.log.some((l) => l.includes('일정관리'))).toBe(true);
+  });
+
+  test('pm (일정관리): no extra draw when the hand is already above 2', () => {
+    const pmCard = makeCard('pm', 3, {});
+    const state = makeState({
+      turnN: 2,
+      field: [pmCard, null, null, null, null],
+      eField: [null, null, null, null, null],
+      hand: [makeCard('dev', 1), makeCard('dev', 1), makeCard('dev', 1)],
+      deck: [makeCard('dev', 1), makeCard('hr', 1)],
+      eDeck: [],
+      eHand: [],
+    });
+
+    const next = endTurn(state);
+
+    // normal draw -> hand 4 ; pm sees >2 -> no extra
+    expect(next.hand).toHaveLength(4);
+  });
+
+  test('pm (일정관리): the extra draw also runs for the enemy at the start of its turn', () => {
+    const ePm = makeCard('pm', 3, {});
+    const state = makeState({
+      turnN: 2,
+      field: [null, null, null, null, null],
+      eField: [ePm, null, null, null, null],
+      eHand: [makeCard('dev', 1)],
+      eDeck: [makeCard('dev', 6), makeCard('hr', 6), makeCard('sales', 6)],
+      myHp: 40,
+    });
+
+    const next = endTurn(state);
+
+    // 3-card eDeck: normal draw + pm draw = 2 pulled, 1 left (grade 6 so cost 7 > eCost, none get played)
+    expect(next.eDeck).toHaveLength(1);
   });
 });
