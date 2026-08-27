@@ -10,16 +10,16 @@ type Props = {
 };
 
 // Tap-to-enlarge view — the same CardFace used everywhere else (home tile, MyCardSheet),
-// just reshaped: a portrait aspectRatio instead of the compact landscape home tile, and a
-// bigger QR (168px vs. 38px) since a "hold this up so someone can scan it" view benefits
-// from a larger, easier-to-scan code. Reached by swiping the card instead of tapping it
-// opens MyCardSheet (edit) instead.
+// just bigger: same landscape aspectRatio (1.72, CardFace's default) as the compact home
+// tile, scaled up by the wider modal width, with a bigger QR (80px vs. 38px) since a
+// "hold this up so someone can scan it" view benefits from a larger, easier-to-scan code.
+// Reached by swiping the card instead of tapping it opens MyCardSheet (edit) instead.
 export function MyCardZoom({ visible, card, onClose }: Props) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <View style={styles.cardWrap}>
-          <CardFace card={card} aspectRatio={0.62} qrSize={168} />
+          <CardFace card={card} qrSize={80} />
         </View>
       </Pressable>
     </Modal>
