@@ -64,7 +64,9 @@ export function useOcrScan() {
       // No explicit Content-Type here: a multipart boundary must be generated per-request,
       // and hardcoding 'multipart/form-data' without one produces a malformed body that
       // fails before any HTTP response comes back (surfaces as a generic network error).
-      const response = await apiClient.post<OcrResult>('/scan/ocr', form);
+      // Longer timeout than apiClient's default 10s: OCR inference on a full-size photo
+      // (plus PaddleOCR's one-time model warmup on a cold backend) can run past that.
+      const response = await apiClient.post<OcrResult>('/scan/ocr', form, { timeout: 60000 });
       setState({ status: 'done', result: response.data });
       return response.data;
     } catch (error) {
