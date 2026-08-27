@@ -9,6 +9,7 @@ import { colors, radius, size, typography } from '@/shared/theme';
 import {
   deleteContact,
   fetchIntroductionRequestStatus,
+  isNotFirstDegreeError,
   requestIntroduction,
   updatePerson,
   type UpdatePersonInput,
@@ -151,8 +152,17 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
     try {
       const status = await requestIntroduction(person.id);
       setIntroStatus(status);
-    } catch {
-      Alert.alert('오류', '소개 요청을 보내지 못했어요. 다시 시도해주세요.');
+    } catch (err) {
+      // Retrying this action can never succeed here — the contact just isn't synced to
+      // the graph yet. Point at the fix (re-save the contact) instead of "다시 시도해주세요".
+      if (isNotFirstDegreeError(err)) {
+        Alert.alert(
+          '아직 요청할 수 없어요',
+          '이 연락처가 관계도에 아직 반영되지 않았어요. 연락처 정보를 한 번 수정해서 저장하면 다시 반영을 시도해요.',
+        );
+      } else {
+        Alert.alert('오류', '소개 요청을 보내지 못했어요. 다시 시도해주세요.');
+      }
     } finally {
       setIntroSubmitting(false);
     }

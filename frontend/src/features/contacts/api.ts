@@ -1,3 +1,5 @@
+import axios from 'axios';
+
 import { apiClient } from '@/shared/api/client';
 
 import type {
@@ -68,6 +70,18 @@ export async function requestIntroduction(personId: number): Promise<Introductio
     `/graph/${personId}/introduction-requests`,
   );
   return response.data.status;
+}
+
+// POST /graph/{person_id}/introduction-requests 404s with this exact detail when the
+// contact has no Neo4j node yet — which happens for real, since contacts/service.py syncs
+// to Neo4j best-effort. Retrying the request itself can never succeed in that state; only
+// re-saving the contact (also best-effort synced, see ContactsService.update_person) can.
+export function isNotFirstDegreeError(error: unknown): boolean {
+  return (
+    axios.isAxiosError(error) &&
+    error.response?.status === 404 &&
+    error.response.data?.detail === 'NOT_FIRST_DEGREE'
+  );
 }
 
 // --- Call recording import (see features/contacts/components/CallRecordingFinder.tsx) ---
