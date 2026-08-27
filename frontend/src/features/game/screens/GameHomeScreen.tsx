@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 
 import { colors } from '@/shared/theme';
 import DeckBuilderScreen from '@/features/game/screens/DeckBuilderScreen';
 import BattleScreen from '@/features/game/screens/BattleScreen';
 import type { BattleCard } from '@/features/game/engine/types';
+import { useGameStore } from '@/features/game/store/gameStore';
 
 // Container for the "게임" tab: switches locally between the Deck Builder
 // (ui-spec §7) and Battle (ui-spec §8) views without adding new navigation
@@ -12,6 +13,13 @@ import type { BattleCard } from '@/features/game/engine/types';
 export default function GameHomeScreen() {
   const [mode, setMode] = useState<'deck' | 'battle'>('deck');
   const [battleDeck, setBattleDeck] = useState<BattleCard[] | null>(null);
+
+  // Hydrate the card collection + saved deck from the backend once, when the
+  // game tab first opens.
+  const load = useGameStore((s) => s.load);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const content =
     mode === 'battle' ? (
