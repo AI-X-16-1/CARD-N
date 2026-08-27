@@ -74,6 +74,13 @@ function ActionGhost({
   const w = useSharedValue(from.w);
   const h = useSharedValue(from.h);
   const opacity = useSharedValue(motion.kind === 'move' ? 0 : 1);
+  // Dedicated 0->1 lifecycle driver. The ghost's onImpact/onDone must NOT be
+  // gated on one of the geometry channels (x/y/w/h): a draw into the hand
+  // keeps the card at hand-card size for the whole trip, so its w/h delta is
+  // 0, and reanimated-web resolves a zero-delta withTiming on the same frame
+  // — which unmounted the ghost (~5ms) before x/y ever moved. progress always
+  // has a real 0->1 delta, so it runs the full duration.
+  const progress = useSharedValue(0);
 
   useEffect(() => {
     if (motion.kind === 'move') {
@@ -82,7 +89,8 @@ function ActionGhost({
       x.value = withTiming(motion.to.x, cfg);
       y.value = withTiming(motion.to.y, cfg);
       w.value = withTiming(motion.to.w, cfg);
-      h.value = withTiming(motion.to.h, cfg, (finished) => {
+      h.value = withTiming(motion.to.h, cfg);
+      progress.value = withTiming(1, cfg, (finished) => {
         if (!finished) return;
         if (onImpact) runOnJS(onImpact)();
         runOnJS(onDone)();
@@ -480,26 +488,36 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
       if (!destEl || !rootEl) return false;
 
       if (ev.who === 'me') {
-        // Slides in gently from the right, rather than from the deck label —
-        // reads more like "a card arriving". Starting exactly at the frame's
-        // edge got clipped by its overflow:hidden for almost the whole trip
-        // (only the last few px before landing were ever visible), so start
-        // fully inside the visible area instead — still clearly "from the
-        // right" without being invisible. Uses measureRelative for both
-        // measurements (like every other event type) instead of a separate
-        // raw measureInWindow call.
-        measureRelative(rootEl, (rootRect) => {
-          measureRelative(destEl, (to) => {
-            const size = { w: HAND_CARD_WIDTH, h: HAND_CARD_WIDTH / 0.65 };
-            const startX = Math.min(rootRect.w - size.w - 8, to.x + 150);
-            const from: Rect = { x: startX, y: to.y, w: size.w, h: size.h };
+        // Enters from my own hero row (the deck label), mirroring the enemy
+        // draw below — just face-up and at hand-card size. The travel is
+        // mostly vertical: hero row -> down past the skill button -> hand.
+        const sourceEl = myHeroRef.current;
+        if (!sourceEl) return false;
+        const size = { w: HAND_CARD_WIDTH, h: HAND_CARD_WIDTH / 0.65 };
+        measureRelative(sourceEl, (src) => {
+          measureRelative(destEl, (row) => {
+            const from: Rect = {
+              x: src.x + src.w / 2 - size.w / 2,
+              y: src.y,
+              w: size.w,
+              h: size.h,
+            };
+            // The freshly drawn card is appended to the right end of the
+            // fanned hand, so land the ghost there — not at the hand row's
+            // left edge (row.x), which is where it visibly stopped before.
+            const to: Rect = {
+              x: row.x + Math.max(0, row.w - size.w),
+              y: row.y,
+              w: size.w,
+              h: size.h,
+            };
             const card = next.hand.find((c) => c.id === ev.cardId) ?? null;
             setGhost({
               id: ghostIdRef.current++,
               card,
               faceDown: false,
               from,
-              motion: { kind: 'move', to: cardBoxAt(to, size.w, size.h), duration: 600 },
+              motion: { kind: 'move', to, duration: 600 },
               onDone,
             });
           });
