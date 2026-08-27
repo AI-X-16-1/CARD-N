@@ -3,6 +3,7 @@ import { apiClient } from '@/shared/api/client';
 import type {
   Conversation,
   ConversationSummaryResult,
+  IntroductionRequestStatus,
   Person,
   PersonListResponse,
   RelationCategory,
@@ -43,6 +44,38 @@ export async function updatePerson(personId: number, data: UpdatePersonInput): P
 
 export async function deleteContact(personId: number): Promise<void> {
   await apiClient.delete(`/contacts/${personId}`);
+}
+
+// --- Introduction requests (see ui-spec.md §5 "Introduction Request") ---
+//
+// Every contact reachable from PersonDetailScreen is already a 1st-degree connection (they're
+// in this feature's own contacts db), so unlike the graph sheet's row this never needs a
+// degree check. Calls the graph feature's endpoints directly rather than importing anything
+// from features/graph/ — same cross-feature-at-the-API-boundary rule as the conversation calls
+// above. No dedicated "status for one person" endpoint exists, so this reads it off the depth-1
+// graph fetch, same as GraphScreen does.
+
+type GraphNodeStatusResponse = {
+  id: number;
+  type: 'me' | 'person';
+  introduction_request_status: IntroductionRequestStatus;
+};
+
+export async function fetchIntroductionRequestStatus(
+  personId: number,
+): Promise<IntroductionRequestStatus> {
+  const response = await apiClient.get<{ nodes: GraphNodeStatusResponse[] }>('/graph', {
+    params: { depth: 1 },
+  });
+  const node = response.data.nodes.find((n) => n.type === 'person' && n.id === personId);
+  return node?.introduction_request_status ?? null;
+}
+
+export async function requestIntroduction(personId: number): Promise<IntroductionRequestStatus> {
+  const response = await apiClient.post<{ status: IntroductionRequestStatus }>(
+    `/graph/${personId}/introduction-requests`,
+  );
+  return response.data.status;
 }
 
 // --- Call recording import (see features/contacts/components/CallRecordingFinder.tsx) ---
