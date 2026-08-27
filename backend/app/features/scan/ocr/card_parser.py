@@ -287,27 +287,30 @@ def is_address_line(line, other_line_has_full_address=False):
     # else could be mixed in, so it's safe), it's accepted as an address too.
     if stripped.endswith(SIDO_SUFFIXES) or stripped in SIDO_ABBR:
         return True
-    if (2 <= len(stripped) <= 6 and stripped.endswith(SIGUNGU_SUFFIXES)
-            and re.fullmatch(r"[가-힣]+", stripped)):
-        # A bare token ending in 시/군/구 is ambiguous with a Korean full name that
-        # happens to end the same way (e.g. "강승구" — a real card's actual name,
-        # confirmed to get swallowed into the address and lost entirely as a result,
-        # since address lines are removed from `remaining` before name candidates are
-        # even collected). Deferring to a name candidate is restricted to when another
-        # line already has a *complete* address (unit + digit together, e.g. a street
-        # number) — a genuine split address (the pattern this whole branch exists for,
-        # see the comment above) never has a real street-numbered line AND a redundant
-        # bare region name both on the card, so a bare region-shaped line alongside an
-        # already-complete address is far more likely to be a coincidental name. Without
-        # requiring this, a real place name that happens to start with a common surname
-        # character (마포구's "마", 김포시's "김", ...) would be wrongly excluded too —
-        # confirmed by testing: a card with only "마포구" on its own regressed.
-        if not (
+    # A bare token ending in 시/군/구 is ambiguous with a Korean full name that happens
+    # to end the same way (e.g. "강승구" — a real card's actual name, confirmed to get
+    # swallowed into the address and lost entirely as a result, since address lines are
+    # removed from `remaining` before name candidates are even collected). Deferring to
+    # a name candidate is restricted to when another line already has a *complete*
+    # address (unit + digit together, e.g. a street number) — a genuine split address
+    # (the pattern this whole branch exists for, see the comment above) never has a real
+    # street-numbered line AND a redundant bare region name both on the card, so a bare
+    # region-shaped line alongside an already-complete address is far more likely to be
+    # a coincidental name. Without requiring this, a real place name that happens to
+    # start with a common surname character (마포구's "마", 김포시's "김", ...) would be
+    # wrongly excluded too — confirmed by testing: a card with only "마포구" on its own
+    # regressed.
+    if (
+        2 <= len(stripped) <= 6
+        and stripped.endswith(SIGUNGU_SUFFIXES)
+        and re.fullmatch(r"[가-힣]+", stripped)
+        and not (
             other_line_has_full_address
             and is_name_candidate_token(stripped)
             and surname_rank(stripped) is not None
-        ):
-            return True
+        )
+    ):
+        return True
     # The exception for a line with no street number but 2+ consecutive
     # administrative-unit suffixes (e.g. "경기도 성남시 분당구"). Since single-character
     # suffixes like "리"/"로"/"동" can coincidentally match the end of an ordinary word

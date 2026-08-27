@@ -8,8 +8,8 @@ from app.features.contacts.router import router as contacts_router
 from app.features.conversation.router import router as conversation_router
 from app.features.game.router import router as game_router
 from app.features.graph.router import router as graph_router
-from app.features.scan.router import router as scan_router
 from app.features.scan.ocr.pipeline import warmup as warmup_ocr
+from app.features.scan.router import router as scan_router
 from app.neo4j_driver import close_neo4j_driver
 
 
