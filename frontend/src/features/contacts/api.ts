@@ -1,6 +1,13 @@
 import { apiClient } from '@/shared/api/client';
 
-import type { Conversation, ConversationSummaryResult, Person, PersonListResponse, RelationFilter } from './types';
+import type {
+  Conversation,
+  ConversationSummaryResult,
+  Person,
+  PersonListResponse,
+  RelationCategory,
+  RelationFilter,
+} from './types';
 import type { CallRecordingMatch } from './lib/callRecordings';
 
 export async function fetchContacts(
@@ -15,6 +22,22 @@ export async function fetchContacts(
 
 export async function fetchPerson(personId: number): Promise<Person> {
   const response = await apiClient.get<Person>(`/contacts/${personId}`);
+  return response.data;
+}
+
+export type UpdatePersonInput = {
+  name?: string;
+  company?: string | null;
+  department?: string | null;
+  title?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  relation?: RelationCategory;
+  context?: string | null;
+};
+
+export async function updatePerson(personId: number, data: UpdatePersonInput): Promise<Person> {
+  const response = await apiClient.put<Person>(`/contacts/${personId}`, data);
   return response.data;
 }
 
