@@ -1,7 +1,7 @@
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, radius, size, typography } from '@/shared/theme';
@@ -110,56 +110,56 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
         </View>
       </ScrollView>
 
-      <Pressable style={styles.fab} onPress={() => setActionSheetOpen(true)}>
-        <Text style={styles.fabIcon}>🎙</Text>
-      </Pressable>
+      {actionSheetOpen ? (
+        <Pressable style={styles.speedDialBackdrop} onPress={() => setActionSheetOpen(false)} />
+      ) : null}
 
-      <Modal visible={actionSheetOpen} transparent animationType="fade">
-        <Pressable style={styles.backdrop} onPress={() => setActionSheetOpen(false)}>
-          <View style={styles.actionSheet}>
-            <View style={styles.actionGrid}>
-              <Pressable
-                style={styles.actionTile}
-                onPress={() => {
-                  setActionSheetOpen(false);
-                  // Only registered stack routes (e.g. the Home tab) can push
-                  // ConversationRecord today; inline (list) mode has no route for it yet.
-                  if (!onBack) {
-                    navigation.navigate('ConversationRecord', { personId: person.id, mode: 'record' });
-                  }
-                }}
-              >
-                <Text style={styles.actionTileIcon}>🎙</Text>
-                <Text style={styles.actionTileLabel}>녹음</Text>
-              </Pressable>
-              <Pressable
-                style={styles.actionTile}
-                onPress={() => {
-                  setActionSheetOpen(false);
-                  setCallRecordingFinderOpen(true);
-                }}
-              >
-                <Text style={styles.actionTileIcon}>📼</Text>
-                <Text style={styles.actionTileLabel}>자동검색</Text>
-              </Pressable>
-              <Pressable
-                style={styles.actionTile}
-                onPress={() => {
-                  setActionSheetOpen(false);
-                  // mode: 'upload' makes ConversationRecordScreen lead with the file picker
-                  // instead of the record button (#24/#25).
-                  if (!onBack) {
-                    navigation.navigate('ConversationRecord', { personId: person.id, mode: 'upload' });
-                  }
-                }}
-              >
-                <Text style={styles.actionTileIcon}>📁</Text>
-                <Text style={styles.actionTileLabel}>파일 올리기</Text>
-              </Pressable>
-            </View>
-          </View>
-        </Pressable>
-      </Modal>
+      {actionSheetOpen ? (
+        <View style={styles.speedDialMenu}>
+          <Pressable
+            style={styles.speedDialItem}
+            onPress={() => {
+              setActionSheetOpen(false);
+              // Only registered stack routes (e.g. the Home tab) can push
+              // ConversationRecord today; inline (list) mode has no route for it yet.
+              if (!onBack) {
+                navigation.navigate('ConversationRecord', { personId: person.id, mode: 'record' });
+              }
+            }}
+          >
+            <Text style={styles.speedDialIcon}>🎙</Text>
+            <Text style={styles.speedDialLabel}>녹음</Text>
+          </Pressable>
+          <Pressable
+            style={styles.speedDialItem}
+            onPress={() => {
+              setActionSheetOpen(false);
+              // mode: 'upload' makes ConversationRecordScreen lead with the file picker
+              // instead of the record button (#24/#25).
+              if (!onBack) {
+                navigation.navigate('ConversationRecord', { personId: person.id, mode: 'upload' });
+              }
+            }}
+          >
+            <Text style={styles.speedDialIcon}>📁</Text>
+            <Text style={styles.speedDialLabel}>파일</Text>
+          </Pressable>
+          <Pressable
+            style={styles.speedDialItem}
+            onPress={() => {
+              setActionSheetOpen(false);
+              setCallRecordingFinderOpen(true);
+            }}
+          >
+            <Text style={styles.speedDialIcon}>📼</Text>
+            <Text style={styles.speedDialLabel}>자동검색</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      <Pressable style={styles.fab} onPress={() => setActionSheetOpen((open) => !open)}>
+        <Text style={styles.fabIcon}>{actionSheetOpen ? '✕' : '+'}</Text>
+      </Pressable>
     </SafeAreaView>
   );
 }
@@ -260,38 +260,39 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   fabIcon: {
-    fontSize: 22,
+    color: colors.textPrimary,
+    fontSize: 24,
+    fontWeight: '600',
   },
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
+  // Invisible, full-screen — only there to close the speed-dial menu on an outside tap.
+  speedDialBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
-  actionSheet: {
-    backgroundColor: colors.surface3,
-    borderTopLeftRadius: radius.bottomSheet,
-    borderTopRightRadius: radius.bottomSheet,
-    padding: 16,
-    paddingBottom: 28,
+  speedDialMenu: {
+    position: 'absolute',
+    right: 20,
+    bottom: 24 + size.fab + 12,
+    gap: 8,
+    alignItems: 'flex-end',
   },
-  actionGrid: {
+  speedDialItem: {
     flexDirection: 'row',
-    gap: 10,
-  },
-  actionTile: {
-    flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 18,
-    backgroundColor: colors.surface2,
-    borderRadius: radius.card,
+    gap: 8,
+    backgroundColor: colors.surface3,
+    borderRadius: radius.pill,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
   },
-  actionTileIcon: {
-    fontSize: 22,
+  speedDialIcon: {
+    fontSize: 18,
   },
-  actionTileLabel: {
-    fontSize: typography.meta.fontSize,
+  speedDialLabel: {
+    fontSize: typography.body.fontSize,
     fontWeight: '600',
     color: colors.textPrimary,
   },

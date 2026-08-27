@@ -72,6 +72,10 @@ export default function CallRecordingFinder({ personId, phone, onSummarySaved }:
         <Text style={styles.findLabel}>{searching ? '검색 중…' : '휴대폰에서 통화 녹음 찾기'}</Text>
       </Pressable>
 
+      {!phone && (
+        <Text style={styles.hintMuted}>이 연락처에 전화번호가 없어서 통화 녹음을 찾을 수 없어요.</Text>
+      )}
+
       {result?.permissionDenied && (
         <Text style={styles.hintMuted}>연락처/미디어 접근 권한을 허용해야 통화 녹음을 찾을 수 있어요.</Text>
       )}
