@@ -110,19 +110,20 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <Pressable onPress={goBack} hitSlop={12}>
-          <Text style={styles.back}>‹ 뒤로</Text>
-        </Pressable>
         {editing ? (
-          <View style={styles.headerActions}>
-            <Pressable onPress={() => setEditing(false)} hitSlop={8} disabled={saving}>
+          <>
+            <Pressable onPress={() => setEditing(false)} hitSlop={12} disabled={saving}>
               <Text style={styles.headerActionMuted}>취소</Text>
             </Pressable>
-            <Pressable onPress={handleSaveEdit} hitSlop={8} disabled={saving}>
+            <Pressable onPress={handleSaveEdit} hitSlop={12} disabled={saving}>
               <Text style={styles.headerAction}>{saving ? '저장 중…' : '저장'}</Text>
             </Pressable>
-          </View>
-        ) : null}
+          </>
+        ) : (
+          <Pressable onPress={goBack} hitSlop={12}>
+            <Text style={styles.back}>‹ 뒤로</Text>
+          </Pressable>
+        )}
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -247,11 +248,11 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
         </View>
       </ScrollView>
 
-      {actionSheetOpen ? (
+      {!editing && actionSheetOpen ? (
         <Pressable style={styles.speedDialBackdrop} onPress={() => setActionSheetOpen(false)} />
       ) : null}
 
-      {actionSheetOpen ? (
+      {!editing && actionSheetOpen ? (
         <View style={styles.speedDialMenu}>
           <Pressable
             style={styles.speedDialItem}
@@ -302,9 +303,11 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
         </View>
       ) : null}
 
-      <Pressable style={styles.fab} onPress={() => setActionSheetOpen((open) => !open)}>
-        <Text style={styles.fabIcon}>{actionSheetOpen ? '✕' : '+'}</Text>
-      </Pressable>
+      {!editing ? (
+        <Pressable style={styles.fab} onPress={() => setActionSheetOpen((open) => !open)}>
+          <Text style={styles.fabIcon}>{actionSheetOpen ? '✕' : '+'}</Text>
+        </Pressable>
+      ) : null}
     </SafeAreaView>
   );
 }
