@@ -21,6 +21,7 @@ describe('toBattleCard', () => {
     skill: { name: '캠페인', cost: 2, description: '아군 전체 ATK +2 (영구)' },
     passive: '트렌드세터',
     flavor_text: '트렌드는 내가 만든다',
+    illustration_url: null,
     created_at: '2026-08-27T00:00:00Z',
   };
 
@@ -39,10 +40,16 @@ describe('toBattleCard', () => {
       skill: { name: '캠페인', cost: 2, description: '아군 전체 ATK +2 (영구)' },
       passive: '트렌드세터',
       flavorText: '트렌드는 내가 만든다',
+      illustrationUrl: null,
     });
   });
 
   test('falls back to an empty company string when the person has none', () => {
     expect(toBattleCard({ ...apiCard, company: null }).company).toBe('');
+  });
+
+  test('carries the illustration url through when the card has art', () => {
+    const url = 'http://localhost:8188/view?filename=card_10.png';
+    expect(toBattleCard({ ...apiCard, illustration_url: url }).illustrationUrl).toBe(url);
   });
 });

@@ -175,4 +175,5 @@ def build_snapshot(person: object) -> dict[str, object]:
         "skill": dict(SKILL[job_class]),
         "passive": PASSIVE[job_class],
         "flavor_text": FLAVOR_TEXT[job_class],
+        "illustration_url": None,
     }

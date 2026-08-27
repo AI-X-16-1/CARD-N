@@ -32,6 +32,7 @@ def upgrade() -> None:
         sa.Column("skill", sa.JSON(), nullable=False),
         sa.Column("passive", sa.String(length=50), nullable=False),
         sa.Column("flavor_text", sa.Text(), nullable=False),
+        sa.Column("illustration_url", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
         sa.ForeignKeyConstraint(["person_id"], ["persons.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),

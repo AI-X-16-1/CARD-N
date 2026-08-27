@@ -41,8 +41,16 @@ class GameService:
             skill=SkillSchema(**card.skill),
             passive=card.passive,
             flavor_text=card.flavor_text,
+            illustration_url=card.illustration_url,
             created_at=card.created_at,
         )
+
+    async def set_illustration(self, card_id: int, illustration_url: str) -> BattleCardResponse:
+        card, person = await self._card_row_or_404(card_id)
+        card.illustration_url = illustration_url
+        await self.db.commit()
+        await self.db.refresh(card)
+        return self._to_response(card, person)
 
     async def list_cards(self) -> list[BattleCardResponse]:
         """Collection == my contacts: make sure every person has a card, then return all."""

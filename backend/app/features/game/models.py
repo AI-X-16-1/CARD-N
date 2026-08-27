@@ -29,6 +29,9 @@ class BattleCard(Base):
     skill: Mapped[dict] = mapped_column(JSON)
     passive: Mapped[str] = mapped_column(String(50))
     flavor_text: Mapped[str] = mapped_column(Text)
+    # URL / path to the generated card art (ComfyUI / Krea2). Null until the
+    # asset pipeline produces one.
+    illustration_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

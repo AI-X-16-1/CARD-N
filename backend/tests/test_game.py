@@ -59,10 +59,12 @@ def test_list_cards_response_matches_the_api_spec_shape(client):
         "skill",
         "passive",
         "flavor_text",
+        "illustration_url",
         "created_at",
     ):
         assert key in card, key
     assert card["stars"] == card["grade"]
+    assert card["illustration_url"] is None  # no art yet
     assert set(card["base_stats"]) == {"atk", "def", "int", "hp"}
     assert card["skill"]["name"]
 
@@ -107,6 +109,26 @@ def test_get_card_by_id(client):
 
 def test_get_card_unknown_id_is_404(client):
     assert client.get("/api/v1/game/cards/9999").status_code == 404
+
+
+# --- PUT /cards/{id}/art -------------------------------------------
+
+
+def test_set_card_art_stores_the_illustration_url(client):
+    _make_person(client)
+    card_id = client.get("/api/v1/game/cards").json()[0]["id"]
+    url = "http://localhost:8188/view?filename=card_3.png"
+
+    res = client.put(f"/api/v1/game/cards/{card_id}/art", json={"illustration_url": url})
+
+    assert res.status_code == 200
+    assert res.json()["illustration_url"] == url
+    assert client.get(f"/api/v1/game/cards/{card_id}").json()["illustration_url"] == url
+
+
+def test_set_card_art_unknown_id_is_404(client):
+    res = client.put("/api/v1/game/cards/9999/art", json={"illustration_url": "x"})
+    assert res.status_code == 404
 
 
 # --- deck -----------------------------------------------------------

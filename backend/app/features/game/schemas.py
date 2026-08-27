@@ -29,11 +29,16 @@ class BattleCardResponse(BaseModel):
     skill: SkillSchema
     passive: str
     flavor_text: str
+    illustration_url: str | None = None
     created_at: datetime
 
 
 class CreateCardRequest(BaseModel):
     person_id: int
+
+
+class UpdateCardArtRequest(BaseModel):
+    illustration_url: str
 
 
 class DeckResponse(BaseModel):

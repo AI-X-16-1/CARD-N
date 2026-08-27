@@ -88,6 +88,7 @@ def test_build_snapshot_assembles_the_full_card_row():
     assert snap["skill"]["name"]  # non-empty skill
     assert snap["passive"]  # non-empty passive name
     assert snap["flavor_text"]  # seeded from FLAVOR_TEXT
+    assert snap["illustration_url"] is None  # art is filled in later by the asset pipeline
 
 
 def test_build_snapshot_handles_a_person_with_no_job_class_or_title():

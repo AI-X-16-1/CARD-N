@@ -6,6 +6,7 @@ from app.features.game.schemas import (
     BattleCardResponse,
     CreateCardRequest,
     DeckResponse,
+    UpdateCardArtRequest,
     UpdateDeckRequest,
 )
 from app.features.game.service import GameService
@@ -44,6 +45,13 @@ async def regenerate_flavor(
     card_id: int, service: GameService = Depends(_service)
 ) -> BattleCardResponse:
     return await service.regenerate_flavor(card_id)
+
+
+@router.put("/cards/{card_id}/art", response_model=BattleCardResponse)
+async def set_card_art(
+    card_id: int, data: UpdateCardArtRequest, service: GameService = Depends(_service)
+) -> BattleCardResponse:
+    return await service.set_illustration(card_id, data.illustration_url)
 
 
 @router.get("/deck", response_model=DeckResponse)

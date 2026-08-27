@@ -577,6 +577,7 @@ another feature's router (backend/CLAUDE.md).
 | `GET` | `/game/deck` | Current deck configuration |
 | `PUT` | `/game/deck` | Update deck configuration |
 | `POST` | `/game/cards/{id}/flavor` | Regenerate flavor text |
+| `PUT` | `/game/cards/{id}/art` | Set the generated card illustration (`{ "illustration_url": "..." }`) |
 
 The collection mirrors the contacts list: every `persons` row has exactly one
 battle card. `GET /game/cards` materialises any missing cards on first access
@@ -589,6 +590,9 @@ tables. Editing the person's title afterwards does not re-roll the card.
 There is no auth in this project, so the deck is a single global configuration.
 `grade` == `stars` (1–6); `grade_label` is the Korean position tier.
 `POST /game/cards/{id}/flavor` returns `503` when the LLM is unavailable.
+
+`illustration_url` is `null` until the asset pipeline (ComfyUI / Krea2)
+produces the card art and calls `PUT /game/cards/{id}/art` to attach it.
 
 ### POST /game/cards
 

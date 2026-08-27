@@ -27,6 +27,7 @@ export interface BattleCard {
   skill: Skill;
   passive: string;
   flavorText: string;
+  illustrationUrl?: string | null; // generated card art (ComfyUI/Krea2); null until produced
 
   // Runtime-only fields, set once the card is placed on a battle field.
   // Absent while the card is only in a deck or hand.

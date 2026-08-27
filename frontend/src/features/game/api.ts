@@ -19,6 +19,7 @@ interface ApiCard {
   skill: { name: string; cost: number; description: string };
   passive: string;
   flavor_text: string;
+  illustration_url: string | null;
   created_at: string;
 }
 
@@ -44,6 +45,7 @@ export function toBattleCard(c: ApiCard): BattleCard {
     skill: c.skill,
     passive: c.passive,
     flavorText: c.flavor_text,
+    illustrationUrl: c.illustration_url,
   };
 }
 
