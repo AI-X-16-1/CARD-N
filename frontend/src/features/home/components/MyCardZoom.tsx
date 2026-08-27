@@ -23,9 +23,13 @@ export function MyCardZoom({ visible, card, onClose }: Props) {
   // closes, so nothing else in the app is affected.
   useEffect(() => {
     if (!visible) return;
-    ScreenOrientation.unlockAsync();
+    // expo-screen-orientation is a native module — it isn't present in a dev-client build
+    // built before this dependency was added, and throws "Cannot find native module" until
+    // the user installs a rebuilt client. Swallow that so the zoom view still opens (just
+    // without rotation) instead of surfacing an error every time it's opened.
+    ScreenOrientation.unlockAsync().catch(() => {});
     return () => {
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
     };
   }, [visible]);
 
