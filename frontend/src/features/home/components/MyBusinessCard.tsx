@@ -44,17 +44,28 @@ export function positionLine(card: MyCard): string {
   return [card.department, card.grade, card.job_function].filter(Boolean).join(' · ');
 }
 
-// Pure card visual — shared by the Home tile (MyBusinessCard, below) and MyCardSheet's
-// detail header, so the same card face carries over when the sheet transitions in.
-export function CardFace({ card }: { card: MyCard }) {
+type CardFaceProps = {
+  card: MyCard;
+  // Same layout (top row / name+position / contact+QR row) at any shape — MyCardZoom
+  // reuses this as-is with a portrait aspectRatio and a bigger qrSize instead of a
+  // separate hand-built layout, so "the card" stays one visual design everywhere it
+  // appears rather than two designs that can drift apart.
+  aspectRatio?: number;
+  qrSize?: number;
+};
+
+// Pure card visual — shared by the Home tile (MyBusinessCard, below), MyCardZoom's
+// enlarged view, and MyCardSheet's detail header.
+export function CardFace({ card, aspectRatio = 1.72, qrSize = 38 }: CardFaceProps) {
   const mecard = myCardToMecard(card);
+  const qrBoxSize = qrSize + 6;
   return (
     <LinearGradient
       colors={['#1c1c30', '#12121e', '#171728']}
       locations={[0, 0.55, 1]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 0.9 }}
-      style={styles.card}
+      style={[styles.card, { aspectRatio }]}
     >
       <Svg width={80} height={80} style={styles.decoration}>
         <Circle cx={70} cy={70} r={20} stroke={colors.borderMedium} strokeWidth={1} fill="none" />
@@ -88,11 +99,11 @@ export function CardFace({ card }: { card: MyCard }) {
           // QR scanners need strong light/dark contrast to read reliably regardless of
           // the app's own dark theme — white module background + dark modules, not the
           // theme's own (near-white-on-dark) palette.
-          <View style={styles.qrWrap}>
-            <QRCode value={mecard} size={38} backgroundColor={colors.textPrimary} color={colors.canvas} />
+          <View style={[styles.qrWrap, { width: qrBoxSize, height: qrBoxSize }]}>
+            <QRCode value={mecard} size={qrSize} backgroundColor={colors.textPrimary} color={colors.canvas} />
           </View>
         ) : (
-          <View style={styles.qrPlaceholder} />
+          <View style={[styles.qrPlaceholder, { width: qrBoxSize, height: qrBoxSize }]} />
         )}
       </View>
     </LinearGradient>
