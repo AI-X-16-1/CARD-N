@@ -177,17 +177,12 @@ class _FakeDriver:
 
 def _patch_sync(monkeypatch) -> dict[str, list]:
     """Record what ConversationService.save hands to the graph feature."""
-    calls: dict[str, list] = {"bump": [], "mentions": []}
+    calls: dict[str, list] = {"bump": []}
 
     async def fake_bump(driver, *, person_id):
         calls["bump"].append(person_id)
 
-    async def fake_sync(driver, *, person_id, mentions):
-        calls["mentions"].append((person_id, mentions))
-        return []
-
     monkeypatch.setattr(service_module, "bump_conversation_weight", fake_bump)
-    monkeypatch.setattr(service_module, "sync_mentioned_people", fake_sync)
     return calls
 
 
@@ -206,35 +201,26 @@ async def test_graph_sync_runs_once_per_recording(monkeypatch, db_session, perso
 
     await _save(person_id, "첫 대화", SUMMARY, db_session)
     assert calls["bump"] == [person_id]
-    assert calls["mentions"][0][1] == [
-        {"name": "박준호", "relation": "개발 담당 연구원", "confidence": 0.95}
-    ]
 
     # Re-summarizing overwrites the row, so the graph must not count it again.
     await _save(person_id, "첫 대화", {**SUMMARY, "one_line": "다시 요약"}, db_session)
     assert calls["bump"] == [person_id], "re-summarize must not bump the weight again"
-    assert len(calls["mentions"]) == 1
 
     # A different recording is a real second conversation.
     await _save(person_id, "두 번째 대화", SUMMARY, db_session)
     assert calls["bump"] == [person_id, person_id]
 
 
-async def test_graph_sync_dedupes_repeated_names(monkeypatch, db_session, person_id) -> None:
+async def test_mentioned_people_never_reach_the_graph(monkeypatch, db_session, person_id) -> None:
+    """A summary naming a third party must not become an edge — saving one only ever
+    bumps the weight of the conversation's own contact.
+    """
     calls = _patch_sync(monkeypatch)
-    summary = {
-        **SUMMARY,
-        "mentioned_people": [
-            {"name": "박준호", "relation": "개발 담당", "confidence": 0.95},
-            {"name": " 박준호 ", "relation": "전 직장 동료", "confidence": 0.9},
-            {"name": "최유진", "relation": "컨설턴트", "confidence": 0.8},
-        ],
-    }
 
-    await _save(person_id, "같은 사람을 두 번 언급", summary, db_session)
+    await _save(person_id, "제3자를 언급한 대화", SUMMARY, db_session)
 
-    names = [m["name"] for m in calls["mentions"][0][1]]
-    assert names == ["박준호", "최유진"], "one conversation is one piece of evidence"
+    assert calls["bump"] == [person_id]
+    assert not hasattr(service_module, "sync_mentioned_people")
 
 
 async def test_graph_sync_is_skipped_without_a_driver(monkeypatch, db_session, person_id) -> None:
@@ -249,7 +235,6 @@ async def test_graph_sync_is_skipped_without_a_driver(monkeypatch, db_session, p
     )
 
     assert calls["bump"] == []
-    assert calls["mentions"] == []
 
 
 # ─────────────────────────────────────────────────────────────

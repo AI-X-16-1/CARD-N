@@ -12,6 +12,7 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.cardn.app",
       "adaptiveIcon": {
         "backgroundColor": "#0A0A0F",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -20,13 +21,20 @@
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
+        "android.permission.READ_CONTACTS",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_AUDIO",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
-        "android.permission.CAMERA"
-      ],
-      "package": "com.anonymous.cardn"
+        "android.permission.CAMERA",
+        "android.permission.WRITE_CONTACTS",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -38,7 +46,26 @@
         {
           "cameraPermission": "명함을 촬영하기 위해 카메라 접근 권한이 필요합니다."
         }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "통화 녹음 파일을 저장된 이름으로 찾기 위해 연락처 접근 권한이 필요합니다."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": false,
+          "savePhotosPermission": false
+        }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "7b964643-a1c4-423c-b5e3-c7f7f4642fcf"
+      }
+    },
+    "owner": "kjfcvx12"
   }
 }

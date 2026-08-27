@@ -11,6 +11,7 @@ import type { HomeStackParamList, TabParamList } from '@/navigation/RootNavigato
 
 import { MyBusinessCard } from '../components/MyBusinessCard';
 import { MyCardSheet } from '../components/MyCardSheet';
+import { MyCardZoom } from '../components/MyCardZoom';
 import { RecentContactRow } from '../components/RecentContactRow';
 import { useMyCard } from '../hooks/useMyCard';
 import { useRecentContacts } from '../hooks/useRecentContacts';
@@ -23,13 +24,14 @@ export default function HomeScreen() {
   const { card, save } = useMyCard();
   const { total, newThisWeek, recent, loading } = useRecentContacts();
   const [cardSheetOpen, setCardSheetOpen] = useState(false);
+  const [cardZoomOpen, setCardZoomOpen] = useState(false);
 
   const openPerson = (person: RecentPerson) => {
     navigation.navigate('PersonDetail', { personId: person.id });
   };
 
   const openList = () => {
-    navigation.getParent<BottomTabNavigationProp<TabParamList>>()?.navigate('목록');
+    navigation.getParent<BottomTabNavigationProp<TabParamList>>()?.navigate('목록', { screen: 'ContactList' });
   };
 
   const initials = card.name.slice(0, 1) || '?';
@@ -56,7 +58,11 @@ export default function HomeScreen() {
           </Text>
         </View>
 
-        <MyBusinessCard card={card} onPress={() => setCardSheetOpen(true)} />
+        <MyBusinessCard
+          card={card}
+          onPress={() => setCardZoomOpen(true)}
+          onSwipe={() => setCardSheetOpen(true)}
+        />
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionLabel}>최근 등록</Text>
@@ -75,6 +81,8 @@ export default function HomeScreen() {
           ))
         )}
       </ScrollView>
+
+      <MyCardZoom visible={cardZoomOpen} card={card} onClose={() => setCardZoomOpen(false)} />
 
       <MyCardSheet
         visible={cardSheetOpen}

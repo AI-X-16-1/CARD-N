@@ -20,3 +20,14 @@ def test_feature_ping(prefix: str, feature: str) -> None:
     response = client.get(f"{prefix}/ping")
     assert response.status_code == 200
     assert response.json() == {"feature": feature, "status": "ok"}
+
+
+def test_introduction_request_routes_do_not_shadow_each_other() -> None:
+    """GET /graph/introduction-requests is my inbox; GET /graph/{id}/introduction-requests
+    is my outgoing request toward one person. They differ only in segment count, so pin
+    that both stay reachable and neither swallows the other.
+    """
+    paths = app.openapi()["paths"]
+
+    assert "get" in paths["/api/v1/graph/introduction-requests"]
+    assert set(paths["/api/v1/graph/{person_id}/introduction-requests"]) == {"get", "post"}

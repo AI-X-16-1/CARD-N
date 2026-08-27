@@ -151,6 +151,29 @@ conversation feature, whose router they live on.
 
 Saving a conversation updates this contact's `last_contact`.
 
+### GET /contacts/me, PUT /contacts/me
+
+A single row (`my_card`, one owner — there's no multi-user auth in this app). `title`
+was replaced by `department` / `grade` / `job_function` (mirrors the same split on
+`Person`) and `address` was added for the home screen's QR code (see `docs/ui-spec.md`).
+
+```
+Response 200 (GET), and PUT's response after applying the request body:
+{
+  "name": "Kang Min-gu",
+  "company": "CARD:N",
+  "department": "Engineering",
+  "grade": "Backend",
+  "job_function": "Server",
+  "phone": "010-1234-5678",
+  "email": "me@cardn.app",
+  "address": "Seoul",
+  "updated_at": "2024-03-15T09:00:00Z"
+}
+
+PUT request body: same shape minus `updated_at`, all fields but `name` optional.
+```
+
 ### Note: no lookup-by-phone endpoint
 
 An earlier draft of the incoming-call-alert feature specified
@@ -175,6 +198,7 @@ endpoint would have to either decrypt-and-scan, or add an indexed blind-index co
 | `GET` | `/graph/{person_id}/mutual` | Retrieve mutual connections |
 | `GET` | `/graph/stats` | Relationship graph statistics (1st-degree/2nd-degree counts, etc.) |
 | `POST` | `/graph/{person_id}/introduction-requests` | Request a 1st-degree contact's permission to be shown as a 2nd-degree connection to their network |
+| `GET` | `/graph/{person_id}/introduction-requests` | Status of my own outgoing request toward this one person |
 | `GET` | `/graph/introduction-requests` | List incoming introduction requests awaiting my approval |
 | `POST` | `/graph/introduction-requests/{person_id}/approve` | Approve an incoming introduction request |
 | `POST` | `/graph/introduction-requests/{person_id}/decline` | Decline an incoming introduction request |
@@ -245,6 +269,20 @@ Response 200:
 }
 ```
 
+**Open: nothing currently populates this.** A mutual connection requires a `MET_AT`
+edge between two people who are not me, and the only edge-creating code
+(`contacts/graph_sync.py`) writes `(me)-[MET_AT]-(contact)` and nothing else. The one
+path that used to write contact-to-contact edges inferred them from names an LLM heard
+in a conversation, and was removed — see `features.md`'s 김민경 touchpoints.
+
+Whatever replaces it **must be consent-gated, not inferred**. The point of the
+`INTRO_CONSENT` machinery below is that a person decides who gets to see them through
+whom; a mutual-connections list assembled without that decision leaks the same
+information the 2nd-degree privacy rule above exists to protect, just through a
+different screen. Any proposal here needs review before implementation — treating "we
+know both of them" as permission to link them is the mistake that got the previous
+version removed.
+
 ### Introduction Requests
 
 Lets a person opt in to being surfaced as a 2nd-degree connection through a specific 1st-degree
@@ -275,6 +313,34 @@ Errors:
   409 ALREADY_REQUESTED   - a pending or already-approved request exists for this person
   404 NOT_FIRST_DEGREE    - person_id is not one of my 1st-degree contacts
 ```
+
+#### GET /graph/{person_id}/introduction-requests
+
+Reads back my own outgoing request toward one person. Same path as the POST — at most one
+request exists between me and a given person. Distinct from `GET /graph/introduction-requests`
+(no `person_id`), which is the inbox of requests other people sent *me*.
+
+Added for screens that show a single person: `PersonDetailScreen` previously had to fetch the
+whole depth-1 graph and pick `introduction_request_status` off the matching node, because this
+endpoint did not exist.
+
+```
+Path params:
+  - person_id: the contact whose request state I want
+
+Response 200:
+{
+  "person_id": 3,
+  "status": "pending",          // null when I have never asked
+  "requested_at": "2024-03-20T10:00:00Z",
+  "responded_at": null
+}
+```
+
+`status` is `null` rather than a 404 when no request has been made — not having asked is a
+normal state the UI renders as the default row, not an error. A `person_id` that isn't a
+1st-degree contact returns the same `null` shape, so this endpoint never reveals whether an
+arbitrary id exists.
 
 #### GET /graph/introduction-requests
 
@@ -442,9 +508,12 @@ name, company and the previous summaries out of its own tables and decides what 
 into the prompt, so conversation history never travels through the client. `person` and
 `history_used` echo back what was actually used.
 
-`mentioned_people` are third parties named during the conversation — candidate edges for
-the relationship graph. `confidence` is the model's own estimate of whether it heard the
-name correctly; the UI flags anything under 0.7.
+`mentioned_people` are third parties named during the conversation. `confidence` is the
+model's own estimate of whether it heard the name correctly; the UI flags anything under
+0.7. They are stored and displayed only — saving a conversation never turns them into
+relationship-graph edges. That was built and then removed: a name the model heard is not
+evidence two people know each other, and a wrong guess became a permanent edge that was
+never surfaced to the user. Any future use needs the user to confirm the relationship.
 
 The summary deliberately carries no to-do list and no "what to raise next time" hints.
 Both were dropped after review: on real recordings they were the parts most prone to

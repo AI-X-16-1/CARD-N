@@ -35,9 +35,12 @@ class MyCard(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(100))
     company: Mapped[str | None] = mapped_column(String(150))
-    title: Mapped[str | None] = mapped_column(String(100))
+    department: Mapped[str | None] = mapped_column(String(100))
+    grade: Mapped[str | None] = mapped_column(String(100))
+    job_function: Mapped[str | None] = mapped_column(String(100))
     phone: Mapped[str | None] = mapped_column(EncryptedString(30))
     email: Mapped[str | None] = mapped_column(EncryptedString(150))
+    address: Mapped[str | None] = mapped_column(EncryptedString(255))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )

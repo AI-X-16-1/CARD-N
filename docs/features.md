@@ -48,16 +48,38 @@
 - ← 강민구: Receives Neo4j node sync when a person is created/updated
 - ← 박재경: Receives edge weight updates when a conversation is saved. Built as
   `features/graph/conversation_sync.py` — `bump_conversation_weight(driver, person_id=...)`
-  strengthens the (me)-[:MET_AT]-(person) edge, and `sync_mentioned_people(driver,
-  person_id=..., mentions=...)` resolves `ConversationSummary.mentioned_people` (name +
-  confidence) against existing contacts and links a confident, unambiguous match as a new
-  MET_AT edge between the conversation's contact and the mentioned person. Both are a direct
-  import (no graph-owned HTTP endpoint yet, same trade-off as 강민구's `graph_sync.py`) —
-  `ConversationService.save` should call both, best-effort (catch and log), after it commits,
+  strengthens the existing (me)-[:MET_AT]-(person) edge. It is a direct import (no
+  graph-owned HTTP endpoint yet, same trade-off as 강민구's `graph_sync.py`) —
+  `ConversationService.save` calls it best-effort (catch and log), after it commits,
   **only on the branch that creates a new Conversation row**. `save` upserts on
-  `(person_id, transcript_hash)`, so calling these on a re-summarize (row overwrite) would
-  double-count the same conversation into `weight`/`conversation_count` and re-strengthen
-  `mentioned_people` edges that were already synced.
+  `(person_id, transcript_hash)`, so calling it on a re-summarize (row overwrite) would
+  double-count the same conversation into `weight`/`conversation_count`.
+  **A conversation never creates a relationship.** `ConversationSummary.mentioned_people`
+  used to be resolved against contact names and turned into MET_AT edges; that was removed.
+  An LLM hearing a name is not evidence two people know each other, and a wrong guess became
+  a permanent edge the user was never shown and could not undo. The field stays in
+  `summary_json` as inert data — do not wire it back into the graph without a UI where the
+  user confirms the relationship first.
+
+**Where contact-to-contact edges come from — open, and deliberately so**:
+`contacts/graph_sync.py` writes `(me)-[MET_AT]-(contact)` and nothing else, so no edge
+exists between two of my contacts, or between a contact and a non-contact. Two features
+read those edges and are therefore empty:
+
+- **공통 인맥 / mutual connections** — `_MUTUAL_CONNECTIONS_QUERY` needs
+  `(mutual)-[MET_AT]-(target)`. The mention-inferred path was its only supplier, so this
+  goes to zero when that is removed. A replacement is wanted.
+- **2촌 / 2nd-degree** — `_SECOND_DEGREE_QUERY` additionally requires the person *not* be
+  one of my own contacts, so the mention path never fed it either (it could only ever
+  match people already synced from contacts). This has been structurally empty since it
+  was built; the `INTRO_CONSENT` request/approve/decline endpoints and their UI all work,
+  but nothing produces the underlying edge. Removing the mention path did not change this.
+
+Any replacement supplier **must be consent-gated, not inferred**. `INTRO_CONSENT` exists
+so a person chooses who sees them through whom; a mutual-connections list built without
+that choice exposes the same thing the 2nd-degree privacy rule protects, via a different
+screen. Design it in a PR and get it reviewed before building — "we know both of them" is
+not permission to link them, which is exactly what the removed version assumed.
 - Navigation: Bottom sheet "Profile" → pushes to PersonDetailScreen (강민구's screen)
 - → 강민구: PersonDetailScreen needs the same "소개 요청" action as GraphScreen's 1st-degree
   bottom sheet (see `ui-spec.md` §5 and `api-spec.md` "Introduction Requests"). The
@@ -92,12 +114,12 @@ needs. Full design in `docs/call-alert-spec.md`.
 
 **Touchpoints with other team members**:
 - → 강민구: Calls `POST /api/v1/contacts/{id}/conversations` when saving a summary
-- → 김민경: `ConversationService.save` should call `features/graph/conversation_sync.py`'s
-  `bump_conversation_weight` and `sync_mentioned_people` after committing (best-effort —
-  catch and log, don't fail the save), **only when `save` creates a new Conversation row**,
-  not when it overwrites an existing one on re-summarize (same `person_id` +
-  `transcript_hash`) — otherwise the same conversation gets double-counted. See 김민경's
-  touchpoints above for the exact signatures; not wired up yet.
+- → 김민경: `ConversationService.save` calls `features/graph/conversation_sync.py`'s
+  `bump_conversation_weight` after committing (best-effort — catch and log, don't fail the
+  save), **only when `save` creates a new Conversation row**, not when it overwrites an
+  existing one on re-summarize (same `person_id` + `transcript_hash`) — otherwise the same
+  conversation gets double-counted. `summary.mentioned_people` is deliberately not passed to
+  the graph; see 김민경's touchpoints above for why.
 - Navigation: Entered from the FAB on PersonDetailScreen (강민구's screen), pops back on completion
 
 **Privacy rule**: Raw audio must never be persisted. Delete immediately after processing.

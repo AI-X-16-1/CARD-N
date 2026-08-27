@@ -160,6 +160,37 @@ async def test_request_introduction_rejects_non_first_degree(
     assert exc_info.value.status_code == 404
 
 
+async def test_get_introduction_request_returns_the_current_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_get_intro_consent(driver, from_id, to_id):
+        assert (from_id, to_id) == (queries.ME_PERSON_ID, 1)
+        return {"status": "pending", "requested_at": None, "responded_at": None}
+
+    monkeypatch.setattr(queries, "get_intro_consent", fake_get_intro_consent)
+
+    result = await _service().get_introduction_request(1)
+
+    assert result.person_id == 1
+    assert result.status == "pending"
+
+
+async def test_get_introduction_request_is_null_when_never_asked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Not having asked is a state the row renders, not an error to raise."""
+
+    async def fake_get_intro_consent(driver, from_id, to_id):
+        return None
+
+    monkeypatch.setattr(queries, "get_intro_consent", fake_get_intro_consent)
+
+    result = await _service().get_introduction_request(99)
+
+    assert result.person_id == 99
+    assert result.status is None
+
+
 async def test_respond_to_request_approve_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_respond(driver, from_id, to_id, status, responded_at):
         assert status == "approved"
