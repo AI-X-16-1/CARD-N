@@ -1,9 +1,11 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 
 import { colors, radius, typography } from '@/shared/theme';
+import type { TabParamList } from '@/navigation/RootNavigator';
 
 import { CategoryChip } from '../components/CategoryChip';
 import { ContactRow } from '../components/ContactRow';
@@ -16,6 +18,7 @@ import PersonDetailScreen from './PersonDetailScreen';
 const CATEGORIES: RelationFilter[] = ['all', 'client', 'partner', 'networking', 'other'];
 
 export default function ContactListScreen() {
+  const navigation = useNavigation<BottomTabNavigationProp<TabParamList, '목록'>>();
   const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null);
   const { total, contacts, loading, query, setQuery, category, setCategory, refetch } =
     useContactList();
@@ -28,6 +31,14 @@ export default function ContactListScreen() {
       refetch();
       return () => setSelectedPersonId(null);
     }, [refetch]),
+  );
+
+  // useFocusEffect's cleanup only fires when this tab loses focus, which never happens
+  // if the user taps the 목록 tab icon while already on it — tabPress fires regardless,
+  // so this is the only way to reset back to the list from a stuck detail view.
+  useEffect(
+    () => navigation.addListener('tabPress', () => setSelectedPersonId(null)),
+    [navigation],
   );
 
   const openPerson = (person: Person) => setSelectedPersonId(person.id);

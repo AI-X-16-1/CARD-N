@@ -124,7 +124,18 @@ function TabNavigator() {
         tabBarStyle: { backgroundColor: colors.tabBarSurface },
       }}
     >
-      <Tab.Screen name="홈" component={HomeStackNavigator} />
+      <Tab.Screen
+        name="홈"
+        component={HomeStackNavigator}
+        listeners={({ navigation }) => ({
+          // The Home tab is a real stack, so switching away and back (or even
+          // re-tapping it while already focused) otherwise resumes wherever the
+          // stack was left (e.g. PersonDetail) instead of showing Home itself.
+          tabPress: () => {
+            navigation.navigate('홈', { screen: 'Home' });
+          },
+        })}
+      />
       <Tab.Screen name="목록" component={ContactListScreen} />
       <Tab.Screen
         name="스캔"
@@ -137,7 +148,17 @@ function TabNavigator() {
           },
         })}
       />
-      <Tab.Screen name="관계도" component={GraphStackNavigator} />
+      <Tab.Screen
+        name="관계도"
+        component={GraphStackNavigator}
+        listeners={({ navigation }) => ({
+          // Same fix as the 홈 tab above — GraphStack has the identical
+          // stays-on-PersonDetail issue since it's also a real stack.
+          tabPress: () => {
+            navigation.navigate('관계도', { screen: 'GraphHome' });
+          },
+        })}
+      />
       <Tab.Screen
         name="게임"
         component={GameStackNavigator}
