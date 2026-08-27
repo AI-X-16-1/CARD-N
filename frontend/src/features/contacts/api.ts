@@ -26,6 +26,13 @@ export async function fetchPerson(personId: number): Promise<Person> {
   return response.data;
 }
 
+// GET /contacts/{id}/image serves the corrected card image directly (FileResponse on
+// the backend) — a plain URL for an <Image> source, not a JSON-returning apiClient call.
+// Only meaningful when person.has_image is true.
+export function personImageUrl(personId: number): string {
+  return `${apiClient.defaults.baseURL}/contacts/${personId}/image`;
+}
+
 export type UpdatePersonInput = {
   name?: string;
   company?: string | null;

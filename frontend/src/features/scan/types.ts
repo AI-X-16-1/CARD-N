@@ -13,4 +13,5 @@ export type CreatedPerson = {
   name: string;
   company: string | null;
   title: string | null;
+  has_image: boolean;
 };

@@ -139,7 +139,7 @@ export default function ScanCameraScreen() {
     setSaving(true);
     try {
       const parsed = await parseOcrFields(updatedFields, context);
-      const person = await createPerson(parsed);
+      const person = await createPerson({ ...parsed, image_token: state.result.image_token });
       setCreatedPerson(person);
       setStep('reveal');
     } catch (error) {

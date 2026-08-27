@@ -18,6 +18,9 @@ class CreatePersonRequest(BaseModel):
     job_class: str | None = None
     relation: RelationCategory = "other"
     context: str | None = None
+    # A staging token from POST /scan/ocr's OcrResponse.image_token — claims that staged
+    # image for this new contact. Not a Person column itself (see ContactsService.create_person).
+    image_token: str | None = None
 
 
 class UpdatePersonRequest(BaseModel):
@@ -46,6 +49,7 @@ class PersonResponse(BaseModel):
     last_contact: datetime | None
     conversation_count: int
     created_at: datetime
+    has_image: bool
 
     model_config = ConfigDict(from_attributes=True)
 

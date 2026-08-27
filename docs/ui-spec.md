@@ -180,7 +180,10 @@ Refer to `design-tokens.md` for color, typography, and spacing values.
 
 ### Header
 - "‹ 뒤로" (‹ Back)
-- Profile: 56px avatar + name (19px/800) + position·company + role badge + relation badge
+- Profile: 56px avatar (or, if the contact was created from a scan that produced a usable
+  image, the saved corrected card image itself — `has_image`/`GET /contacts/{id}/image`,
+  `api-spec.md`'s Contacts section — at 70% width, 1.7 aspect ratio, replacing the avatar
+  entirely) + name (19px/800) + position·company + role badge + relation badge
 
 ### Contact Card
 - 📞 / 📧 (cyan color)

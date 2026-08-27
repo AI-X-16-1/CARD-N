@@ -11,6 +11,10 @@ class OcrFieldResponse(BaseModel):
 class OcrResponse(BaseModel):
     fields: list[OcrFieldResponse]
     raw_text: str
+    # A staging token for the corrected card image (see image_store.py) — the client
+    # passes this back on POST /contacts to actually save it against the new contact.
+    # None if the pipeline couldn't produce an image worth keeping for this photo.
+    image_token: str | None = None
 
 
 class OcrBatchItemResponse(BaseModel):

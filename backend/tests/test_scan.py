@@ -18,8 +18,10 @@ _EMPTY_FIELDS = {
 
 
 def _mock_result(**fields) -> OcrPipelineResult:
+    # image_bytes="" -> stage_image() short-circuits to no-op (no file written), so
+    # these tests don't touch the real storage/ directory.
     return OcrPipelineResult(
-        fields={**_EMPTY_FIELDS, **fields}, etc=[], raw_lines=["line1", "line2"]
+        fields={**_EMPTY_FIELDS, **fields}, etc=[], raw_lines=["line1", "line2"], image_bytes=b""
     )
 
 
