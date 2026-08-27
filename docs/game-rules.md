@@ -47,7 +47,7 @@ Example: Marketing Team Manager → ATK = floor(7 × 1.35) = 9
 |------|--------|:---:|------|
 | Development Team | Hotfix | 2 | Restore HP + `ceil(INT/2)` to all allies |
 | Designer | UI Overhaul | 2 | Reduce ATK of the highest-ATK card on the enemy field by `ceil(INT/2)` |
-| HR Team | Benefits Points | 2 | +2 HP to all allies, draw 1 card |
+| HR Team | Benefits Points | 2 | +2 max HP to all allies and heal 2 into it (capped at max), draw 1 card |
 | Finance Team | Austerity Budget | 2 | +3 DEF to all allies (permanent) |
 | Legal Team | Lawsuit | 3 | Deal direct damage equal to INT to the enemy hero |
 | Marketing Team | Campaign | 2 | +2 ATK to all allies (permanent) |
@@ -95,7 +95,8 @@ Synergies are shown with a mint-colored pill badge.
 1. Tap a card in ready state → select it
 2. Select a target:
    - Tap an enemy field card → attack the card
-   - Tap the enemy hero header → attack the hero (only when the enemy field is empty)
+   - Tap the enemy hero header → attack the hero (only when the enemy field is empty,
+     and never on turn 1 — see "No First-Turn Rush" below)
 3. Damage calculation:
    - To the target: max(1, effATK − floor(effDEF / 2))
    - Counterattack (to the attacker): max(1, floor(targetATK / 2))
@@ -103,6 +104,13 @@ Synergies are shown with a mint-colored pill badge.
 ```
 
 `effATK`, `effDEF` = base stats + combined synergy/skill buffs.
+
+## No First-Turn Rush
+
+Neither side may attack the enemy hero directly on turn 1 (`turnN === 1`), even if the
+enemy field is empty. This closes the ★1 Intern "Enthusiasm" exploit, where a card that
+can attack the same turn it's played would otherwise burst the enemy hero for free before
+they've had a single turn. Field-card-vs-field-card attacks are unaffected.
 
 ## Enemy AI (runs at end of turn)
 
