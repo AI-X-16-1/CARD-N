@@ -23,13 +23,18 @@ export function MyCardZoom({ visible, card, onClose }: Props) {
   // closes, so nothing else in the app is affected.
   useEffect(() => {
     if (!visible) return;
-    // expo-screen-orientation is a native module — it isn't present in a dev-client build
-    // built before this dependency was added, and throws "Cannot find native module" until
-    // the user installs a rebuilt client. Swallow that so the zoom view still opens (just
-    // without rotation) instead of surfacing an error every time it's opened.
-    ScreenOrientation.unlockAsync().catch(() => {});
+    // expo-screen-orientation is a native module — it isn't present in Expo Go / a
+    // dev-client build made before this dependency was added. When missing, the call
+    // itself throws synchronously (before a Promise even exists to .catch()), so this
+    // needs a real try/catch, not a Promise catch, to swallow it until a rebuilt client
+    // with the module is installed.
+    try {
+      ScreenOrientation.unlockAsync().catch(() => {});
+    } catch {}
     return () => {
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+      try {
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+      } catch {}
     };
   }, [visible]);
 
