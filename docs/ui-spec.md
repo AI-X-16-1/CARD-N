@@ -189,6 +189,16 @@ Refer to `design-tokens.md` for color, typography, and spacing values.
 - Purple/coral gradient tint, stars, "배틀 카드 보기" (View battle card)
 - "ATK n · DEF n · INT n · HP n" + chevron → Game > Collection
 
+### Call Recording Finder (between Battle Card Teaser and Conversation History Timeline)
+- Always-visible row button: "📼 휴대폰에서 통화 녹음 찾기" (📼 Find call recording on phone) + "열기"/"닫기" (Open/Close)
+  toggle label — not gated behind the FAB menu, since it's a distinct action from live recording/upload
+- Tap → expands `features/contacts/components/CallRecordingFinder.tsx` inline, which matches the contact's phone
+  number against the device's call-recording folder (Android/Samsung One UI only), then runs the found file through
+  the conversation feature's transcribe → summarize → save pipeline (`api-spec.md`'s Conversation section) — the raw
+  recording is never played back in-app or persisted, only the generated summary is. Each summary generation is
+  gated behind an explicit "did you tell the other party?" confirmation, mirroring the recording-consent notice this
+  section already requires for the live-recording flow.
+
 ### Conversation History Timeline
 - Vertical dots + connecting line + entry cards
 - Card: date (11px, 40%), type badge, body text (13px, line-height 1.55)
@@ -198,8 +208,10 @@ Refer to `design-tokens.md` for color, typography, and spacing values.
 ### FAB "+"
 - 54px, Primary, bottom-right
 - Tap → dim overlay + action sheet (Surface-3):
-  - "🎙 지금 녹음하기 — 대화를 실시간으로 녹음하고 요약" (🎙 Record now — record the conversation live and summarize it)
-  - "📁 녹음 파일 업로드 — 기존 녹음 파일을 올려 요약 생성" (📁 Upload recording file — upload an existing recording to generate a summary)
+  - "🎙 녹음 — 대화를 녹음하거나 녹음 파일을 올려 요약 생성" (🎙 Record — record a conversation live or upload a recording
+    file to generate a summary). Single entry point into `ConversationRecordScreen`, which offers both live
+    recording and file upload internally (`mode: 'record'`, see `api-spec.md`/#24-#25) — "지금 녹음하기" and "녹음 파일
+    업로드" were previously two separate action-sheet items landing on the same screen, so they were merged into one.
 
 ### Introduction Request (cross-team: 그래프 기능과 연동)
 PersonDetailScreen needs the same "소개 요청" action GraphScreen's 1st-degree bottom sheet has

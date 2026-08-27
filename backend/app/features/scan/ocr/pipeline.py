@@ -7,6 +7,12 @@ import threading
 from io import BytesIO
 
 os.environ.setdefault("FLAGS_use_mkldnn", "0")
+# Skips PaddleX's "checking connectivity to the model hosters" network round-trip on
+# every cold start — models are already cached locally (see _get_ocr below), so that
+# check only adds latency. Without this, a client's first scan after backend startup
+# can take long enough to blow past the app's request timeout and surface as a
+# "network error" even though the backend eventually finishes the OCR successfully.
+os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
 
 import cv2
 import numpy as np
@@ -41,6 +47,16 @@ def _get_ocr():
                     text_det_unclip_ratio=1.0,
                 )
     return _ocr
+
+
+def warmup() -> None:
+    """Builds the OCR singleton now instead of on the first real request.
+
+    Intended for the FastAPI lifespan startup hook (app/main.py) — a real server
+    process, not test/import time, which is why this stays a separate opt-in call
+    rather than happening at module import.
+    """
+    _get_ocr()
 
 
 def _bytes_to_image(image_bytes: bytes) -> np.ndarray:
