@@ -151,6 +151,29 @@ conversation feature, whose router they live on.
 
 Saving a conversation updates this contact's `last_contact`.
 
+### GET /contacts/me, PUT /contacts/me
+
+A single row (`my_card`, one owner — there's no multi-user auth in this app). `title`
+was replaced by `department` / `grade` / `job_function` (mirrors the same split on
+`Person`) and `address` was added for the home screen's QR code (see `docs/ui-spec.md`).
+
+```
+Response 200 (GET), and PUT's response after applying the request body:
+{
+  "name": "Kang Min-gu",
+  "company": "CARD:N",
+  "department": "Engineering",
+  "grade": "Backend",
+  "job_function": "Server",
+  "phone": "010-1234-5678",
+  "email": "me@cardn.app",
+  "address": "Seoul",
+  "updated_at": "2024-03-15T09:00:00Z"
+}
+
+PUT request body: same shape minus `updated_at`, all fields but `name` optional.
+```
+
 ### GET /contacts/by-phone (proposed, not yet implemented)
 
 Looks up a single contact by phone number. Added for the incoming-call-alert feature

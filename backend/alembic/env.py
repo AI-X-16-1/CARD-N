@@ -11,6 +11,13 @@ from alembic import context
 
 sys.path.insert(0, os.getcwd())
 
+# Each feature's models module must be imported at least once so its tables register on
+# Base.metadata below — SQLAlchemy's declarative registry only picks up a model class when
+# it's actually executed. Without these, autogenerate sees an empty target_metadata against
+# a populated database and proposes dropping every real table (confirmed: a bare run against
+# the current schema generated a migration dropping persons/conversations/my_card entirely).
+import app.features.contacts.models
+import app.features.conversation.models  # noqa: F401
 from app.config import settings
 from app.core.base import Base
 
