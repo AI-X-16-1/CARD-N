@@ -1,10 +1,34 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import QRCode from 'react-native-qrcode-svg';
 import Svg, { Circle } from 'react-native-svg';
 
 import { colors, radius, typography } from '@/shared/theme';
 import { Logo } from '@/shared/components/Logo';
 import type { MyCard } from '../types';
+
+// MECARD is the format most phone camera / QR apps recognize as "add to contacts"
+// without needing a dedicated reader app — plain text (a vCard string, a JSON blob,
+// ...) just gets treated as a link/search query instead. Empty fields are dropped
+// rather than left blank ("N:;TEL:;") so a half-filled card doesn't encode a MECARD
+// entry full of empty properties.
+function myCardToMecard(card: MyCard): string | null {
+  if (!card.name.trim()) return null;
+  const note = [card.department, card.grade, card.job_function].filter(Boolean).join(' ');
+  const fields: [string, string][] = [
+    ['N', card.name],
+    ['ORG', card.company],
+    ['TEL', card.phone],
+    ['EMAIL', card.email],
+    ['ADR', card.address],
+    ['NOTE', note],
+  ];
+  const body = fields
+    .filter(([, value]) => value.trim())
+    .map(([key, value]) => `${key}:${value.replace(/[\\;:]/g, '\\$&')};`)
+    .join('');
+  return `MECARD:${body};`;
+}
 
 export function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -22,6 +46,7 @@ function positionLine(card: MyCard): string {
 // Pure card visual — shared by the Home tile (MyBusinessCard, below) and MyCardSheet's
 // detail header, so the same card face carries over when the sheet transitions in.
 export function CardFace({ card }: { card: MyCard }) {
+  const mecard = myCardToMecard(card);
   return (
     <LinearGradient
       colors={['#1c1c30', '#12121e', '#171728']}
@@ -58,7 +83,16 @@ export function CardFace({ card }: { card: MyCard }) {
             </Text>
           )}
         </View>
-        <View style={styles.qrPlaceholder} />
+        {mecard ? (
+          // QR scanners need strong light/dark contrast to read reliably regardless of
+          // the app's own dark theme — white module background + dark modules, not the
+          // theme's own (near-white-on-dark) palette.
+          <View style={styles.qrWrap}>
+            <QRCode value={mecard} size={38} backgroundColor={colors.textPrimary} color={colors.canvas} />
+          </View>
+        ) : (
+          <View style={styles.qrPlaceholder} />
+        )}
       </View>
     </LinearGradient>
   );
@@ -145,5 +179,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface2,
     borderWidth: 1,
     borderColor: colors.borderMedium,
+  },
+  qrWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 6,
+    backgroundColor: colors.textPrimary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 3,
   },
 });
