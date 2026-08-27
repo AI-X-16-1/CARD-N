@@ -14,6 +14,7 @@ from app.features.graph.schemas import (
     IncomingIntroductionRequest,
     IncomingIntroductionRequestsResponse,
     IntroductionRequestResponse,
+    IntroductionRequestStatusResponse,
     MutualConnectionResponse,
     MutualConnectionsResponse,
 )
@@ -107,6 +108,31 @@ class GraphService:
             person_id=target_person_id,
             status=row["status"],
             requested_at=row["requested_at"],
+        )
+
+    async def get_introduction_request(
+        self, target_person_id: int
+    ) -> IntroductionRequestStatusResponse:
+        """The state of my own outgoing request toward one contact.
+
+        Exists so a screen showing a single person doesn't have to pull the whole graph
+        just to read one field off one node — features/contacts' PersonDetailScreen was
+        doing exactly that (#45).
+
+        Never 404s on "no request yet": not having asked is a normal state the UI renders
+        as the default row, not an error. A person who isn't a 1st-degree contact also
+        comes back null — there is nothing to report, and saying more would leak whether
+        that id exists at all.
+        """
+        row = await queries.get_intro_consent(self.driver, queries.ME_PERSON_ID, target_person_id)
+        if row is None:
+            return IntroductionRequestStatusResponse(person_id=target_person_id)
+
+        return IntroductionRequestStatusResponse(
+            person_id=target_person_id,
+            status=row["status"],
+            requested_at=row["requested_at"],
+            responded_at=row["responded_at"],
         )
 
     async def list_incoming_requests(self) -> IncomingIntroductionRequestsResponse:

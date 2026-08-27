@@ -45,6 +45,17 @@ class IntroductionRequestResponse(BaseModel):
     responded_at: datetime | None = None
 
 
+class IntroductionRequestStatusResponse(BaseModel):
+    """Same shape, but `status` is nullable — reading the state of a request that may
+    never have been made is a different question from creating or answering one.
+    """
+
+    person_id: int
+    status: Literal["pending", "approved", "declined"] | None = None
+    requested_at: datetime | None = None
+    responded_at: datetime | None = None
+
+
 class IncomingIntroductionRequest(BaseModel):
     person_id: int
     name: str
