@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, BackHandler, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useNavigation } from '@react-navigation/native';
@@ -36,6 +36,17 @@ export default function ScanCameraScreen() {
     (parent ?? navigation).goBack();
   };
 
+  // Any explicit "leave the scan" action (✕, hardware back) goes through this instead
+  // of handleClose directly, so an in-progress scan/entry can't be lost to an accidental
+  // tap or back-press. handleDone (after a successful save) bypasses it — there's
+  // nothing left to lose at that point.
+  const confirmClose = () => {
+    Alert.alert('스캔을 취소하시겠습니까?', '지금 나가면 스캔한 내용이 저장되지 않아요.', [
+      { text: '계속하기', style: 'cancel' },
+      { text: '취소하고 나가기', style: 'destructive', onPress: handleClose },
+    ]);
+  };
+
   const handleDone = () => {
     reset();
     setStep('camera');
@@ -49,6 +60,26 @@ export default function ScanCameraScreen() {
       requestPermission();
     }
   }, [permission, requestPermission]);
+
+  // Blocks the two ways out of this modal that don't go through the ✕ button: the
+  // Android hardware/gesture back action, and swiping the modal down (iOS) or edge-back
+  // (Android gesture nav) on the parent stack. Both would otherwise drop whatever's been
+  // scanned/entered with no confirmation.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      confirmClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    const parent = navigation.getParent();
+    parent?.setOptions({ gestureEnabled: false });
+    return () => {
+      parent?.setOptions({ gestureEnabled: true });
+    };
+  }, [navigation]);
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -157,7 +188,7 @@ export default function ScanCameraScreen() {
         <ScanResultPanel
           fields={state.result.fields}
           onRetake={reset}
-          onClose={handleClose}
+          onClose={confirmClose}
           onSave={handleSaveFromResult}
           saving={saving}
         />
@@ -169,7 +200,7 @@ export default function ScanCameraScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.resultHeader}>
-          <Pressable onPress={handleClose} hitSlop={8}>
+          <Pressable onPress={confirmClose} hitSlop={8}>
             <Text style={styles.closeButton}>✕</Text>
           </Pressable>
         </View>
@@ -186,7 +217,7 @@ export default function ScanCameraScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={handleClose} hitSlop={8} style={styles.closeButtonWrap} disabled={isScanning}>
+        <Pressable onPress={confirmClose} hitSlop={8} style={styles.closeButtonWrap} disabled={isScanning}>
           <Text style={styles.closeButton}>✕</Text>
         </Pressable>
         <Text style={styles.title}>명함 스캔</Text>
