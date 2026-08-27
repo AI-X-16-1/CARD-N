@@ -46,6 +46,10 @@ export type ScanStackParamList = {
 export type GraphStackParamList = {
   GraphHome: undefined;
   PersonDetail: { personId: number };
+  // PersonDetail's record/upload FAB entries navigate here. Without the route the
+  // graph tab was the last entry point where those buttons silently did nothing
+  // (#40 fixed the same gap for 목록). Same shape as HomeStack and ListStack.
+  ConversationRecord: { personId: number; mode?: 'record' | 'upload' };
 };
 
 // Was a bare tab screen (ContactListScreen managed PersonDetail as local state,
@@ -116,6 +120,7 @@ function GraphStackNavigator() {
     <GraphStack.Navigator screenOptions={{ headerShown: false }}>
       <GraphStack.Screen name="GraphHome" component={GraphScreen} />
       <GraphStack.Screen name="PersonDetail" component={PersonDetailScreen} />
+      <GraphStack.Screen name="ConversationRecord" component={ConversationRecordScreen} />
     </GraphStack.Navigator>
   );
 }
@@ -204,10 +209,14 @@ function TabNavigator() {
         name="관계도"
         component={GraphStackNavigator}
         options={{ tabBarIcon: ({ color }) => <GraphIcon color={color} /> }}
-        listeners={({ navigation }) => ({
+        listeners={({ navigation, route }) => ({
           // Same fix as the 홈 tab above — GraphStack has the identical
           // stays-on-PersonDetail issue since it's also a real stack.
           tabPress: () => {
+            // Now that ConversationRecord is reachable from this stack too, it needs
+            // the same guard the other two tabs have: resetting mid-recording throws
+            // away audio that exists nowhere else. See the 홈 tab for the full note.
+            if (getFocusedRouteNameFromRoute(route) === 'ConversationRecord') return;
             navigation.navigate('관계도', { screen: 'GraphHome' });
           },
         })}
