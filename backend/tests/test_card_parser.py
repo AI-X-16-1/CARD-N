@@ -84,6 +84,26 @@ def test_single_letter_labels_are_recognized():
     assert any("02.597.0445" in item for item in etc)
 
 
+def test_address_label_debris_is_cleaned_up():
+    # Regression: once the Tel/Fax numbers are cut out by take_matches, the bare "Tel:"/
+    # "Fax:" labels (and OCR's "~4" extension-range suffix) were left behind with
+    # nothing anchoring them anymore, riding along into the address field alongside the
+    # real street address (confirmed on a real card).
+    fields, _etc = parse_fields(["서울시 서초구 서초대로42길96 4,5층 Tel:02.597.0443~4 Fax:02.597.0445"])
+    address = fields["address"] or ""
+    assert "Tel" not in address
+    assert "Fax" not in address
+    assert "~4" not in address
+    assert "서초대로42길96" in address
+
+
+def test_address_debris_cleanup_does_not_touch_a_real_floor_range():
+    # ADDRESS_DEBRIS_RE's "~digits" removal is scoped to right after a Tel/Fax/Mobile
+    # label — a real floor range like "4~5층" (not glued to any such label) must survive.
+    fields, _etc = parse_fields(["서울시 서초구 서초대로42길96 4~5층"])
+    assert "4~5층" in (fields["address"] or "")
+
+
 def test_real_card_end_to_end():
     # The exact raw OCR lines from the real card behind all the regressions above,
     # captured via temporary debug logging. Locks in the combined fix.

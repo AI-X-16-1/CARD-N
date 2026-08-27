@@ -61,6 +61,17 @@ MOBILE_LABEL_RE = re.compile(r"\bmobile\b|\bm\b|휴대|핸드폰", re.IGNORECASE
 # a phone match (see take_matches) rather than the whole line, since "Tel:xxx Fax:yyy"
 # puts both labels on one line.
 FAX_LABEL_RE = re.compile(r"\bfax\b|\bf\b|팩스", re.IGNORECASE)
+# Once a phone/fax number is cut out of a line by take_matches, its label is left
+# behind with nothing anchoring it anymore — along with OCR's "~4" extension-range
+# suffix (e.g. "02.597.0443~4"; the digits are already gone by this point, cut out with
+# the rest of the number, so only "~4" remains next to the label). If that line is also
+# part of the address (a "...4,5층 Tel:02.597.0443~4 Fax:02.597.0445" footer, say), this
+# debris rides along into the address field (confirmed on a real card). The trailing
+# "~digits" is only matched glued to one of these labels, not standalone, so a real
+# floor range like "4~5층" is left untouched. Only the full words are stripped, not the
+# single-letter T/F/M abbreviations take_matches recognizes — those are too likely to
+# collide with real address content (a building name's initial, etc.) to remove blind.
+ADDRESS_DEBRIS_RE = re.compile(r"\b(?:Tel|Fax|Mobile)\b\.?:?~?\d*", re.IGNORECASE)
 # OCR sometimes inserts a spurious space around "@" (observed: "shwang51 @raonclinic.co.kr"),
 # so the space is allowed here and then stripped back out of the matched value in
 # take_matches below to reconstruct a valid email.
@@ -483,7 +494,8 @@ def parse_fields(lines):
             address_parts.append(strip_label_prefix(line.strip()))
             remaining.remove(line)
     if address_parts:
-        result["address"] = " ".join(address_parts)
+        cleaned = ADDRESS_DEBRIS_RE.sub("", " ".join(address_parts))
+        result["address"] = re.sub(r"\s+", " ", cleaned).strip()
 
     # Classify tokens line by line: a department suffix -> confirmed immediately, a
     # title keyword -> confirmed immediately, anything else that's 2-4 Hangul characters
