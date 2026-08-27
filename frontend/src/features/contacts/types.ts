@@ -21,3 +21,22 @@ export type PersonListResponse = {
   total: number;
   items: Person[];
 };
+
+// Matches docs/api-spec.md's "Conversation" section (POST /conversations response) —
+// owned by the conversation feature (박재경), consumed here as a cross-feature API call.
+export type ConversationSummaryResult = {
+  one_line: string;
+  key_points: string[];
+  mentioned_people: { name: string; relation: string; confidence: number }[];
+  keywords: string[];
+};
+
+export type Conversation = {
+  id: number;
+  person_id: number;
+  one_liner: string;
+  summary: ConversationSummaryResult;
+  duration_seconds: number | null;
+  recorded_at: string | null;
+  created_at: string;
+};

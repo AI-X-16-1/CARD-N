@@ -161,6 +161,15 @@
      └────────────────┘ illustrations └────────────────┘
 ```
 
+## Cross-cutting Proposals (unassigned)
+
+Features that don't fit inside a single owner's folder go here until the team assigns
+them and approves a branch/PR (same review bar as `shared/`, below).
+
+| Proposal | Touches | Status |
+|------|------|------|
+| Incoming call alert — look up caller by phone number, push-notify with their last conversation summary | `contacts` (new `GET /contacts/by-phone`), `conversation` (`GET /conversations` gets a `limit` param), new `features/call-alert/` folder | Proposed by 김민경, 2026-08-27. See `docs/call-alert-spec.md`. Not assigned, not implemented. |
+
 ## Ownership of Shared Modules (shared/)
 
 The initial setup of the shared/ directory is done by **강민구** (since he owns the most screens).

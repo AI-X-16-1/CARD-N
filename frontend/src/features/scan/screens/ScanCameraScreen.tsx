@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, BackHandler, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useNavigation } from '@react-navigation/native';
@@ -36,6 +36,17 @@ export default function ScanCameraScreen() {
     (parent ?? navigation).goBack();
   };
 
+  // Any explicit "leave the scan" action (✕, hardware back) goes through this instead
+  // of handleClose directly, so an in-progress scan/entry can't be lost to an accidental
+  // tap or back-press. handleDone (after a successful save) bypasses it — there's
+  // nothing left to lose at that point.
+  const confirmClose = () => {
+    Alert.alert('스캔을 취소하시겠습니까?', '지금 나가면 스캔한 내용이 저장되지 않아요.', [
+      { text: '계속하기', style: 'cancel' },
+      { text: '취소하고 나가기', style: 'destructive', onPress: handleClose },
+    ]);
+  };
+
   const handleDone = () => {
     reset();
     setStep('camera');
@@ -49,6 +60,26 @@ export default function ScanCameraScreen() {
       requestPermission();
     }
   }, [permission, requestPermission]);
+
+  // Blocks the two ways out of this modal that don't go through the ✕ button: the
+  // Android hardware/gesture back action, and swiping the modal down (iOS) or edge-back
+  // (Android gesture nav) on the parent stack. Both would otherwise drop whatever's been
+  // scanned/entered with no confirmation.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      confirmClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    const parent = navigation.getParent();
+    parent?.setOptions({ gestureEnabled: false });
+    return () => {
+      parent?.setOptions({ gestureEnabled: true });
+    };
+  }, [navigation]);
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -86,12 +117,27 @@ export default function ScanCameraScreen() {
 
   const handleSaveFromResult = async (values: Record<string, string>, context: string) => {
     if (state.status !== 'done') return;
+    // ScanResultPanel always shows a "Name" input, synthesizing one when OCR didn't
+    // find it (see its comment) — mirror that here so a name the user typed into that
+    // synthetic field actually makes it into the request, instead of being dropped
+    // because state.result.fields never had a "Name" entry for values.Name to attach to.
+    const baseFields = state.result.fields.some((f) => f.label === 'Name')
+      ? state.result.fields
+      : [{ label: 'Name', value: '', confidence: 0 }, ...state.result.fields];
+    const updatedFields = baseFields.map((field) => ({
+      ...field,
+      value: values[field.label] ?? field.value,
+    }));
+
+    // CreatePersonRequest requires name server-side — catch an empty one here and
+    // point at the fix instead of a raw validation error round-tripping as a 422.
+    if (!updatedFields.find((f) => f.label === 'Name')?.value.trim()) {
+      Alert.alert('이름을 입력해주세요', '이름을 인식하지 못했어요. 위 "Name" 항목에 직접 입력해주세요.');
+      return;
+    }
+
     setSaving(true);
     try {
-      const updatedFields = state.result.fields.map((field) => ({
-        ...field,
-        value: values[field.label] ?? field.value,
-      }));
       const parsed = await parseOcrFields(updatedFields, context);
       const person = await createPerson(parsed);
       setCreatedPerson(person);
@@ -142,7 +188,7 @@ export default function ScanCameraScreen() {
         <ScanResultPanel
           fields={state.result.fields}
           onRetake={reset}
-          onClose={handleClose}
+          onClose={confirmClose}
           onSave={handleSaveFromResult}
           saving={saving}
         />
@@ -154,7 +200,7 @@ export default function ScanCameraScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.resultHeader}>
-          <Pressable onPress={handleClose} hitSlop={8}>
+          <Pressable onPress={confirmClose} hitSlop={8}>
             <Text style={styles.closeButton}>✕</Text>
           </Pressable>
         </View>
@@ -171,7 +217,7 @@ export default function ScanCameraScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={handleClose} hitSlop={8} style={styles.closeButtonWrap}>
+        <Pressable onPress={confirmClose} hitSlop={8} style={styles.closeButtonWrap} disabled={isScanning}>
           <Text style={styles.closeButton}>✕</Text>
         </Pressable>
         <Text style={styles.title}>명함 스캔</Text>
@@ -179,6 +225,7 @@ export default function ScanCameraScreen() {
           <Pressable
             style={[styles.toggleOption, mode === 'single' && styles.toggleOptionActive]}
             onPress={() => setMode('single')}
+            disabled={isScanning}
           >
             <Text style={[styles.toggleLabel, mode === 'single' && styles.toggleLabelActive]}>
               단일
@@ -187,6 +234,7 @@ export default function ScanCameraScreen() {
           <Pressable
             style={[styles.toggleOption, mode === 'batch' && styles.toggleOptionActive]}
             onPress={() => setMode('batch')}
+            disabled={isScanning}
           >
             <Text style={[styles.toggleLabel, mode === 'batch' && styles.toggleLabelActive]}>
               연속
@@ -228,11 +276,11 @@ export default function ScanCameraScreen() {
       </Text>
 
       <View style={styles.bottomBar}>
-        <Pressable style={styles.sideButton} onPress={handleGalleryPress}>
+        <Pressable style={styles.sideButton} onPress={handleGalleryPress} disabled={isScanning}>
           <Text style={styles.sideButtonLabel}>갤러리</Text>
         </Pressable>
         <Pressable style={styles.shutter} onPress={handleShutterPress} disabled={isScanning} />
-        <Pressable style={styles.sideButton} onPress={handleManualInputPress}>
+        <Pressable style={styles.sideButton} onPress={handleManualInputPress} disabled={isScanning}>
           <Text style={styles.manualInputLabel}>직접 입력</Text>
         </Pressable>
       </View>

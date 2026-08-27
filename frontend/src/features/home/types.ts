@@ -1,9 +1,12 @@
 export type MyCard = {
   name: string;
   company: string;
-  title: string;
+  department: string;
+  grade: string;
+  job_function: string;
   phone: string;
   email: string;
+  address: string;
 };
 
 export type RecentPerson = {

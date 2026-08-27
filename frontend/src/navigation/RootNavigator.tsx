@@ -1,4 +1,4 @@
-import { NavigatorScreenParams } from '@react-navigation/native';
+import { getFocusedRouteNameFromRoute, NavigatorScreenParams } from '@react-navigation/native';
 import { createBottomTabNavigator, type BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import {
   createNativeStackNavigator,
@@ -6,7 +6,7 @@ import {
 } from '@react-navigation/native-stack';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, radius, size } from '@/shared/theme';
+import { colors, radius, size, typography } from '@/shared/theme';
 import HomeScreen from '@/features/home/screens/HomeScreen';
 import ScanCameraScreen from '@/features/scan/screens/ScanCameraScreen';
 import ContactListScreen from '@/features/contacts/screens/ContactListScreen';
@@ -15,6 +15,14 @@ import GraphScreen from '@/features/graph/screens/GraphScreen';
 import ConversationRecordScreen from '@/features/conversation/screens/ConversationRecordScreen';
 import GameHomeScreen from '@/features/game/screens/GameHomeScreen';
 import CardDetailOverlay from '@/features/game/screens/CardDetailOverlay';
+
+import {
+  CameraIcon,
+  GraphIcon,
+  HomeIcon,
+  ListIcon,
+  SwordsIcon,
+} from './icons/TabIcons';
 
 export type HomeStackParamList = {
   Home: undefined;
@@ -109,7 +117,9 @@ function FabButton({ onPress, accessibilityState }: BottomTabBarButtonProps) {
       accessibilityState={accessibilityState}
       style={styles.fabButton}
     >
-      <View style={styles.fab} />
+      <View style={styles.fab}>
+        <CameraIcon color={colors.textPrimary} size={size.fabIcon} />
+      </View>
     </Pressable>
   );
 }
@@ -122,10 +132,33 @@ function TabNavigator() {
         tabBarActiveTintColor: colors.primaryLight,
         tabBarInactiveTintColor: colors.tabIconInactive,
         tabBarStyle: { backgroundColor: colors.tabBarSurface },
+        tabBarLabelStyle: typography.tabLabel,
       }}
     >
-      <Tab.Screen name="홈" component={HomeStackNavigator} />
-      <Tab.Screen name="목록" component={ContactListScreen} />
+      <Tab.Screen
+        name="홈"
+        component={HomeStackNavigator}
+        options={{ tabBarIcon: ({ color }) => <HomeIcon color={color} /> }}
+        listeners={({ navigation, route }) => ({
+          // The Home tab is a real stack, so switching away and back (or even
+          // re-tapping it while already focused) otherwise resumes wherever the
+          // stack was left (e.g. PersonDetail) instead of showing Home itself.
+          tabPress: () => {
+            // ...except the record screen, which is the one place in this stack
+            // holding work that only exists in memory: a recording in progress, or a
+            // summary that has been generated but not yet saved. Resetting unmounts it
+            // and both are gone with nothing asked and nothing said. Leaving a stale
+            // screen behind is the lesser problem — '뒤로' still gets out of it.
+            if (getFocusedRouteNameFromRoute(route) === 'ConversationRecord') return;
+            navigation.navigate('홈', { screen: 'Home' });
+          },
+        })}
+      />
+      <Tab.Screen
+        name="목록"
+        component={ContactListScreen}
+        options={{ tabBarIcon: ({ color }) => <ListIcon color={color} /> }}
+      />
       <Tab.Screen
         name="스캔"
         component={ScanCameraScreen}
@@ -137,11 +170,25 @@ function TabNavigator() {
           },
         })}
       />
-      <Tab.Screen name="관계도" component={GraphStackNavigator} />
+      <Tab.Screen
+        name="관계도"
+        component={GraphStackNavigator}
+        options={{ tabBarIcon: ({ color }) => <GraphIcon color={color} /> }}
+        listeners={({ navigation }) => ({
+          // Same fix as the 홈 tab above — GraphStack has the identical
+          // stays-on-PersonDetail issue since it's also a real stack.
+          tabPress: () => {
+            navigation.navigate('관계도', { screen: 'GraphHome' });
+          },
+        })}
+      />
       <Tab.Screen
         name="게임"
         component={GameStackNavigator}
-        options={{ tabBarActiveTintColor: colors.gameAccent }}
+        options={{
+          tabBarActiveTintColor: colors.gameAccent,
+          tabBarIcon: ({ color }) => <SwordsIcon color={color} />,
+        }}
       />
     </Tab.Navigator>
   );
@@ -171,5 +218,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.fab,
     backgroundColor: colors.primary,
     marginTop: size.fabRaise,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

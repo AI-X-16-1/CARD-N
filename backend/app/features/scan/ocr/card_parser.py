@@ -43,9 +43,35 @@ at each part.
 """
 import re
 
-# Some phone numbers use spaces instead of dashes as separators too (e.g. "T032 553 0714"),
-# so both are accepted.
-PHONE_RE = re.compile(r"\d{2,3}[- ]?\d{3,4}[- ]?\d{4}")
+# Some phone numbers use spaces or dots instead of dashes as separators (e.g.
+# "T032 553 0714", "02.597.0443") — all three are accepted. Without "." here, a
+# dot-separated number is never extracted at all: it doesn't match this regex, so
+# take_matches() below leaves it untouched, and if it sits on the same line as an
+# address it gets swallowed whole into the address field instead (confirmed on a real
+# card: "...4,5층 Tel:02.597.0443~4 Fax:02.597.0445" ended up entirely inside address).
+PHONE_RE = re.compile(r"\d{2,3}[-. ]?\d{3,4}[-. ]?\d{4}")
+# Marks a line as carrying the mobile number specifically, so it's preferred over an
+# office/desk ("Tel"/전화) number when a card lists both — see take_matches's phone_order.
+# Matches the full word or the bare single-letter abbreviation cards commonly use
+# instead (T/F/M, upper or lower case) — "\bm\b" needs a word boundary on both sides so
+# it doesn't fire on the "m" inside an ordinary word.
+MOBILE_LABEL_RE = re.compile(r"\bmobile\b|\bm\b|휴대|핸드폰", re.IGNORECASE)
+# A fax number must never end up as `phone` (labeled "Mobile" in the UI) — it's not a
+# callable number for this app's purposes. Checked against a short window right before
+# a phone match (see take_matches) rather than the whole line, since "Tel:xxx Fax:yyy"
+# puts both labels on one line.
+FAX_LABEL_RE = re.compile(r"\bfax\b|\bf\b|팩스", re.IGNORECASE)
+# Once a phone/fax number is cut out of a line by take_matches, its label is left
+# behind with nothing anchoring it anymore — along with OCR's "~4" extension-range
+# suffix (e.g. "02.597.0443~4"; the digits are already gone by this point, cut out with
+# the rest of the number, so only "~4" remains next to the label). If that line is also
+# part of the address (a "...4,5층 Tel:02.597.0443~4 Fax:02.597.0445" footer, say), this
+# debris rides along into the address field (confirmed on a real card). The trailing
+# "~digits" is only matched glued to one of these labels, not standalone, so a real
+# floor range like "4~5층" is left untouched. Only the full words are stripped, not the
+# single-letter T/F/M abbreviations take_matches recognizes — those are too likely to
+# collide with real address content (a building name's initial, etc.) to remove blind.
+ADDRESS_DEBRIS_RE = re.compile(r"\b(?:Tel|Fax|Mobile)\b\.?:?~?\d*", re.IGNORECASE)
 # OCR sometimes inserts a spurious space around "@" (observed: "shwang51 @raonclinic.co.kr"),
 # so the space is allowed here and then stripped back out of the matched value in
 # take_matches below to reconstruct a valid email.
@@ -228,7 +254,7 @@ def is_simple_label_line(line):
     return bool(re.fullmatch(r"[가-힣]{2,10}", line))
 
 
-def is_address_line(line):
+def is_address_line(line, other_line_has_full_address=False):
     # If a fragment looks like a title/department, rule out "address" first. Testing
     # (on synthetic cards) found that a logo-font word can coincidentally contain an
     # address-suffix character (e.g. the "로" in "프로젝트") plus a department number
@@ -261,8 +287,29 @@ def is_address_line(line):
     # else could be mixed in, so it's safe), it's accepted as an address too.
     if stripped.endswith(SIDO_SUFFIXES) or stripped in SIDO_ABBR:
         return True
-    if (2 <= len(stripped) <= 6 and stripped.endswith(SIGUNGU_SUFFIXES)
-            and re.fullmatch(r"[가-힣]+", stripped)):
+    # A bare token ending in 시/군/구 is ambiguous with a Korean full name that happens
+    # to end the same way (e.g. "강승구" — a real card's actual name, confirmed to get
+    # swallowed into the address and lost entirely as a result, since address lines are
+    # removed from `remaining` before name candidates are even collected). Deferring to
+    # a name candidate is restricted to when another line already has a *complete*
+    # address (unit + digit together, e.g. a street number) — a genuine split address
+    # (the pattern this whole branch exists for, see the comment above) never has a real
+    # street-numbered line AND a redundant bare region name both on the card, so a bare
+    # region-shaped line alongside an already-complete address is far more likely to be
+    # a coincidental name. Without requiring this, a real place name that happens to
+    # start with a common surname character (마포구's "마", 김포시's "김", ...) would be
+    # wrongly excluded too — confirmed by testing: a card with only "마포구" on its own
+    # regressed.
+    if (
+        2 <= len(stripped) <= 6
+        and stripped.endswith(SIGUNGU_SUFFIXES)
+        and re.fullmatch(r"[가-힣]+", stripped)
+        and not (
+            other_line_has_full_address
+            and is_name_candidate_token(stripped)
+            and surname_rank(stripped) is not None
+        )
+    ):
         return True
     # The exception for a line with no street number but 2+ consecutive
     # administrative-unit suffixes (e.g. "경기도 성남시 분당구"). Since single-character
@@ -276,7 +323,24 @@ def is_address_line(line):
     return len(unit_words) >= 2
 
 
+# Contact-info label words that are pure Hangul and 2-4 characters — the exact same
+# shape is_name_candidate_token accepts. Normally these get consumed as part of a
+# phone/email match and disappear, but when a label sits on its own line or survives as
+# a take_matches() leftover (e.g. a line reading just "직통번호:070.4756.5296" once the
+# phone number is cut out), the bare label word is left behind and — with nothing else
+# to rule it out — can get wrongly picked as the name (confirmed on a real card: "직통
+# 번호" ended up as the saved contact's name). English labels ("Tel", "Mobile", ...)
+# don't need this: is_name_candidate_token already requires pure Hangul.
+CONTACT_LABEL_WORDS = {
+    "전화", "전화번호", "직통", "직통번호", "내선", "내선번호",
+    "휴대폰", "휴대전화", "이동전화", "핸드폰",
+    "팩스", "팩스번호", "이메일", "메일", "홈페이지", "웹사이트", "주소",
+}
+
+
 def is_name_candidate_token(tok):
+    if tok in CONTACT_LABEL_WORDS:
+        return False
     return bool(re.fullmatch(r"[가-힣]+", tok)) and 2 <= len(tok) <= 4
 
 
@@ -364,49 +428,77 @@ def parse_fields(lines):
     result = {key: None for key in FIELD_KEYS}
     etc = []
 
-    def take_matches(pattern, key, label):
+    def take_matches(pattern, key, label, order=None):
         # Only cuts the matched portion out of a line, leaving any other information on
         # that same line in `remaining`. This used to delete the whole line on a match,
         # which broke cards where a phone number and an email were on the same line
         # (observed: law/luxury templates), since extracting the email first would take
         # the phone number down with it.
-        for line in list(remaining):
-            m = pattern.search(line)
-            if not m:
-                continue
-            value = m.group(0)
-            if key == "email":
-                value = re.sub(r"\s+", "", value)
-                value = LABEL_PREFIX_RE.sub("", value)
-                value = GLUED_LABEL_PREFIX_RE.sub("", value)
-            if result[key] is None:
-                result[key] = value
-            else:
-                etc.append(f"{label}:{value}")
-            idx = remaining.index(line)
-            rest = (line[:m.start()] + line[m.end():]).strip()
-            # If only a single label character is left over (e.g. "M 010-..." -> "M"),
-            # drop it. Leaving a 1-character leftover like that around made it
-            # indistinguishable from an actual short company name (e.g. "kt") — both hit
-            # the same logo-monogram check — so a label leftover that just happened to
-            # come first would get wrongly picked as the company name.
-            if rest and len(rest) >= 2 and HAS_CONTENT_RE.search(rest):
-                remaining[idx] = rest
-            else:
-                remaining.pop(idx)
+        #
+        # Loops per line (not just one search) so a line with two matches — e.g. a
+        # footer like "... Tel:02.597.0443 Fax:02.597.0445" — gets both cut out instead
+        # of leaving the second one glued to whatever's left (confirmed on a real card:
+        # the un-extracted fax number kept that whole line looking like an address,
+        # dragging the fax digits into the address field alongside it).
+        for original_line in list(order) if order is not None else list(remaining):
+            current = original_line
+            while current in remaining:
+                idx = remaining.index(current)
+                m = pattern.search(current)
+                if not m:
+                    break
+                value = m.group(0)
+                if key == "email":
+                    value = re.sub(r"\s+", "", value)
+                    value = LABEL_PREFIX_RE.sub("", value)
+                    value = GLUED_LABEL_PREFIX_RE.sub("", value)
+                # A fax number must never become `phone` — checked against the text
+                # right before this specific match (not the whole line), since a line
+                # can carry both a Tel and a Fax label ("Tel:xxx Fax:yyy").
+                is_fax = key == "phone" and FAX_LABEL_RE.search(current[max(0, m.start() - 15) : m.start()])
+                if result[key] is None and not is_fax:
+                    result[key] = value
+                else:
+                    etc.append(f"{label}:{value}")
+                rest = (current[:m.start()] + current[m.end():]).strip()
+                # If only a single label character is left over (e.g. "M 010-..." ->
+                # "M"), drop it. Leaving a 1-character leftover like that around made it
+                # indistinguishable from an actual short company name (e.g. "kt") — both
+                # hit the same logo-monogram check — so a label leftover that just
+                # happened to come first would get wrongly picked as the company name.
+                if rest and len(rest) >= 2 and HAS_CONTENT_RE.search(rest):
+                    remaining[idx] = rest
+                    current = rest
+                else:
+                    remaining.pop(idx)
+                    break
 
     take_matches(EMAIL_RE, "email", "이메일")
-    take_matches(PHONE_RE, "phone", "전화")
+    # A card with both a desk/office number and a mobile number should save the mobile
+    # one as `phone` — that's the one actually worth having for a business-networking
+    # app — but take_matches() otherwise just takes whichever line comes first in
+    # reading order, which is commonly the office Tel line (confirmed on a real card:
+    # the office number ended up as "phone"/"Mobile" while the actual
+    # "Mobile:010.xxxx.xxxx" line's number was discarded to `etc`). Only reorders the
+    # snapshot handed to take_matches, not `remaining` itself — company/title/name
+    # selection further down still depends on the card's real reading order.
+    phone_order = sorted(remaining, key=lambda line: 0 if MOBILE_LABEL_RE.search(line) else 1)
+    take_matches(PHONE_RE, "phone", "전화", order=phone_order)
 
     # In case an address is split across multiple lines, every line that looks like an
     # address is collected (not just the first one) and joined in order.
+    other_line_has_full_address = any(
+        any(u in line for u in KOREAN_ADDR_UNITS) and any(c.isdigit() for c in line)
+        for line in remaining
+    )
     address_parts = []
     for line in list(remaining):
-        if is_address_line(line):
+        if is_address_line(line, other_line_has_full_address):
             address_parts.append(strip_label_prefix(line.strip()))
             remaining.remove(line)
     if address_parts:
-        result["address"] = " ".join(address_parts)
+        cleaned = ADDRESS_DEBRIS_RE.sub("", " ".join(address_parts))
+        result["address"] = re.sub(r"\s+", " ", cleaned).strip()
 
     # Classify tokens line by line: a department suffix -> confirmed immediately, a
     # title keyword -> confirmed immediately, anything else that's 2-4 Hangul characters

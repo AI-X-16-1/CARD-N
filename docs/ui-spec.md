@@ -189,6 +189,16 @@ Refer to `design-tokens.md` for color, typography, and spacing values.
 - Purple/coral gradient tint, stars, "배틀 카드 보기" (View battle card)
 - "ATK n · DEF n · INT n · HP n" + chevron → Game > Collection
 
+### Call Recording Finder (between Battle Card Teaser and Conversation History Timeline)
+- Always-visible row button: "📼 휴대폰에서 통화 녹음 찾기" (📼 Find call recording on phone) + "열기"/"닫기" (Open/Close)
+  toggle label — not gated behind the FAB menu, since it's a distinct action from live recording/upload
+- Tap → expands `features/contacts/components/CallRecordingFinder.tsx` inline, which matches the contact's phone
+  number against the device's call-recording folder (Android/Samsung One UI only), then runs the found file through
+  the conversation feature's transcribe → summarize → save pipeline (`api-spec.md`'s Conversation section) — the raw
+  recording is never played back in-app or persisted, only the generated summary is. Each summary generation is
+  gated behind an explicit "did you tell the other party?" confirmation, mirroring the recording-consent notice this
+  section already requires for the live-recording flow.
+
 ### Conversation History Timeline
 - Vertical dots + connecting line + entry cards
 - Card: date (11px, 40%), type badge, body text (13px, line-height 1.55)
@@ -198,8 +208,10 @@ Refer to `design-tokens.md` for color, typography, and spacing values.
 ### FAB "+"
 - 54px, Primary, bottom-right
 - Tap → dim overlay + action sheet (Surface-3):
-  - "🎙 지금 녹음하기 — 대화를 실시간으로 녹음하고 요약" (🎙 Record now — record the conversation live and summarize it)
-  - "📁 녹음 파일 업로드 — 기존 녹음 파일을 올려 요약 생성" (📁 Upload recording file — upload an existing recording to generate a summary)
+  - "🎙 녹음 — 대화를 녹음하거나 녹음 파일을 올려 요약 생성" (🎙 Record — record a conversation live or upload a recording
+    file to generate a summary). Single entry point into `ConversationRecordScreen`, which offers both live
+    recording and file upload internally (`mode: 'record'`, see `api-spec.md`/#24-#25) — "지금 녹음하기" and "녹음 파일
+    업로드" were previously two separate action-sheet items landing on the same screen, so they were merged into one.
 
 ### Introduction Request (cross-team: 그래프 기능과 연동)
 PersonDetailScreen needs the same "소개 요청" action GraphScreen's 1st-degree bottom sheet has
@@ -216,26 +228,51 @@ Calls the same `POST /graph/{person_id}/introduction-requests` — no new API ne
 
 **feature folder**: `features/conversation/`
 
+**Nothing leaves the device while recording.** The pipeline — upload, STT, summary — runs
+once, on stop. Live keyword extraction was specced here originally and dropped on 2026-08-27:
+it needs streaming STT, and the same keywords and to-dos already fall out of the summary two
+phases later — so the extra machinery buys nothing the user will not see a few seconds later.
+
+The screen is reached from either FAB action in §5, and leads with whichever one was tapped
+(`mode: 'record' | 'upload'`, defaulting to `'record'`). The other entry stays available
+below it — both land in the same flow from Phase 2 on.
+
 ### Phase 1: Recording
-- "‹ 취소" (‹ Cancel), pulsing "● 녹음 중" (● Recording) pill (coral)
+- "‹ 뒤로" (‹ Back), pulsing "● 녹음 중" (● Recording) pill (coral)
 - Person's avatar/name/company
+- Consent notice, shown before recording starts (see the privacy rule below)
 - mm:ss timer (Space Grotesk 44px)
-- 24-bar waveform animation (purple/cyan/lavender, staggered scaleY)
-- "실시간으로 잡히는 키워드" (Keywords detected in real time) chips (e.g., Q4 budget, proposal request, November launch)
-- Yellow "할 일로 감지됨" (Detected as a to-do) quote card
+- 24-bar waveform animation (purple/cyan/lavender, staggered scaleY) — driven by the
+  microphone's own metering, on-device only
 - Stop button: 70px coral circle, square icon inside
 
-### Phase 2: Analyzing (~1.4s)
-- Spinner + "녹음 분석 중…" (Analyzing recording…) + "STT 변환 후 LLM이 요약을 생성해요" (After STT transcription, the LLM generates a summary)
+### Phase 2: Upload + STT
+- Spinner + phase label + elapsed seconds:
+  - "녹음 파일 올리는 중…" (Uploading recording…) with a progress bar — hint: "파일은 변환이 끝나면 서버에서 바로 삭제돼요"
+  - "음성 인식 중…" (Transcribing…) — hint: "녹음 길이만큼 걸려요. 처음 한 번은 모델을 내려받느라 더 느립니다"
+- Takes as long as the recording is long. There is no fixed duration to design around.
 
-### Phase 3: Summary Result
+### Phase 3: Transcript Review
+- "인식된 텍스트" (Recognized text) — editable multiline field, with duration · model on the right
+- Hint: "잘못 들린 부분을 고쳐두면 요약 품질이 올라가요. 특히 사람 이름."
+- Collapsible "▸ 구간별 보기 ({n})" (View by segment) — timestamped STT segments
+- "AI 요약 만들기" (Generate AI summary) button → Phase 4
+
+This step is deliberate, not a placeholder for an automatic hand-off. Correcting one misheard
+name before summarizing is the cheapest quality win in the whole feature — the name is what the
+graph matches `mentioned_people` against, so a typo here costs a relationship edge.
+While summarizing: "요약 생성 중…" — hint: "상대 정보와 지난 대화를 함께 넣어 정리하고 있어요"
+
+### Phase 4: Summary Result
 - Header: name + title, date · recording duration
 - "✦ 한 줄 요약" (✦ One-line summary) card (purple tint, 14px/700)
 - "핵심 내용" (Key points) — 3 bullets
 - "할 일 1건" (1 to-do item) card (cyan tint, checkbox)
 - Footnote: "녹음 원본은 저장되지 않아요 — 요약본만 기록에 저장됩니다" (The original recording is not saved — only the summary is saved to the record)
 - Buttons: "삭제" (Delete) (1fr, coral outline) / "기록에 저장" (Save to record) (2fr, Primary)
-  → On save, prepend to the person's timeline + persist
+  → On save, prepend to the person's timeline + persist, and push the conversation into the
+    relationship graph (see `docs/features.md`'s conversation → graph touchpoint)
+- After saving: "기록에 저장했어요" + "새 녹음 올리기" (Upload a new recording) to start over
 
 **Privacy rule: the original audio is never persisted. Only the generated summary (one-liner + bullets + to-dos) is saved.**
 A recording-consent notice is required (Korea's Protection of Communications Secrets Act).
@@ -308,3 +345,31 @@ Background: subtle coral (top) / purple (bottom) radial gradient.
 ### Result Overlay
 - VICTORY (mint glow) / DEFEAT (coral glow)
 - Space Grotesk 34px, subline, "다시 대전" (Battle again) button
+
+---
+
+## 9. Incoming Call Alert (System Notification) — Proposed
+
+**feature folder**: proposed `features/call-alert/` — not yet assigned/implemented,
+see `docs/call-alert-spec.md` and `features.md`'s "Cross-cutting Proposals" table.
+
+This has no in-app screen of its own — it's an OS-level local notification plus a
+one-time consent screen.
+
+### Consent screen (first run / from Settings)
+- Shown before the first `READ_PHONE_STATE` permission request
+- Explains why: "전화가 오면 저장된 인맥인지 확인하고, 마지막 대화 요약을 알려드려요"
+  (When you get a call, we check if it's a saved contact and show you your last
+  conversation summary)
+- "허용" (Allow) → triggers the OS permission dialog / "허용 안 함" (Don't allow) →
+  feature stays off, no retry prompts beyond the OS's own re-ask flow
+
+### Notification (on incoming call, matched contact only)
+- Title: `"{name}님에게 전화가 왔어요"`
+- Body: last conversation's one-line summary, or `"아직 대화 기록이 없어요"` if the
+  contact has no saved conversations
+- No notification is shown for a number that doesn't match a saved contact
+
+### Tap behavior
+- Opens `PersonDetailScreen` (§5) for the matched contact, same as tapping the
+  contact from the list

@@ -12,13 +12,17 @@
     "expo": "~57.0.16",
     "expo-audio": "~57.0.4",
     "expo-camera": "~57.0.4",
+    "expo-contacts": "~57.0.4",
+    "expo-dev-client": "~57.0.15",
     "expo-document-picker": "~57.0.1",
     "expo-linear-gradient": "~57.0.1",
+    "expo-media-library": "~57.0.4",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.2",
     "react-native-gesture-handler": "~2.32.0",
+    "react-native-qrcode-svg": "^6.3.21",
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
@@ -27,16 +31,20 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/react": "~19.2.2",
+    "babel-jest": "^30.4.1",
     "babel-plugin-module-resolver": "^5.0.3",
     "babel-preset-expo": "~57.0.8",
+    "jest": "^30.4.2",
     "typescript": "~6.0.3"
   },
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "test": "jest"
   },
   "private": true
 }
