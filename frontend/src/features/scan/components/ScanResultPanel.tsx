@@ -22,6 +22,15 @@ export function ScanResultPanel({ fields, onRetake, onClose, onSave, saving }: P
     setValues((prev) => ({ ...prev, [label]: value }));
   };
 
+  // CreatePersonRequest.name is required server-side, but OCR won't always find a
+  // "Name" field (low-contrast text, an unusual card layout, ...) — without this, a
+  // card with no recognized name has no name input anywhere and save fails with a
+  // raw validation error the user can't act on. 0 confidence renders it in the same
+  // "needs review" styling as a low-confidence OCR read.
+  const displayFields = fields.some((f) => f.label === 'Name')
+    ? fields
+    : [{ label: 'Name', value: '', confidence: 0 }, ...fields];
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -34,7 +43,7 @@ export function ScanResultPanel({ fields, onRetake, onClose, onSave, saving }: P
       </View>
 
       <ScrollView style={styles.body}>
-        <OcrFieldList fields={fields} values={values} onChangeValue={handleFieldChange} />
+        <OcrFieldList fields={displayFields} values={values} onChangeValue={handleFieldChange} />
 
         <Text style={styles.fieldLabel}>만난 컨텍스트</Text>
         <TextInput

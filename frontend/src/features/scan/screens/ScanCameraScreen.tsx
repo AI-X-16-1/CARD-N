@@ -86,12 +86,27 @@ export default function ScanCameraScreen() {
 
   const handleSaveFromResult = async (values: Record<string, string>, context: string) => {
     if (state.status !== 'done') return;
+    // ScanResultPanel always shows a "Name" input, synthesizing one when OCR didn't
+    // find it (see its comment) — mirror that here so a name the user typed into that
+    // synthetic field actually makes it into the request, instead of being dropped
+    // because state.result.fields never had a "Name" entry for values.Name to attach to.
+    const baseFields = state.result.fields.some((f) => f.label === 'Name')
+      ? state.result.fields
+      : [{ label: 'Name', value: '', confidence: 0 }, ...state.result.fields];
+    const updatedFields = baseFields.map((field) => ({
+      ...field,
+      value: values[field.label] ?? field.value,
+    }));
+
+    // CreatePersonRequest requires name server-side — catch an empty one here and
+    // point at the fix instead of a raw validation error round-tripping as a 422.
+    if (!updatedFields.find((f) => f.label === 'Name')?.value.trim()) {
+      Alert.alert('이름을 입력해주세요', '이름을 인식하지 못했어요. 위 "Name" 항목에 직접 입력해주세요.');
+      return;
+    }
+
     setSaving(true);
     try {
-      const updatedFields = state.result.fields.map((field) => ({
-        ...field,
-        value: values[field.label] ?? field.value,
-      }));
       const parsed = await parseOcrFields(updatedFields, context);
       const person = await createPerson(parsed);
       setCreatedPerson(person);
