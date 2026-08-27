@@ -58,9 +58,12 @@ class PersonListResponse(BaseModel):
 class MyCardResponse(BaseModel):
     name: str
     company: str | None
-    title: str | None
+    department: str | None
+    grade: str | None
+    job_function: str | None
     phone: str | None
     email: str | None
+    address: str | None
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -69,6 +72,9 @@ class MyCardResponse(BaseModel):
 class UpdateMyCardRequest(BaseModel):
     name: str
     company: str | None = None
-    title: str | None = None
+    department: str | None = None
+    grade: str | None = None
+    job_function: str | None = None
     phone: str | None = None
     email: str | None = None
+    address: str | None = None

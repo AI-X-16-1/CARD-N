@@ -71,9 +71,19 @@ def test_get_and_update_my_card(client: TestClient) -> None:
 
     response = client.put(
         "/api/v1/contacts/me",
-        json={"name": "Kang Min-gu", "company": "CARD:N", "title": "Backend"},
+        json={
+            "name": "Kang Min-gu",
+            "company": "CARD:N",
+            "department": "Engineering",
+            "grade": "Backend",
+            "job_function": "Server",
+            "address": "Seoul",
+        },
     )
     assert response.status_code == 200
     body = response.json()
     assert body["name"] == "Kang Min-gu"
-    assert body["title"] == "Backend"
+    assert body["department"] == "Engineering"
+    assert body["grade"] == "Backend"
+    assert body["job_function"] == "Server"
+    assert body["address"] == "Seoul"

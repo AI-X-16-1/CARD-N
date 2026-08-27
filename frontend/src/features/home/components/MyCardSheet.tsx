@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, radius, typography } from '@/shared/theme';
@@ -10,7 +10,10 @@ type Props = {
   visible: boolean;
   card: MyCard;
   onClose: () => void;
-  onSave: (card: MyCard) => void;
+  // Now a real network call (GET/PUT /api/v1/contacts/me), so it can fail — the caller
+  // must be awaited so this sheet can stay open and tell the user, instead of closing
+  // on a save that never actually happened.
+  onSave: (card: MyCard) => Promise<void>;
 };
 
 const EDIT_FIELDS: { field: keyof MyCard; placeholder: string }[] = [
@@ -26,15 +29,23 @@ const EDIT_FIELDS: { field: keyof MyCard; placeholder: string }[] = [
 
 export function MyCardSheet({ visible, card, onClose, onSave }: Props) {
   const [draft, setDraft] = useState(card);
+  const [saving, setSaving] = useState(false);
 
   // Drop any stale edits from the last time this was open.
   useEffect(() => {
     if (visible) setDraft(card);
   }, [visible, card]);
 
-  const handleSave = () => {
-    onSave(draft);
-    onClose();
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onSave(draft);
+      onClose();
+    } catch {
+      Alert.alert('오류', '저장하지 못했어요. 다시 시도해주세요.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -63,8 +74,8 @@ export function MyCardSheet({ visible, card, onClose, onSave }: Props) {
           />
         ))}
 
-        <Pressable style={styles.saveButton} onPress={handleSave}>
-          <Text style={styles.saveButtonLabel}>저장</Text>
+        <Pressable style={styles.saveButton} onPress={handleSave} disabled={saving}>
+          <Text style={styles.saveButtonLabel}>{saving ? '저장 중…' : '저장'}</Text>
         </Pressable>
       </SafeAreaView>
     </Modal>
