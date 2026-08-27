@@ -1,106 +1,205 @@
-# Incoming Call Alert — Feature Spec (Proposed)
+# Incoming Call Alert — Feature Spec
 
-**Status**: proposed, not yet assigned to an owner, not implemented.
-**Proposed by**: 김민경 (2026-08-27)
+**Status**: assigned to 김민경, implemented (native path not yet verified on a device).
+**Proposed by**: 김민경 (2026-08-27). Design approved in PR #41, then revised — see
+"Findings that changed the design".
 
 ## Summary
 
-When an incoming call is detected on the device, look up the caller by phone number
-against the user's contact list and, if a match is found, show a local push
-notification containing that contact's most recent conversation summary.
+When a call comes in, identify the caller against the user's contact list and show a
+notification with the last conversation summary for that contact.
 
-## Why this doesn't fit the current 5-way split
+## Ownership
 
-This feature needs three things nobody currently owns end-to-end:
+`features/call-alert/` and `modules/call-detector/` are owned by **김민경**, in addition
+to `features/graph/`. Assigned 2026-08-27 — the graph feature was feature-complete and
+the Android native toolchain was already set up on that machine, which this feature needs
+and the others don't.
 
-- Contact lookup by phone number → `features/contacts/` (강민구)
-- Last conversation summary → `features/conversation/` (박재경)
-- A native call-state listener + local notification dispatcher → doesn't belong to
-  any existing feature folder
+**No other feature folder is touched.** The cache is built from the contacts and
+conversation endpoints exactly as they already exist, so this needs no API work from
+강민구 or 박재경 (see finding 2).
 
-Per `CLAUDE.md` / `docs/architecture.md`, anything outside a single owner's folder
-requires a separate branch and 2+ approvals — same rule as `shared/`. This document
-is the design step before that PR; no code should land against it without that
-review.
+## How it works
 
-## User flow
+```
+[app opened]   GET /contacts  +  GET /conversations?person_id=&limit=1 per contact
+               -> phone -> {name, one-liner} written into app-private storage
 
-1. Phone rings (Android `TelephonyManager`, `CALL_STATE_RINGING`).
-2. App reads the incoming number.
-3. App normalizes the number (strip spaces/dashes, `+82` prefix) and calls
-   `GET /contacts/by-phone?phone=`.
-   - No match (`404 NOT_FOUND`) → do nothing. No notification, no logging of the
-     number.
-   - Match → call `GET /conversations?person_id={id}&limit=1`.
-4. App shows a local notification:
-   - Title: `"{name}님에게 전화가 왔어요"`
-   - Body: the latest conversation's `one_liner`, or `"아직 대화 기록이 없어요"` if
-     the contact has none yet.
-5. Tapping the notification opens `PersonDetailScreen` for that contact (see
-   `ui-spec.md` §9).
+[phone rings]  manifest BroadcastReceiver (Kotlin)
+               -> normalize number -> read cache -> post notification
+               (no JS runtime, no network)
 
-## Data needed (new/changed API)
+[tap]          cardn://person/{id} deep link -> PersonDetailScreen
+```
 
-- **New**: `GET /contacts/by-phone` — owned by 강민구, `features/contacts/`.
-- **Changed**: `GET /conversations?person_id=` gains an optional `limit` param and
-  documented newest-first ordering — owned by 박재경, `features/conversation/`.
+The split matters: **nothing on the ringing path may depend on JS or the network.** The
+backend runs in Docker on someone's laptop, so at the moment a real call arrives it is
+frequently unreachable (phone on cellular, laptop asleep), and the app's process is
+usually already gone. Both facts are fatal to a design that fetches at ring time.
 
-See `docs/api-spec.md` for the exact request/response shapes proposed for both.
+## Findings that changed the design
 
-No new *backend* cross-feature coupling is introduced: the two calls are made
-sequentially from the client, the same way the client already reads contacts and
-conversation data independently elsewhere (e.g. `PersonDetailScreen`).
+The PR #41 draft had JS receive a native event, call two endpoints, and post the
+notification through `expo-notifications`. That is replaced by the above. What forced it:
 
-## Where the code should live
+### 1. The ringing path cannot use JS or the network
 
-Proposal: a new `features/call-alert/` folder, frontend-only (it has no backend
-service of its own — it only calls the contacts and conversation endpoints above):
+A call rings for 20–30 seconds and the alert is only useful early in that window. The
+original path needed the JS runtime alive plus two API round trips. Round-trip latency on
+a LAN was never the real problem — **reachability** was: the backend is a laptop, and a
+call taken away from that network silently produces nothing. Prefetching into a local
+cache removes both the runtime and the network from the ringing path entirely.
 
-- A native call-state listener module (Android only)
-- A local-notification dispatcher (`expo-notifications` — not yet a dependency,
-  needs to be added to `frontend/package.json`)
-- A phone-number normalization util
+This also means the notification is built in Kotlin with `NotificationCompat`, not
+`expo-notifications` (a JS-layer API, so it shares the same constraint). That dependency
+was added and then removed again.
 
-This folder doesn't cleanly belong to any current owner and needs a team decision
-(see Open Questions), plus a dedicated branch/PR with 2+ approvals, before any code
-is written.
+### 2. No backend change is needed after all
 
-## Platform constraints (must read before implementing)
+Because the number→contact lookup now happens on the device, the `GET /contacts/by-phone`
+endpoint the draft specified is unnecessary. It was written, tested, and then reverted.
+The cache is built from:
 
-- **Android only.** iOS restricts call-state access to CallKit extensions; this
-  project is Android-first (`CLAUDE.md` tech stack), so this feature should
-  explicitly no-op on iOS rather than attempt a partial port.
-- **Requires a custom dev client, not Expo Go.** Reading call state needs the
-  `READ_PHONE_STATE` permission and a native `BroadcastReceiver` for
-  `TelephonyManager.ACTION_PHONE_STATE_CHANGED`, neither available in Expo Go. This
-  needs either an Expo config plugin (`app.json` → `plugins`) that generates the
-  receiver + manifest permission on prebuild, or a bare native module.
-  `frontend/package.json` already has an `"android": "expo run:android"` script,
-  confirming the project can run a prebuilt native project, so a config plugin is
-  the lower-friction option.
-- **Runtime permission + consent.** `READ_PHONE_STATE` is a dangerous Android
-  permission — show an explicit consent screen before requesting it, explaining why,
-  in the same spirit as the recording-consent notice already required in
-  `ui-spec.md` §6.
-- **Play Store policy (flag, not a blocker today).** Play restricts
-  `READ_PHONE_STATE`/`READ_CALL_LOG` to apps that are the default Phone/SMS handler.
-  Not an issue under `CLAUDE.md`'s "no deployment" scope (local Docker / sideloaded
-  APK only), but worth knowing before anyone assumes this ships to Play later.
-- **Local notification only.** Use `expo-notifications` for a device-local
-  notification. There is no push backend in this project and none is needed here —
-  consistent with the no-deployment scope.
-- **Privacy.** Never notify or log anything for a number that doesn't match an
-  existing contact. No partial matches, no "possible match" heuristics — exact
-  normalized-number match only.
+- `GET /contacts?limit=100` — already returns `phone`
+- `GET /conversations?person_id={id}&limit=1` — already exists, already newest-first
 
-## Open questions for the team
+The draft also claimed `GET /conversations` needed a `limit` param added. It already had
+one. Nothing in `features/contacts/` or `features/conversation/` changes.
 
-1. **Who scaffolds `features/call-alert/`?** Suggest 강민구, by the same reasoning
-   used to assign initial `shared/` setup to him in `features.md` (he owns the most
-   screens / the contacts source of truth) — but this should be confirmed by the
-   team, not decided unilaterally here.
-2. **Debounce behavior**: fire the notification once on the first
-   `CALL_STATE_RINGING` event, or update it if the call is still ringing after the
-   API round-trip completes? This draft proposes fire-once, no retry.
-3. **Mute/DND setting**: should this respect an in-app opt-out toggle? Not designed
-   here — out of scope for this draft, worth a follow-up UI-spec addition if wanted.
+### 3. `READ_PHONE_STATE` alone is not enough
+
+Since Android 9 (API 28), `EXTRA_INCOMING_NUMBER` is only populated for receivers that
+also hold **`READ_CALL_LOG`**. With only `READ_PHONE_STATE` the broadcast still arrives
+but the number is blank, which makes the whole feature inert. `POST_NOTIFICATIONS` is
+additionally required from Android 13. All three are runtime permissions; the manifest
+only makes them requestable.
+
+### 4. `frontend/android/` is gitignored, so native code cannot live there
+
+`frontend/.gitignore` ignores `/android` — it is prebuild output, regenerated by
+`expo run:android`. A permission or `.kt` file added there works on one machine and
+vanishes for everyone else.
+
+The native side is therefore a **local Expo module** at `frontend/modules/call-detector/`,
+which is committed and autolinked into the generated project on every prebuild.
+Autolinking only scans that directory when `package.json` declares it:
+
+```json
+"expo": { "autolinking": { "nativeModulesDir": "./modules" } }
+```
+
+The module declares its permissions and its receiver in **its own** `AndroidManifest.xml`,
+which the manifest merger folds into the app at build time.
+
+Expo's newer "inline modules" (`experiments.inlineModules`) were considered and rejected:
+they are an experiment and cannot contribute a manifest entry, which this needs.
+
+### 5. A manifest receiver is allowed here
+
+Android 8 stopped manifest-declared receivers from getting most implicit broadcasts, but
+`ACTION_PHONE_STATE_CHANGED` is on the
+[documented exemption list](https://developer.android.com/develop/background-work/background-tasks/broadcasts/broadcast-exceptions),
+so it is still delivered on API 26+. That is what lets the alert fire when the app's
+process is gone — a runtime-registered receiver would die with the process.
+
+## What the cache costs
+
+Moving the lookup on-device means keeping **every contact's phone number and last
+conversation one-liner in plaintext** in app-private `SharedPreferences`. The backend
+deliberately stores phone numbers Fernet-encrypted, so this is a real, deliberate
+loosening, accepted for the reliability it buys.
+
+Mitigations in place:
+
+- App-private storage: unreadable by other apps on a non-rooted device.
+- Only what the notification renders is cached — no email, no full history, no context.
+- Withdrawing consent clears the cache (`clearCache`), so the local copy does not outlive
+  permission.
+
+If that trade stops being acceptable, the alternative is a name-only cache: the
+notification says who is calling but not what you discussed.
+
+## Phone number matching
+
+The stored number and the number the telephony API reports are formatted differently
+("010-1234-5678" vs "+821012345678"), so both sides are normalized to bare digits with a
+`+82`/`0082` → `0` rewrite. Because JS is not running at ring time, this exists twice:
+
+- `src/features/call-alert/lib/normalizePhone.ts` — normalizes cache keys (has the tests)
+- `modules/call-detector/.../PhoneNumbers.kt` — normalizes the incoming number
+
+**They must agree; change them together.**
+
+Matching is exact on the normalized value. No partial or fuzzy matching — an unmatched
+number produces no notification and nothing logged.
+
+Note that normalizing at *write* time in the database was considered and rejected: it
+would change 강민구's stored data and require a migration, and buys nothing while both
+sides are normalized at comparison time. It becomes mandatory only if the backend ever
+adopts a blind index (below), where the value is hashed before storage and can no longer
+be normalized on read.
+
+### If contact lookup ever moves back to the server
+
+`Person.phone` is Fernet-encrypted with a random IV per write, so the same number produces
+different ciphertext every time — `WHERE phone = ?` can never match and no index helps.
+The standard fix is a **blind index**: a second column holding
+`HMAC-SHA256(normalize(phone), key)`, which is deterministic and therefore indexable while
+the plaintext stays protected.
+
+```sql
+phone       -- Fernet ciphertext (existing)
+phone_bidx  -- HMAC-SHA256(normalize(phone), key), INDEX
+```
+
+That is a schema change to 강민구's table and is not needed by the current design.
+
+## Code layout
+
+```
+frontend/modules/call-detector/          ← local Expo module (committed, autolinked)
+├── expo-module.config.json
+├── index.ts                             ← JS surface: cache + permissions
+└── android/src/main/
+    ├── AndroidManifest.xml              ← permissions + the receiver
+    ├── res/values/strings.xml           ← Korean notification strings
+    └── java/com/cardn/calldetector/
+        ├── CallDetectorModule.kt        ← setContacts / permissions (JS-facing)
+        ├── IncomingCallReceiver.kt      ← detect → look up → notify
+        ├── CallAlertStore.kt            ← SharedPreferences cache
+        └── PhoneNumbers.kt              ← normalization (mirrors the TS copy)
+
+frontend/src/features/call-alert/        ← 김민경
+├── api.ts                               ← builds the snapshot from existing endpoints
+├── lib/normalizePhone.ts (+ .test.ts)
+├── hooks/useCallAlertSync.ts            ← keeps the cache fresh while the app is open
+├── hooks/useCallAlertPermissions.ts
+└── screens/CallAlertConsentScreen.tsx
+```
+
+## Platform constraints
+
+- **Android only.** iOS exposes call state to CallKit extensions only, which this app has
+  no path to. The JS module falls back to a no-op stub on iOS.
+- **Requires a dev build, not Expo Go.** Run `npm run android` (`expo run:android`).
+- **Play Store policy (flag, not a blocker).** Play restricts `READ_PHONE_STATE`/
+  `READ_CALL_LOG` to apps that are the default Phone/SMS handler. Irrelevant under
+  `CLAUDE.md`'s "no deployment" scope (local build / sideloaded APK), but worth knowing
+  before anyone assumes this ships.
+- **Consent before permissions.** `CallAlertConsentScreen` explains why all three
+  permissions are needed before the OS dialogs appear, in the same spirit as the
+  recording-consent notice in `ui-spec.md` §6.
+
+## Still to do
+
+- **Verify on a device.** The native path has not been exercised on real hardware yet —
+  a prebuild plus an actual incoming call is the only way to confirm the receiver fires,
+  the number arrives unredacted, and the deep link lands on PersonDetailScreen.
+- **Register the consent screen in navigation.** `src/navigation/` is shared and needs a
+  separate branch with 2+ approvals (`CLAUDE.md`), so it is not part of this change; the
+  screen exists but nothing routes to it yet.
+- **Deep-link handling on cold start.** The notification's `cardn://person/{id}` intent
+  needs the navigator to consume it — same navigation-ownership constraint as above.
+- **Mute/DND toggle**: out of scope. Withdrawing permission turns the feature off and
+  clears the cache, which covers the opt-out case for now.

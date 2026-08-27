@@ -1,0 +1,6 @@
+<resources>
+  <!-- App-facing strings are Korean (see CLAUDE.md's language policy). -->
+  <string name="call_alert_title">%1$s님에게 전화가 왔어요</string>
+  <string name="call_alert_channel_name">수신 전화 알림</string>
+  <string name="call_alert_channel_description">저장된 인맥에게 전화가 오면 마지막 대화 요약을 알려줍니다.</string>
+</resources>

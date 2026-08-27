@@ -43,5 +43,11 @@
     "web": "expo start --web",
     "test": "jest"
   },
-  "private": true
+  "private": true,
+  "expo": {
+    "autolinking": {
+      "//": "Local modules are only autolinked when this points at them; see modules/call-detector.",
+      "nativeModulesDir": "./modules"
+    }
+  }
 }

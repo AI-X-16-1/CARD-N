@@ -1,0 +1,22 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.cardn.calldetector'
+version = '0.1.0'
+
+android {
+  namespace "com.cardn.calldetector"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}
+
+dependencies {
+  // NotificationCompat / NotificationManagerCompat. Already on the classpath via React
+  // Native; declared so this module builds on its own terms. Gradle resolves to whichever
+  // version the app ends up with.
+  implementation 'androidx.core:core-ktx:1.13.1'
+}

@@ -336,28 +336,39 @@ Background: subtle coral (top) / purple (bottom) radial gradient.
 
 ---
 
-## 9. Incoming Call Alert (System Notification) — Proposed
+## 9. Incoming Call Alert (System Notification)
 
-**feature folder**: proposed `features/call-alert/` — not yet assigned/implemented,
-see `docs/call-alert-spec.md` and `features.md`'s "Cross-cutting Proposals" table.
+**feature folder**: `features/call-alert/` (김민경), with the native half in
+`modules/call-detector/`. See `docs/call-alert-spec.md`.
 
-This has no in-app screen of its own — it's an OS-level local notification plus a
-one-time consent screen.
+Android only. The notification is built and posted by the native receiver, not by JS —
+at ring time the app's process is usually gone and the backend is often unreachable, so
+nothing on that path may depend on either.
 
-### Consent screen (first run / from Settings)
-- Shown before the first `READ_PHONE_STATE` permission request
-- Explains why: "전화가 오면 저장된 인맥인지 확인하고, 마지막 대화 요약을 알려드려요"
-  (When you get a call, we check if it's a saved contact and show you your last
-  conversation summary)
-- "허용" (Allow) → triggers the OS permission dialog / "허용 안 함" (Don't allow) →
-  feature stays off, no retry prompts beyond the OS's own re-ask flow
+### Consent screen (CallAlertConsentScreen)
+- Shown before the OS permission dialogs
+- Title: "전화가 오면 누구인지 알려드릴까요?"
+- Three reasons: 전화번호 확인 / 마지막 대화 요약 / 통신사 신호가 없어도 (explaining that
+  the data is prefetched to the device, so no server call happens during the call)
+- "알림 받기" (Primary) → requests `READ_PHONE_STATE` + `READ_CALL_LOG` +
+  `POST_NOTIFICATIONS` together. All three are needed: without `READ_CALL_LOG`, Android
+  9+ blanks the caller's number.
+- Footnote states the permission requirement plainly rather than after the fact
+- Once granted, the screen switches to a status card: "인맥 {n}명의 정보를 이 기기에
+  저장해두었어요", with a warning line if the last refresh failed
+- On iOS: "안드로이드에서만 사용할 수 있어요" and nothing else
 
 ### Notification (on incoming call, matched contact only)
 - Title: `"{name}님에게 전화가 왔어요"`
 - Body: last conversation's one-line summary, or `"아직 대화 기록이 없어요"` if the
-  contact has no saved conversations
-- No notification is shown for a number that doesn't match a saved contact
+  contact has no saved conversations (BigTextStyle, so a long summary is readable)
+- Channel "수신 전화 알림", IMPORTANCE_HIGH
+- One notification id per contact, so a second call replaces rather than stacks
+- **No notification at all** for a number that doesn't match a saved contact, or for a
+  withheld/unknown caller
 
 ### Tap behavior
-- Opens `PersonDetailScreen` (§5) for the matched contact, same as tapping the
-  contact from the list
+- Deep link `cardn://person/{id}` → `PersonDetailScreen` (§5), same destination as
+  tapping the contact from the list
+- Navigation wiring for this route is still open — `src/navigation/` is shared ground
+  and needs its own branch with 2+ approvals
