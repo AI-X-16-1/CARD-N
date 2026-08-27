@@ -13,7 +13,7 @@ import type { MyCard } from '../types';
 // ...) just gets treated as a link/search query instead. Empty fields are dropped
 // rather than left blank ("N:;TEL:;") so a half-filled card doesn't encode a MECARD
 // entry full of empty properties.
-function myCardToMecard(card: MyCard): string | null {
+export function myCardToMecard(card: MyCard): string | null {
   if (!card.name.trim()) return null;
   const note = [card.department, card.grade, card.job_function].filter(Boolean).join(' ');
   const fields: [string, string][] = [
@@ -40,7 +40,7 @@ export function hexToRgba(hex: string, alpha: number): string {
 
 // 부서/직급/직무 replaced the old single "직함" (title) field — joined into one line so
 // the card face keeps the same slot it always had, rather than growing a new row per field.
-function positionLine(card: MyCard): string {
+export function positionLine(card: MyCard): string {
   return [card.department, card.grade, card.job_function].filter(Boolean).join(' · ');
 }
 
