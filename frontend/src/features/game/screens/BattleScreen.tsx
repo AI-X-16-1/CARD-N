@@ -11,7 +11,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { colors, radius, typography } from '@/shared/theme';
-import { JOB_COLOR } from '@/features/game/constants';
+import { JOB_COLOR, SYNERGY_INFO } from '@/features/game/constants';
 import { CardDetailPanel } from '@/features/game/components/CardDetailPanel';
 import { StatRow } from '@/features/game/components/StatRow';
 import { attack, calcEffStats, checkSynergies, endTurn, initBattle, playCard, useSkill } from '@/features/game/engine/battle';
@@ -240,6 +240,25 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
   const handRowRef = useRef<View | null>(null);
   const enemyHandRowRef = useRef<View | null>(null);
 
+  // Tap-to-reveal tooltip for an active synergy pill (either side). Positioned
+  // absolutely in the root overlay layer so it never grows the board; a
+  // full-screen backdrop dismisses it on any outside tap.
+  const [synergyTip, setSynergyTip] = useState<{ synergy: Synergy; x: number; y: number } | null>(null);
+
+  function showSynergyTip(s: Synergy, el: View | null) {
+    const rootEl = rootRef.current;
+    if (!el || !rootEl) return;
+    rootEl.measureInWindow((rx, ry, rw) => {
+      el.measureInWindow((x, y, _w, h) => {
+        const tipW = 220;
+        const left = Math.max(8, Math.min(x - rx, rw - tipW - 8));
+        setSynergyTip((prev) =>
+          prev && prev.synergy.name === s.name ? null : { synergy: s, x: left, y: y - ry + h + 6 },
+        );
+      });
+    });
+  }
+
   function startBattle() {
     setState(initBattle(initialDeck ?? createStarterDeck()));
     setSelectedHandIdx(null);
@@ -249,6 +268,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
     setFlying(null);
     setAttacking(null);
     setGhost(null);
+    setSynergyTip(null);
     turnStoppedRef.current = false;
   }
 
@@ -263,6 +283,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
       setSelectedHandIdx(null);
       setSelectedAttackerIdx(null);
       setErrorMsg(null);
+      setSynergyTip(null);
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : String(e));
     }
@@ -413,6 +434,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
     setErrorMsg(null);
     setSelectedHandIdx(null);
     setSelectedAttackerIdx(null);
+    setSynergyTip(null);
     turnStoppedRef.current = false;
     playEventQueue(next.turnEvents ?? [], 0, next);
   }
@@ -670,7 +692,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
             enemyHandRowRef.current = el;
           }}
         />
-        <SynergyRow synergies={eSynergies} />
+        <SynergyRow synergies={eSynergies} onPressPill={showSynergyTip} />
         <FieldRow
           cards={state.eField}
           mine={false}
@@ -702,7 +724,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
             fieldRefs.current[idx] = el;
           }}
         />
-        <SynergyRow synergies={mySynergies} />
+        <SynergyRow synergies={mySynergies} onPressPill={showSynergyTip} />
         <HeroRow
           label="나"
           hp={state.myHp}
@@ -841,6 +863,25 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
         onDone={ghost.onDone}
       />
     )}
+
+    {synergyTip && (() => {
+      const info = SYNERGY_INFO[synergyTip.synergy.name];
+      return (
+        <>
+          <Pressable style={styles.synergyTipBackdrop} onPress={() => setSynergyTip(null)} />
+          <View
+            pointerEvents="none"
+            style={[styles.synergyTip, { left: synergyTip.x, top: synergyTip.y }]}
+          >
+            <Text style={styles.synergyTipName}>{info?.name ?? synergyTip.synergy.name}</Text>
+            {info?.condition && <Text style={styles.synergyTipMeta}>조건 · {info.condition}</Text>}
+            <Text style={styles.synergyTipEffect}>
+              효과 · {info?.effect ?? synergyTip.synergy.description}
+            </Text>
+          </View>
+        </>
+      );
+    })()}
     </View>
   );
 }
@@ -875,14 +916,28 @@ function HeroRow({
   );
 }
 
-function SynergyRow({ synergies }: { synergies: Synergy[] }) {
+function SynergyRow({
+  synergies,
+  onPressPill,
+}: {
+  synergies: Synergy[];
+  onPressPill?: (s: Synergy, el: View | null) => void;
+}) {
+  const pillRefs = useRef<Record<number, View | null>>({});
   if (synergies.length === 0) return null;
   return (
     <View style={styles.synergyRow}>
-      {synergies.map((s) => (
-        <View key={s.name} style={styles.synergyPill}>
-          <Text style={styles.synergyText}>{s.name}</Text>
-        </View>
+      {synergies.map((s, i) => (
+        <Pressable
+          key={s.name}
+          ref={(el) => {
+            pillRefs.current[i] = el;
+          }}
+          style={styles.synergyPill}
+          onPress={() => onPressPill?.(s, pillRefs.current[i])}
+        >
+          <Text style={styles.synergyText}>{SYNERGY_INFO[s.name]?.name ?? s.name}</Text>
+        </Pressable>
       ))}
     </View>
   );
@@ -1077,6 +1132,39 @@ const styles = StyleSheet.create({
     color: colors.canvas,
     fontSize: typography.micro.fontSize,
     fontWeight: '700',
+  },
+  synergyTipBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 60,
+  },
+  synergyTip: {
+    position: 'absolute',
+    maxWidth: 220,
+    backgroundColor: colors.surface3,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: colors.borderMedium,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 2,
+    zIndex: 61,
+  },
+  synergyTipName: {
+    color: colors.textPrimary,
+    fontSize: typography.micro.fontSize,
+    fontWeight: '800',
+  },
+  synergyTipMeta: {
+    color: colors.textTertiary,
+    fontSize: typography.micro.fontSize,
+  },
+  synergyTipEffect: {
+    color: colors.textSecondary,
+    fontSize: typography.micro.fontSize,
   },
   fieldRow: {
     flexDirection: 'row',
