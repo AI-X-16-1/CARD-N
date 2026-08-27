@@ -283,6 +283,20 @@ Response 200:
 }
 ```
 
+**Open: nothing currently populates this.** A mutual connection requires a `MET_AT`
+edge between two people who are not me, and the only edge-creating code
+(`contacts/graph_sync.py`) writes `(me)-[MET_AT]-(contact)` and nothing else. The one
+path that used to write contact-to-contact edges inferred them from names an LLM heard
+in a conversation, and was removed — see `features.md`'s 김민경 touchpoints.
+
+Whatever replaces it **must be consent-gated, not inferred**. The point of the
+`INTRO_CONSENT` machinery below is that a person decides who gets to see them through
+whom; a mutual-connections list assembled without that decision leaks the same
+information the 2nd-degree privacy rule above exists to protect, just through a
+different screen. Any proposal here needs review before implementation — treating "we
+know both of them" as permission to link them is the mistake that got the previous
+version removed.
+
 ### Introduction Requests
 
 Lets a person opt in to being surfaced as a 2nd-degree connection through a specific 1st-degree
@@ -478,9 +492,12 @@ name, company and the previous summaries out of its own tables and decides what 
 into the prompt, so conversation history never travels through the client. `person` and
 `history_used` echo back what was actually used.
 
-`mentioned_people` are third parties named during the conversation — candidate edges for
-the relationship graph. `confidence` is the model's own estimate of whether it heard the
-name correctly; the UI flags anything under 0.7.
+`mentioned_people` are third parties named during the conversation. `confidence` is the
+model's own estimate of whether it heard the name correctly; the UI flags anything under
+0.7. They are stored and displayed only — saving a conversation never turns them into
+relationship-graph edges. That was built and then removed: a name the model heard is not
+evidence two people know each other, and a wrong guess became a permanent edge that was
+never surfaced to the user. Any future use needs the user to confirm the relationship.
 
 The summary deliberately carries no to-do list and no "what to raise next time" hints.
 Both were dropped after review: on real recordings they were the parts most prone to
