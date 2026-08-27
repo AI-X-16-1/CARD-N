@@ -399,9 +399,12 @@ name, company and the previous summaries out of its own tables and decides what 
 into the prompt, so conversation history never travels through the client. `person` and
 `history_used` echo back what was actually used.
 
-`mentioned_people` are third parties named during the conversation — candidate edges for
-the relationship graph. `confidence` is the model's own estimate of whether it heard the
-name correctly; the UI flags anything under 0.7.
+`mentioned_people` are third parties named during the conversation. `confidence` is the
+model's own estimate of whether it heard the name correctly; the UI flags anything under
+0.7. They are stored and displayed only — saving a conversation never turns them into
+relationship-graph edges. That was built and then removed: a name the model heard is not
+evidence two people know each other, and a wrong guess became a permanent edge that was
+never surfaced to the user. Any future use needs the user to confirm the relationship.
 
 The summary deliberately carries no to-do list and no "what to raise next time" hints.
 Both were dropped after review: on real recordings they were the parts most prone to

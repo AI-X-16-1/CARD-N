@@ -21,7 +21,7 @@ from app.features.conversation.schemas import (
     SaveConversationRequest,
     SummaryContextPerson,
 )
-from app.features.graph.conversation_sync import bump_conversation_weight, sync_mentioned_people
+from app.features.graph.conversation_sync import bump_conversation_weight
 
 logger = logging.getLogger(__name__)
 
@@ -191,11 +191,11 @@ class ConversationService:
         await self.db.refresh(row)
 
         if is_new:
-            await self._sync_graph(data.person_id, data.summary)
+            await self._sync_graph(data.person_id)
 
         return self._to_response(row)
 
-    async def _sync_graph(self, person_id: int, summary: ConversationSummary) -> None:
+    async def _sync_graph(self, person_id: int) -> None:
         """Push a newly recorded conversation into the relationship graph.
 
         Only ever called for a brand new row (docs/features.md). Re-summarizing an
@@ -212,29 +212,6 @@ class ConversationService:
             await bump_conversation_weight(self.neo4j_driver, person_id=person_id)
         except Exception:
             logger.warning("Neo4j weight bump failed for person %s", person_id, exc_info=True)
-
-        # One conversation is one piece of evidence that these two know each other, so
-        # a name said three times still counts once.
-        seen: set[str] = set()
-        mentions: list[dict] = []
-        for mention in summary.mentioned_people:
-            key = mention.name.strip().casefold()
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            mentions.append(mention.model_dump())
-
-        if not mentions:
-            return
-
-        try:
-            linked = await sync_mentioned_people(
-                self.neo4j_driver, person_id=person_id, mentions=mentions
-            )
-            if linked:
-                logger.info("linked %s mentioned people to person %s", len(linked), person_id)
-        except Exception:
-            logger.warning("Neo4j mention sync failed for person %s", person_id, exc_info=True)
 
     async def list_for_person(
         self, person_id: int, limit: int, offset: int
