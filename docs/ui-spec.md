@@ -333,3 +333,31 @@ Background: subtle coral (top) / purple (bottom) radial gradient.
 ### Result Overlay
 - VICTORY (mint glow) / DEFEAT (coral glow)
 - Space Grotesk 34px, subline, "다시 대전" (Battle again) button
+
+---
+
+## 9. Incoming Call Alert (System Notification) — Proposed
+
+**feature folder**: proposed `features/call-alert/` — not yet assigned/implemented,
+see `docs/call-alert-spec.md` and `features.md`'s "Cross-cutting Proposals" table.
+
+This has no in-app screen of its own — it's an OS-level local notification plus a
+one-time consent screen.
+
+### Consent screen (first run / from Settings)
+- Shown before the first `READ_PHONE_STATE` permission request
+- Explains why: "전화가 오면 저장된 인맥인지 확인하고, 마지막 대화 요약을 알려드려요"
+  (When you get a call, we check if it's a saved contact and show you your last
+  conversation summary)
+- "허용" (Allow) → triggers the OS permission dialog / "허용 안 함" (Don't allow) →
+  feature stays off, no retry prompts beyond the OS's own re-ask flow
+
+### Notification (on incoming call, matched contact only)
+- Title: `"{name}님에게 전화가 왔어요"`
+- Body: last conversation's one-line summary, or `"아직 대화 기록이 없어요"` if the
+  contact has no saved conversations
+- No notification is shown for a number that doesn't match a saved contact
+
+### Tap behavior
+- Opens `PersonDetailScreen` (§5) for the matched contact, same as tapping the
+  contact from the list
