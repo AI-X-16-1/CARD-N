@@ -29,7 +29,7 @@ export default function HomeScreen() {
   };
 
   const openList = () => {
-    navigation.getParent<BottomTabNavigationProp<TabParamList>>()?.navigate('목록');
+    navigation.getParent<BottomTabNavigationProp<TabParamList>>()?.navigate('목록', { screen: 'ContactList' });
   };
 
   const initials = card.name.slice(0, 1) || '?';

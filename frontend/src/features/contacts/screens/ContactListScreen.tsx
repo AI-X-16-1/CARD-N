@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { Alert, FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { colors, radius, typography } from '@/shared/theme';
-import type { TabParamList } from '@/navigation/RootNavigator';
+import type { ListStackParamList } from '@/navigation/RootNavigator';
 
 import { CategoryChip } from '../components/CategoryChip';
 import { ContactRow } from '../components/ContactRow';
@@ -13,35 +13,23 @@ import { deleteContact } from '../api';
 import { useContactList } from '../hooks/useContactList';
 import { RELATION_LABELS } from '../jobLabels';
 import type { Person, RelationFilter } from '../types';
-import PersonDetailScreen from './PersonDetailScreen';
 
 const CATEGORIES: RelationFilter[] = ['all', 'client', 'partner', 'networking', 'other'];
 
 export default function ContactListScreen() {
-  const navigation = useNavigation<BottomTabNavigationProp<TabParamList, '목록'>>();
-  const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null);
+  const navigation = useNavigation<NativeStackNavigationProp<ListStackParamList, 'ContactList'>>();
   const { total, contacts, loading, query, setQuery, category, setCategory, refetch } =
     useContactList();
 
-  // This screen is a bare tab (not a stack), so bottom tabs keep it mounted — switching
-  // tabs and back would otherwise leave selectedPersonId set and strand the user on the
-  // detail view. Refetch on focus too, so a contact saved via the Scan modal shows up.
+  // Refetch on focus so a contact saved via the Scan modal, or edited/deleted from
+  // PersonDetail, shows up as soon as this list is back in view.
   useFocusEffect(
     useCallback(() => {
       refetch();
-      return () => setSelectedPersonId(null);
     }, [refetch]),
   );
 
-  // useFocusEffect's cleanup only fires when this tab loses focus, which never happens
-  // if the user taps the 목록 tab icon while already on it — tabPress fires regardless,
-  // so this is the only way to reset back to the list from a stuck detail view.
-  useEffect(
-    () => navigation.addListener('tabPress', () => setSelectedPersonId(null)),
-    [navigation],
-  );
-
-  const openPerson = (person: Person) => setSelectedPersonId(person.id);
+  const openPerson = (person: Person) => navigation.navigate('PersonDetail', { personId: person.id });
 
   const confirmDeletePerson = (person: Person) => {
     Alert.alert('연락처 삭제', `${person.name}님을 목록에서 삭제할까요?`, [
@@ -56,15 +44,6 @@ export default function ContactListScreen() {
       },
     ]);
   };
-
-  if (selectedPersonId !== null) {
-    return (
-      <PersonDetailScreen
-        personId={selectedPersonId}
-        onBack={() => setSelectedPersonId(null)}
-      />
-    );
-  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
