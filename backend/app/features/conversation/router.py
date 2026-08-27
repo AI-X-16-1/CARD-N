@@ -7,10 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.dependencies import get_db, get_neo4j_driver
+from app.features.conversation.guide import answer as answer_guide
 from app.features.conversation.schemas import (
     ConversationListResponse,
     ConversationResponse,
     ConversationSummary,
+    GuideRequest,
+    GuideResponse,
     SaveConversationRequest,
     SummarizeRequest,
     SummarizeResponse,
@@ -139,3 +142,24 @@ async def delete_conversation(
     conversation_id: int, service: ConversationService = Depends(_service)
 ) -> None:
     await service.delete(conversation_id)
+
+
+@router.post("/guide", response_model=GuideResponse)
+async def guide_chat(data: GuideRequest) -> GuideResponse:
+    """The in-app how-do-I-use-this chatbot.
+
+    Stateless: the client owns the transcript and sends the whole visible conversation
+    back each turn. Nothing is written to the database, and the prompt is never given a
+    contact or a saved conversation — this endpoint answers about the app, not about
+    the user's people.
+    """
+    if data.messages[-1].role != "user":
+        raise HTTPException(status_code=400, detail="마지막 메시지는 사용자 질문이어야 합니다.")
+
+    history = [m.model_dump() for m in data.messages]
+    try:
+        reply = await run_in_threadpool(answer_guide, history)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"답변 생성에 실패했습니다: {e}") from e
+
+    return GuideResponse(reply=reply, model=settings.gemini_model)

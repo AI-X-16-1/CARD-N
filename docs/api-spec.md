@@ -410,6 +410,7 @@ implement against, not something end-to-end testable with two live accounts in t
 | `POST` | `/conversations` | Save a summary to a contact's timeline |
 | `GET` | `/conversations?person_id=` | Read a contact's conversation history |
 | `DELETE` | `/conversations/{conversation_id}` | Delete one saved conversation |
+| `POST` | `/conversations/guide` | In-app guide chatbot (app usage Q&A) |
 
 ### GET /conversations?person_id=
 
@@ -552,6 +553,42 @@ Saving also sets the contact's `last_contact`.
 **Note**: this replaces the originally specced `/contacts/{id}/conversations`. Conversation
 history is owned by the conversation feature, and `features/*` may not add routes to
 another feature's router (backend/CLAUDE.md).
+
+### POST /conversations/guide
+
+The in-app guide chatbot — answers "how do I use CARD:N" in Korean.
+
+```
+Request:
+{
+  "messages": [
+    { "role": "assistant", "content": "CARD:N 사용법을 안내해 드려요. 궁금한 걸 물어보세요." },
+    { "role": "user", "content": "명함 어떻게 등록해?" }
+  ]
+}
+
+Response 200:
+{
+  "reply": "1. 하단 가운데 보라색 동그란 버튼을 누르면 카메라가 열립니다.
+2. ...",
+  "model": "gemini-3.5-flash-lite"
+}
+```
+
+Stateless — nothing is written, and no session is kept server-side. The client owns the
+transcript and sends the whole visible conversation each turn, oldest first; the last
+message must be `role: "user"` or the call is a 400. Only the last 12 turns reach the
+model, and each message is capped at 500 characters.
+
+The prompt contains a hand-maintained summary of the app's screens and flows
+(`guide.py`'s `KNOWLEDGE`) and nothing else. **No contact, conversation or graph data is
+ever put in it**, so the bot cannot answer "who in my network is a developer" — it is
+told to say so and point at the 목록 tab instead. Keep `KNOWLEDGE` in sync with
+`docs/ui-spec.md` when a flow changes, and with what the code actually does when the two
+disagree.
+
+Failures come back as 502 with the reason in `detail` (missing/rejected API key, quota,
+repeated empty answers).
 
 ---
 
