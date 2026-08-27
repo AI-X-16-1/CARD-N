@@ -213,6 +213,7 @@ rule).
 | `GET` | `/graph/{person_id}/mutual` | Retrieve mutual connections |
 | `GET` | `/graph/stats` | Relationship graph statistics (1st-degree/2nd-degree counts, etc.) |
 | `POST` | `/graph/{person_id}/introduction-requests` | Request a 1st-degree contact's permission to be shown as a 2nd-degree connection to their network |
+| `GET` | `/graph/{person_id}/introduction-requests` | Status of my own outgoing request toward this one person |
 | `GET` | `/graph/introduction-requests` | List incoming introduction requests awaiting my approval |
 | `POST` | `/graph/introduction-requests/{person_id}/approve` | Approve an incoming introduction request |
 | `POST` | `/graph/introduction-requests/{person_id}/decline` | Decline an incoming introduction request |
@@ -327,6 +328,34 @@ Errors:
   409 ALREADY_REQUESTED   - a pending or already-approved request exists for this person
   404 NOT_FIRST_DEGREE    - person_id is not one of my 1st-degree contacts
 ```
+
+#### GET /graph/{person_id}/introduction-requests
+
+Reads back my own outgoing request toward one person. Same path as the POST — at most one
+request exists between me and a given person. Distinct from `GET /graph/introduction-requests`
+(no `person_id`), which is the inbox of requests other people sent *me*.
+
+Added for screens that show a single person: `PersonDetailScreen` previously had to fetch the
+whole depth-1 graph and pick `introduction_request_status` off the matching node, because this
+endpoint did not exist.
+
+```
+Path params:
+  - person_id: the contact whose request state I want
+
+Response 200:
+{
+  "person_id": 3,
+  "status": "pending",          // null when I have never asked
+  "requested_at": "2024-03-20T10:00:00Z",
+  "responded_at": null
+}
+```
+
+`status` is `null` rather than a 404 when no request has been made — not having asked is a
+normal state the UI renders as the default row, not an error. A `person_id` that isn't a
+1st-degree contact returns the same `null` shape, so this endpoint never reveals whether an
+arbitrary id exists.
 
 #### GET /graph/introduction-requests
 

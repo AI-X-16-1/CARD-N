@@ -5,6 +5,7 @@ from app.features.graph.schemas import (
     GraphStatsResponse,
     IncomingIntroductionRequestsResponse,
     IntroductionRequestResponse,
+    IntroductionRequestStatusResponse,
     MutualConnectionsResponse,
 )
 from app.features.graph.service import GraphService
@@ -33,6 +34,14 @@ async def get_graph(
 @router.post("/{person_id}/introduction-requests", status_code=status.HTTP_201_CREATED)
 async def request_introduction(person_id: int) -> IntroductionRequestResponse:
     return await _service().request_introduction(person_id)
+
+
+# Same path as the POST above — at most one request can exist between me and a given
+# person, so this reads back that one. Distinct from GET /introduction-requests below,
+# which is the inbox of requests other people sent *me*.
+@router.get("/{person_id}/introduction-requests")
+async def get_introduction_request(person_id: int) -> IntroductionRequestStatusResponse:
+    return await _service().get_introduction_request(person_id)
 
 
 @router.get("/introduction-requests")
