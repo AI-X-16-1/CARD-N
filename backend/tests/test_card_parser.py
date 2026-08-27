@@ -69,6 +69,21 @@ def test_mobile_labeled_number_wins_over_an_earlier_office_number():
     assert fields["phone"] == "010.9415.0157"
 
 
+def test_fax_number_never_becomes_phone():
+    # A fax line appearing before any Tel/Mobile line must not win the `phone` slot —
+    # a fax number isn't callable, so it belongs only in `etc`.
+    fields, etc = parse_fields(["Fax:02.597.0445", "Tel:02.597.0443"])
+    assert fields["phone"] == "02.597.0443"
+    assert any("02.597.0445" in item for item in etc)
+
+
+def test_single_letter_labels_are_recognized():
+    # Cards commonly abbreviate to a single letter (T/F/M) instead of the full word.
+    fields, etc = parse_fields(["T.02.597.0443", "F.02.597.0445", "M.010.9415.0157"])
+    assert fields["phone"] == "010.9415.0157"
+    assert any("02.597.0445" in item for item in etc)
+
+
 def test_real_card_end_to_end():
     # The exact raw OCR lines from the real card behind all the regressions above,
     # captured via temporary debug logging. Locks in the combined fix.

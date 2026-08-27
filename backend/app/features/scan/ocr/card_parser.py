@@ -52,7 +52,15 @@ import re
 PHONE_RE = re.compile(r"\d{2,3}[-. ]?\d{3,4}[-. ]?\d{4}")
 # Marks a line as carrying the mobile number specifically, so it's preferred over an
 # office/desk ("Tel"/전화) number when a card lists both — see take_matches's phone_order.
-MOBILE_LABEL_RE = re.compile(r"mobile|휴대|핸드폰", re.IGNORECASE)
+# Matches the full word or the bare single-letter abbreviation cards commonly use
+# instead (T/F/M, upper or lower case) — "\bm\b" needs a word boundary on both sides so
+# it doesn't fire on the "m" inside an ordinary word.
+MOBILE_LABEL_RE = re.compile(r"\bmobile\b|\bm\b|휴대|핸드폰", re.IGNORECASE)
+# A fax number must never end up as `phone` (labeled "Mobile" in the UI) — it's not a
+# callable number for this app's purposes. Checked against a short window right before
+# a phone match (see take_matches) rather than the whole line, since "Tel:xxx Fax:yyy"
+# puts both labels on one line.
+FAX_LABEL_RE = re.compile(r"\bfax\b|\bf\b|팩스", re.IGNORECASE)
 # OCR sometimes inserts a spurious space around "@" (observed: "shwang51 @raonclinic.co.kr"),
 # so the space is allowed here and then stripped back out of the matched value in
 # take_matches below to reconstruct a valid email.
@@ -430,7 +438,11 @@ def parse_fields(lines):
                     value = re.sub(r"\s+", "", value)
                     value = LABEL_PREFIX_RE.sub("", value)
                     value = GLUED_LABEL_PREFIX_RE.sub("", value)
-                if result[key] is None:
+                # A fax number must never become `phone` — checked against the text
+                # right before this specific match (not the whole line), since a line
+                # can carry both a Tel and a Fax label ("Tel:xxx Fax:yyy").
+                is_fax = key == "phone" and FAX_LABEL_RE.search(current[max(0, m.start() - 15) : m.start()])
+                if result[key] is None and not is_fax:
                     result[key] = value
                 else:
                     etc.append(f"{label}:{value}")
