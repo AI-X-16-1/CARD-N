@@ -66,7 +66,8 @@ function ConversationRow({ conversation, onDeleted }: RowProps) {
 type Props = { personId: number };
 
 export function ConversationTimeline({ personId }: Props) {
-  const { conversations, loading, error, refetch } = useConversations(personId);
+  const { conversations, loading, loadingMore, error, hasMore, loadMore, refetch } =
+    useConversations(personId);
 
   if (loading) return <Text style={styles.stateText}>불러오는 중…</Text>;
   if (error) return <Text style={styles.stateText}>불러오지 못했어요</Text>;
@@ -77,6 +78,11 @@ export function ConversationTimeline({ personId }: Props) {
       {conversations.map((conversation) => (
         <ConversationRow key={conversation.id} conversation={conversation} onDeleted={refetch} />
       ))}
+      {hasMore ? (
+        <Pressable style={styles.loadMore} onPress={loadMore} disabled={loadingMore}>
+          <Text style={styles.loadMoreLabel}>{loadingMore ? '불러오는 중…' : '더보기'}</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -100,4 +106,6 @@ const styles = StyleSheet.create({
   oneLiner: { fontSize: typography.body.fontSize, fontWeight: '700', color: colors.textPrimary },
   bullet: { fontSize: typography.body.fontSize, color: colors.textSecondary, lineHeight: 20 },
   deleteLabel: { fontSize: typography.meta.fontSize, color: colors.gameAccent, marginTop: 4 },
+  loadMore: { alignItems: 'center', paddingVertical: 10 },
+  loadMoreLabel: { fontSize: typography.meta.fontSize, color: colors.secondary, fontWeight: '600' },
 });

@@ -61,11 +61,19 @@ type SummarizeResponse = {
   result: ConversationSummaryResult;
 };
 
-export async function fetchConversations(personId: number): Promise<Conversation[]> {
-  const response = await apiClient.get<{ total: number; items: Conversation[] }>('/conversations', {
-    params: { person_id: personId },
+export type ConversationPage = { total: number; items: Conversation[] };
+
+const CONVERSATIONS_PAGE_SIZE = 10;
+
+export async function fetchConversations(
+  personId: number,
+  limit: number = CONVERSATIONS_PAGE_SIZE,
+  offset: number = 0,
+): Promise<ConversationPage> {
+  const response = await apiClient.get<ConversationPage>('/conversations', {
+    params: { person_id: personId, limit, offset },
   });
-  return response.data.items;
+  return response.data;
 }
 
 export async function deleteConversation(conversationId: number): Promise<void> {

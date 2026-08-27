@@ -122,16 +122,7 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
               <Text style={styles.headerAction}>{saving ? '저장 중…' : '저장'}</Text>
             </Pressable>
           </View>
-        ) : (
-          <View style={styles.headerActions}>
-            <Pressable onPress={startEditing} hitSlop={8}>
-              <Text style={styles.headerAction}>수정</Text>
-            </Pressable>
-            <Pressable onPress={handleDelete} hitSlop={8}>
-              <Text style={styles.headerActionDanger}>삭제</Text>
-            </Pressable>
-          </View>
-        )}
+        ) : null}
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -266,29 +257,21 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
             style={styles.speedDialItem}
             onPress={() => {
               setActionSheetOpen(false);
-              // Only registered stack routes (e.g. the Home tab) can push
-              // ConversationRecord today; inline (list) mode has no route for it yet.
-              if (!onBack) {
-                navigation.navigate('ConversationRecord', { personId: person.id, mode: 'record' });
-              }
+              startEditing();
             }}
           >
-            <Text style={styles.speedDialIcon}>🎙</Text>
-            <Text style={styles.speedDialLabel}>녹음</Text>
+            <Text style={styles.speedDialIcon}>✏️</Text>
+            <Text style={styles.speedDialLabel}>수정</Text>
           </Pressable>
           <Pressable
             style={styles.speedDialItem}
             onPress={() => {
               setActionSheetOpen(false);
-              // mode: 'upload' makes ConversationRecordScreen lead with the file picker
-              // instead of the record button (#24/#25).
-              if (!onBack) {
-                navigation.navigate('ConversationRecord', { personId: person.id, mode: 'upload' });
-              }
+              handleDelete();
             }}
           >
-            <Text style={styles.speedDialIcon}>📁</Text>
-            <Text style={styles.speedDialLabel}>파일</Text>
+            <Text style={styles.speedDialIcon}>🗑</Text>
+            <Text style={[styles.speedDialLabel, styles.speedDialLabelDanger]}>삭제</Text>
           </Pressable>
           <Pressable
             style={styles.speedDialItem}
@@ -299,6 +282,22 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
           >
             <Text style={styles.speedDialIcon}>📼</Text>
             <Text style={styles.speedDialLabel}>자동검색</Text>
+          </Pressable>
+          <Pressable
+            style={styles.speedDialItem}
+            onPress={() => {
+              setActionSheetOpen(false);
+              // ConversationRecordScreen offers both live recording and file upload
+              // (AudioPickerCard) — mode: 'record' just picks which one it leads with.
+              // Only registered stack routes (e.g. the Home tab) can push
+              // ConversationRecord today; inline (list) mode has no route for it yet.
+              if (!onBack) {
+                navigation.navigate('ConversationRecord', { personId: person.id, mode: 'record' });
+              }
+            }}
+          >
+            <Text style={styles.speedDialIcon}>🎙</Text>
+            <Text style={styles.speedDialLabel}>녹음</Text>
           </Pressable>
         </View>
       ) : null}
@@ -484,5 +483,8 @@ const styles = StyleSheet.create({
     fontSize: typography.body.fontSize,
     fontWeight: '600',
     color: colors.textPrimary,
+  },
+  speedDialLabelDanger: {
+    color: colors.gameAccent,
   },
 });
