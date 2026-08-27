@@ -1,4 +1,4 @@
-import { NavigatorScreenParams } from '@react-navigation/native';
+import { getFocusedRouteNameFromRoute, NavigatorScreenParams } from '@react-navigation/native';
 import { createBottomTabNavigator, type BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import {
   createNativeStackNavigator,
@@ -127,11 +127,17 @@ function TabNavigator() {
       <Tab.Screen
         name="홈"
         component={HomeStackNavigator}
-        listeners={({ navigation }) => ({
+        listeners={({ navigation, route }) => ({
           // The Home tab is a real stack, so switching away and back (or even
           // re-tapping it while already focused) otherwise resumes wherever the
           // stack was left (e.g. PersonDetail) instead of showing Home itself.
           tabPress: () => {
+            // ...except the record screen, which is the one place in this stack
+            // holding work that only exists in memory: a recording in progress, or a
+            // summary that has been generated but not yet saved. Resetting unmounts it
+            // and both are gone with nothing asked and nothing said. Leaving a stale
+            // screen behind is the lesser problem — '뒤로' still gets out of it.
+            if (getFocusedRouteNameFromRoute(route) === 'ConversationRecord') return;
             navigation.navigate('홈', { screen: 'Home' });
           },
         })}
