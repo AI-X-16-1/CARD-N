@@ -1,7 +1,7 @@
 // Finds the device's call recordings for a contact's phone number and turns a match into a
-// saved conversation summary. Deliberately does NOT play the raw audio back in-app — a match
-// only ever surfaces as a "요약 생성" action, so a recording that may contain a third party's
-// voice is never played back inside CARD:N; only the generated summary is kept.
+// saved conversation summary — and, on request, lets the found file be played back directly
+// (see AudioPlayButton's own comment: this was originally left out on purpose for privacy
+// reasons, re-added deliberately afterwards).
 //
 // The "요약 생성" action is gated behind an explicit consent confirmation, mirroring the
 // recording-consent notice ui-spec.md §6 requires for the live-recording flow — this pulls in
@@ -12,6 +12,7 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius, typography } from '@/shared/theme';
 
+import { AudioPlayButton, AudioPlayButtonBoundary } from './AudioPlayButton';
 import type { CallRecordingMatch } from '../lib/callRecordings';
 import { useCallRecordingFinder } from '../hooks/useCallRecordingFinder';
 
@@ -111,11 +112,16 @@ export default function CallRecordingFinder({ personId, phone, onSummarySaved }:
             const status = summaryStatus[match.id];
             return (
               <View key={match.id} style={styles.matchRow}>
-                <View style={styles.matchInfo}>
-                  <Text style={styles.filename} numberOfLines={1}>
-                    {match.filename}
-                  </Text>
-                  <Text style={styles.matchMeta}>{formatDate(match.creationTime)}</Text>
+                <View style={styles.matchTopRow}>
+                  <View style={styles.matchInfo}>
+                    <Text style={styles.filename} numberOfLines={1}>
+                      {match.filename}
+                    </Text>
+                    <Text style={styles.matchMeta}>{formatDate(match.creationTime)}</Text>
+                  </View>
+                  <AudioPlayButtonBoundary>
+                    <AudioPlayButton uri={match.uri} />
+                  </AudioPlayButtonBoundary>
                 </View>
                 <Pressable
                   style={[styles.summaryButton, status === 'done' && styles.summaryButtonDone]}
@@ -178,13 +184,16 @@ const styles = StyleSheet.create({
   privacyNote: { fontSize: typography.meta.fontSize, color: colors.textMuted, marginTop: 4, marginBottom: 4 },
   matchList: { gap: 8 },
   matchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+    gap: 8,
     backgroundColor: colors.surface1,
     borderRadius: radius.card,
     paddingHorizontal: 12,
     paddingVertical: 10,
+  },
+  matchTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   matchInfo: { flex: 1, gap: 2 },
   filename: { fontSize: typography.body.fontSize, color: colors.textPrimary, fontWeight: '600' },
