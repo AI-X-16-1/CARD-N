@@ -23,6 +23,7 @@ export default function ScanCameraScreen() {
   const [mode, setMode] = useState<CaptureMode>('single');
   const [step, setStep] = useState<Step>('camera');
   const [saving, setSaving] = useState(false);
+  const [capturing, setCapturing] = useState(false);
   const [createdPerson, setCreatedPerson] = useState<CreatedPerson | null>(null);
   const cameraRef = useRef<CameraView>(null);
   const scanLineY = useRef(new Animated.Value(0)).current;
@@ -98,7 +99,12 @@ export default function ScanCameraScreen() {
   }, [scanLineY]);
 
   const handleShutterPress = async () => {
-    if (!cameraRef.current) return;
+    // takePictureAsync itself takes a moment, and isScanning (from useOcrScan) doesn't
+    // flip true until after it resolves and scan() starts — a fast double-tap on the
+    // shutter during that window isn't caught by the buttons' `disabled={isScanning}`
+    // below, and would fire two captures/scans at once. Guard the capture phase too.
+    if (!cameraRef.current || capturing) return;
+    setCapturing(true);
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
       if (photo?.uri) {
@@ -106,6 +112,8 @@ export default function ScanCameraScreen() {
       }
     } catch {
       Alert.alert('오류', '사진을 촬영하지 못했어요. 다시 시도해주세요.');
+    } finally {
+      setCapturing(false);
     }
   };
 
@@ -196,6 +204,26 @@ export default function ScanCameraScreen() {
     );
   }
 
+  // OCR recognition itself doesn't need the camera anymore (the photo's already taken) —
+  // unmount CameraView (releases the hardware) and hide the capture controls entirely
+  // instead of just disabling them on top of a still-live viewfinder.
+  if (isScanning) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <Pressable onPress={confirmClose} hitSlop={8} style={styles.closeButtonWrap} disabled>
+            <Text style={styles.closeButton}>✕</Text>
+          </Pressable>
+          <Text style={styles.title}>명함 스캔</Text>
+          <View style={styles.closeButtonWrap} />
+        </View>
+        <View style={styles.recognizingBox}>
+          <Text style={styles.recognizingText}>인식 중…</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (!permission?.granted) {
     return (
       <SafeAreaView style={styles.container}>
@@ -217,7 +245,12 @@ export default function ScanCameraScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={confirmClose} hitSlop={8} style={styles.closeButtonWrap} disabled={isScanning}>
+        <Pressable
+          onPress={confirmClose}
+          hitSlop={8}
+          style={styles.closeButtonWrap}
+          disabled={capturing}
+        >
           <Text style={styles.closeButton}>✕</Text>
         </Pressable>
         <Text style={styles.title}>명함 스캔</Text>
@@ -225,7 +258,7 @@ export default function ScanCameraScreen() {
           <Pressable
             style={[styles.toggleOption, mode === 'single' && styles.toggleOptionActive]}
             onPress={() => setMode('single')}
-            disabled={isScanning}
+            disabled={capturing}
           >
             <Text style={[styles.toggleLabel, mode === 'single' && styles.toggleLabelActive]}>
               단일
@@ -234,7 +267,7 @@ export default function ScanCameraScreen() {
           <Pressable
             style={[styles.toggleOption, mode === 'batch' && styles.toggleOptionActive]}
             onPress={() => setMode('batch')}
-            disabled={isScanning}
+            disabled={capturing}
           >
             <Text style={[styles.toggleLabel, mode === 'batch' && styles.toggleLabelActive]}>
               연속
@@ -259,9 +292,9 @@ export default function ScanCameraScreen() {
             ]}
           />
         </View>
-        {isScanning && (
+        {capturing && (
           <View style={styles.scanningOverlay}>
-            <Text style={styles.scanningText}>인식 중…</Text>
+            <Text style={styles.scanningText}>촬영 중…</Text>
           </View>
         )}
         {state.status === 'error' && (
@@ -276,11 +309,15 @@ export default function ScanCameraScreen() {
       </Text>
 
       <View style={styles.bottomBar}>
-        <Pressable style={styles.sideButton} onPress={handleGalleryPress} disabled={isScanning}>
+        <Pressable style={styles.sideButton} onPress={handleGalleryPress} disabled={capturing}>
           <Text style={styles.sideButtonLabel}>갤러리</Text>
         </Pressable>
-        <Pressable style={styles.shutter} onPress={handleShutterPress} disabled={isScanning} />
-        <Pressable style={styles.sideButton} onPress={handleManualInputPress} disabled={isScanning}>
+        <Pressable style={styles.shutter} onPress={handleShutterPress} disabled={capturing} />
+        <Pressable
+          style={styles.sideButton}
+          onPress={handleManualInputPress}
+          disabled={capturing}
+        >
           <Text style={styles.manualInputLabel}>직접 입력</Text>
         </Pressable>
       </View>
@@ -344,6 +381,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  recognizingBox: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recognizingText: {
+    color: colors.textPrimary,
+    fontSize: typography.body.fontSize,
   },
   guideFrame: {
     width: '86%',
