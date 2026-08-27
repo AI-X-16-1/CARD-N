@@ -37,7 +37,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("person_id", name="uq_battle_cards_person_id"),
     )
-    op.create_index("ix_battle_cards_person_id", "battle_cards", ["person_id"])
 
     op.create_table(
         "game_deck",
@@ -51,5 +50,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Downgrade schema."""
     op.drop_table("game_deck")
-    op.drop_index("ix_battle_cards_person_id", table_name="battle_cards")
     op.drop_table("battle_cards")

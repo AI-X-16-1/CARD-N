@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
 
@@ -14,10 +14,11 @@ GAME_DECK_ID = 1
 
 class BattleCard(Base):
     __tablename__ = "battle_cards"
+    __table_args__ = (UniqueConstraint("person_id", name="uq_battle_cards_person_id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     person_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("persons.id", ondelete="CASCADE"), unique=True, index=True
+        Integer, ForeignKey("persons.id", ondelete="CASCADE")
     )
     # Snapshot at creation — a later edit to the person's title does not re-roll it.
     job_class: Mapped[str] = mapped_column(String(20))
