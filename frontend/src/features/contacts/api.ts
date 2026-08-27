@@ -52,23 +52,20 @@ export async function deleteContact(personId: number): Promise<void> {
 // in this feature's own contacts db), so unlike the graph sheet's row this never needs a
 // degree check. Calls the graph feature's endpoints directly rather than importing anything
 // from features/graph/ — same cross-feature-at-the-API-boundary rule as the conversation calls
-// above. No dedicated "status for one person" endpoint exists, so this reads it off the depth-1
-// graph fetch, same as GraphScreen does.
+// above.
 
-type GraphNodeStatusResponse = {
-  id: number;
-  type: 'me' | 'person';
-  introduction_request_status: IntroductionRequestStatus;
+type IntroductionRequestStatusResponse = {
+  person_id: number;
+  status: IntroductionRequestStatus;
 };
 
 export async function fetchIntroductionRequestStatus(
   personId: number,
 ): Promise<IntroductionRequestStatus> {
-  const response = await apiClient.get<{ nodes: GraphNodeStatusResponse[] }>('/graph', {
-    params: { depth: 1 },
-  });
-  const node = response.data.nodes.find((n) => n.type === 'person' && n.id === personId);
-  return node?.introduction_request_status ?? null;
+  const response = await apiClient.get<IntroductionRequestStatusResponse>(
+    `/graph/${personId}/introduction-requests`,
+  );
+  return response.data.status;
 }
 
 export async function requestIntroduction(personId: number): Promise<IntroductionRequestStatus> {
