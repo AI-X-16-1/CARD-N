@@ -7,12 +7,15 @@
 // recording-consent notice ui-spec.md §6 requires for the live-recording flow — this pulls in
 // a pre-existing recording instead of recording live, but processes the counterpart's voice
 // the same way (STT + LLM + a stored summary), so it needs the same notice.
+import { useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius, typography } from '@/shared/theme';
 
 import type { CallRecordingMatch } from '../lib/callRecordings';
 import { useCallRecordingFinder } from '../hooks/useCallRecordingFinder';
+
+const PAGE_SIZE = 5;
 
 function formatDate(ts: number | null): string {
   if (!ts) return '';
@@ -41,6 +44,11 @@ type Props = {
 export default function CallRecordingFinder({ personId, phone, onSummarySaved }: Props) {
   const { searching, result, searchError, search, summaryStatus, summaryError, generateSummary } =
     useCallRecordingFinder(personId, phone);
+  const [page, setPage] = useState(0);
+
+  // A fresh search result replaces the whole match list — start back on page 1 rather
+  // than stranding the view on a page index that may no longer exist.
+  useEffect(() => setPage(0), [result]);
 
   const handleFind = async () => {
     await search();
@@ -99,7 +107,7 @@ export default function CallRecordingFinder({ personId, phone, onSummarySaved }:
           <Text style={styles.privacyNote}>
             녹음 원본은 저장되지 않아요 — 요약본만 기록에 저장돼요. 통화 상대방에게도 안내해주세요.
           </Text>
-          {result.matches.map((match) => {
+          {result.matches.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE).map((match) => {
             const status = summaryStatus[match.id];
             return (
               <View key={match.id} style={styles.matchRow}>
@@ -122,6 +130,30 @@ export default function CallRecordingFinder({ personId, phone, onSummarySaved }:
               </View>
             );
           })}
+          {result.matches.length > PAGE_SIZE ? (
+            <View style={styles.pager}>
+              <Pressable
+                style={[styles.pagerButton, page === 0 && styles.pagerButtonDisabled]}
+                onPress={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={page === 0}
+              >
+                <Text style={styles.pagerButtonLabel}>‹ 이전</Text>
+              </Pressable>
+              <Text style={styles.pagerLabel}>
+                {page + 1} / {Math.ceil(result.matches.length / PAGE_SIZE)}
+              </Text>
+              <Pressable
+                style={[
+                  styles.pagerButton,
+                  (page + 1) * PAGE_SIZE >= result.matches.length && styles.pagerButtonDisabled,
+                ]}
+                onPress={() => setPage((p) => p + 1)}
+                disabled={(page + 1) * PAGE_SIZE >= result.matches.length}
+              >
+                <Text style={styles.pagerButtonLabel}>다음 ›</Text>
+              </Pressable>
+            </View>
+          ) : null}
         </View>
       )}
     </View>
@@ -166,4 +198,20 @@ const styles = StyleSheet.create({
   summaryButtonDone: { backgroundColor: 'transparent' },
   summaryButtonLabel: { fontSize: typography.meta.fontSize, fontWeight: '600', color: colors.secondary },
   errorText: { fontSize: typography.meta.fontSize, color: colors.gameAccent },
+  pager: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,
+    marginTop: 4,
+  },
+  pagerButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  pagerButtonDisabled: {
+    opacity: 0.35,
+  },
+  pagerButtonLabel: { fontSize: typography.meta.fontSize, fontWeight: '600', color: colors.secondary },
+  pagerLabel: { fontSize: typography.meta.fontSize, color: colors.textQuaternary },
 });
