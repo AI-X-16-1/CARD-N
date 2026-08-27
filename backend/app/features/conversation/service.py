@@ -8,6 +8,7 @@ import logging
 from datetime import datetime
 
 from fastapi import HTTPException
+from neo4j import AsyncDriver
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +21,7 @@ from app.features.conversation.schemas import (
     SaveConversationRequest,
     SummaryContextPerson,
 )
+from app.features.graph.conversation_sync import bump_conversation_weight, sync_mentioned_people
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +35,9 @@ def fingerprint(text: str) -> str:
 
 
 class ConversationService:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, neo4j_driver: AsyncDriver | None = None):
         self.db = db
+        self.neo4j_driver = neo4j_driver
 
     # ─────────────────────────────────────────────────────────
     # Prompt context — assembled server-side from the contact record
@@ -171,6 +174,7 @@ class ConversationService:
             )
         ).scalar_one_or_none()
 
+        is_new = row is None
         if row is None:
             row = Conversation(person_id=data.person_id, transcript_hash=transcript_hash)
             self.db.add(row)
@@ -185,7 +189,52 @@ class ConversationService:
 
         await self.db.commit()
         await self.db.refresh(row)
+
+        if is_new:
+            await self._sync_graph(data.person_id, data.summary)
+
         return self._to_response(row)
+
+    async def _sync_graph(self, person_id: int, summary: ConversationSummary) -> None:
+        """Push a newly recorded conversation into the relationship graph.
+
+        Only ever called for a brand new row (docs/features.md). Re-summarizing an
+        existing recording overwrites its row, and bumping the weight again would count
+        one conversation twice.
+
+        MySQL is the source of truth, so a Neo4j outage must not fail the save that
+        already committed — same best-effort contract as contacts/graph_sync.py.
+        """
+        if self.neo4j_driver is None:
+            return
+
+        try:
+            await bump_conversation_weight(self.neo4j_driver, person_id=person_id)
+        except Exception:
+            logger.warning("Neo4j weight bump failed for person %s", person_id, exc_info=True)
+
+        # One conversation is one piece of evidence that these two know each other, so
+        # a name said three times still counts once.
+        seen: set[str] = set()
+        mentions: list[dict] = []
+        for mention in summary.mentioned_people:
+            key = mention.name.strip().casefold()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            mentions.append(mention.model_dump())
+
+        if not mentions:
+            return
+
+        try:
+            linked = await sync_mentioned_people(
+                self.neo4j_driver, person_id=person_id, mentions=mentions
+            )
+            if linked:
+                logger.info("linked %s mentioned people to person %s", len(linked), person_id)
+        except Exception:
+            logger.warning("Neo4j mention sync failed for person %s", person_id, exc_info=True)
 
     async def list_for_person(
         self, person_id: int, limit: int, offset: int
