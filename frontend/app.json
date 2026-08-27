@@ -3,6 +3,8 @@
     "name": "CARD:N",
     "slug": "cardn",
     "version": "1.0.0",
+    "//scheme": "Needed for the call-alert notification's deep link (cardn://person/{id}).",
+    "scheme": "cardn",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",

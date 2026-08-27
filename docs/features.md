@@ -7,7 +7,7 @@
 | Team member | Role | Frontend folder | Backend folder | Core tech |
 |------|------|----------------|------------|----------|
 | **강민구** | Business card scan + contacts + home | `features/scan/` `features/contacts/` `features/home/` | `features/scan/` `features/contacts/` | PaddleOCR (self-hosted, replaces Google Vision — see api-spec.md §Scan), NLP parsing, CRUD |
-| **김민경** | Relationship graph | `features/graph/` | `features/graph/` | Neo4j, Cypher, SVG/Canvas graph visualization |
+| **김민경** | Relationship graph + incoming call alert | `features/graph/` `features/call-alert/` `modules/call-detector/` | `features/graph/` | Neo4j, Cypher, SVG/Canvas graph visualization, Android native module |
 | **박재경** | Recording + summary | `features/conversation/` | `features/conversation/` | Whisper STT, LLM summary, audio recording |
 | **이승환** | Game client | `features/game/` | `features/game/` | Battle engine, card UI, deck management |
 | **문민재** | Graphic assets | — | — | ComfyUI, Krea2 (illustrations, icons) |
@@ -85,6 +85,16 @@ not permission to link them, which is exactly what the removed version assumed.
   bottom sheet (see `ui-spec.md` §5 and `api-spec.md` "Introduction Requests"). The
   `POST/GET /graph/.../introduction-requests` endpoints are already built — this is a UI-only
   addition on 강민구's side, no new graph API needed.
+
+**Also owns: incoming call alert** (assigned 2026-08-27) — `features/call-alert/` and
+the `modules/call-detector/` local Expo module. Picked up because the graph feature was
+feature-complete and this machine already had the Android native toolchain the feature
+needs. Full design in `docs/call-alert-spec.md`.
+- No other feature folder changes. The alert has to work with the backend unreachable, so
+  caller lookup runs on-device against a cache prefetched while the app is open — built
+  from `GET /contacts` and `GET /conversations?person_id=&limit=1` exactly as they are.
+- Blocked on `src/navigation/`: the consent screen and the notification's deep link both
+  need routes, which is shared ground requiring its own branch and 2+ approvals.
 
 **Neo4j notes**:
 - Neo4j Community Edition 5.x, run locally via Docker
@@ -181,14 +191,14 @@ not permission to link them, which is exactly what the removed version assumed.
      └────────────────┘ illustrations └────────────────┘
 ```
 
-## Cross-cutting Proposals (unassigned)
+## Cross-cutting Proposals
 
 Features that don't fit inside a single owner's folder go here until the team assigns
 them and approves a branch/PR (same review bar as `shared/`, below).
 
 | Proposal | Touches | Status |
 |------|------|------|
-| Incoming call alert — look up caller by phone number, push-notify with their last conversation summary | `contacts` (new `GET /contacts/by-phone`), `conversation` (`GET /conversations` gets a `limit` param), new `features/call-alert/` folder | Proposed by 김민경, 2026-08-27. See `docs/call-alert-spec.md`. Not assigned, not implemented. |
+| Incoming call alert — identify the caller and notify with their last conversation summary | `features/call-alert/` + `modules/call-detector/` (김민경 only — no other feature folder changes) | Assigned to 김민경 2026-08-27, implemented. Device verification and navigation wiring still open. See `docs/call-alert-spec.md`. |
 
 ## Ownership of Shared Modules (shared/)
 

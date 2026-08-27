@@ -174,33 +174,18 @@ Response 200 (GET), and PUT's response after applying the request body:
 PUT request body: same shape minus `updated_at`, all fields but `name` optional.
 ```
 
-### GET /contacts/by-phone (proposed, not yet implemented)
+### Note: no lookup-by-phone endpoint
 
-Looks up a single contact by phone number. Added for the incoming-call-alert feature
-(see `docs/call-alert-spec.md`) — the client normalizes the number read from the
-device's telephony API (strips spaces/dashes/`+82`) and sends it here to find who's
-calling before showing a notification.
+An earlier draft of the incoming-call-alert feature specified
+`GET /contacts/by-phone`. It was dropped: the alert must work when the backend is
+unreachable, so caller lookup happens on the device against a cache prefetched from
+`GET /contacts` while the app is open. See `docs/call-alert-spec.md`.
 
-```
-Query params:
-  - phone: string (normalized, digits only, e.g. "01012345678")
-
-Response 200:
-{
-  "id": 1,
-  "name": "Hong Gil-dong",
-  "company": "Kakao",
-  "title": "Manager",
-  "job_class": "marketing"
-}
-
-Errors:
-  404 NOT_FOUND - no contact matches this phone number
-```
-
-Matching is exact on the normalized number only — no partial/fuzzy matching, so an
-unmatched call never surfaces any contact data (see `call-alert-spec.md`'s privacy
-rule).
+Worth recording if one is ever needed: `Person.phone` is an `EncryptedString` (Fernet)
+column, and Fernet uses a random IV per encryption, so the same number becomes different
+ciphertext every time — `WHERE phone = ?` can never match and no index helps. Such an
+endpoint would have to either decrypt-and-scan, or add an indexed blind-index column
+(`HMAC-SHA256(normalize(phone), key)`) alongside the encrypted value.
 
 ---
 
@@ -426,26 +411,28 @@ implement against, not something end-to-end testable with two live accounts in t
 | `GET` | `/conversations?person_id=` | Read a contact's conversation history |
 | `DELETE` | `/conversations/{conversation_id}` | Delete one saved conversation |
 
-### GET /conversations?person_id= (response shape + `limit` param proposed)
+### GET /conversations?person_id=
 
-Not previously documented with a response example. Proposing the shape below now
-because the incoming-call-alert feature (`docs/call-alert-spec.md`) needs
-`limit=1, newest-first` to fetch just the latest summary without pulling the whole
-history.
+Documenting the existing shape — this endpoint was already implemented with paging;
+the earlier draft of `docs/call-alert-spec.md` wrongly proposed adding `limit` to it.
+Results are ordered newest-first, so `?person_id={id}&limit=1` returns just the latest
+summary (which is what the incoming-call-alert feature uses).
 
 ```
 Query params:
   - person_id: int (required)
-  - limit: int (optional — proposed addition; omit for full history, newest first)
+  - limit: int (default 20, 1..100)
+  - offset: int (default 0)
 
 Response 200:
 {
+  "total": 3,
   "items": [
     {
       "id": 15,
       "person_id": 1,
       "one_liner": "토스 김서연 디자이너와 온보딩 개편 초안 공유 및 일정 논의",
-      "summary": { ... same shape as POST /conversations' summary ... },
+      "summary": { ... the `result` object from /conversations/summarize ... },
       "duration_seconds": 372,
       "recorded_at": "2026-08-26T14:00:00",
       "created_at": "2026-08-26T14:06:11"
