@@ -1,12 +1,18 @@
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, radius, size, typography } from '@/shared/theme';
 
-import { deleteContact, updatePerson, type UpdatePersonInput } from '../api';
+import {
+  deleteContact,
+  fetchIntroductionRequestStatus,
+  requestIntroduction,
+  updatePerson,
+  type UpdatePersonInput,
+} from '../api';
 import CallRecordingFinder from '../components/CallRecordingFinder';
 import { CategoryChip } from '../components/CategoryChip';
 import { ConversationTimeline } from '../components/ConversationTimeline';
@@ -14,9 +20,24 @@ import { JobBadge } from '../components/JobBadge';
 import { RelationBadge } from '../components/RelationBadge';
 import { usePersonDetail } from '../hooks/usePersonDetail';
 import { RELATION_LABELS } from '../jobLabels';
-import type { RelationCategory } from '../types';
+import type { IntroductionRequestStatus, RelationCategory } from '../types';
 
 const RELATION_OPTIONS: RelationCategory[] = ['client', 'partner', 'networking', 'other'];
+
+// Mirrors features/graph/components/PersonBottomSheet.tsx's getIntroductionRow — same 4 states,
+// duplicated rather than imported per frontend/CLAUDE.md's feature-folder boundary rule.
+function getIntroductionRow(status: IntroductionRequestStatus) {
+  switch (status) {
+    case 'pending':
+      return { label: '소개 요청 보냄 · 승인 대기중', disabled: true };
+    case 'approved':
+      return { label: '소개 승인됨 · 2촌에게 노출 중', disabled: true };
+    case 'declined':
+      return { label: '다시 요청하기', disabled: false };
+    default:
+      return { label: '이 사람의 인맥에게 내 프로필 소개 요청', disabled: false };
+  }
+}
 
 type PersonDetailStackParamList = {
   PersonDetail: { personId: number };
@@ -47,7 +68,24 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<UpdatePersonInput>({});
+  const [introStatus, setIntroStatus] = useState<IntroductionRequestStatus>(null);
+  const [introSubmitting, setIntroSubmitting] = useState(false);
   const goBack = onBack ?? (() => navigation.goBack());
+
+  useEffect(() => {
+    if (!person) return;
+    let cancelled = false;
+    fetchIntroductionRequestStatus(person.id)
+      .then((status) => {
+        if (!cancelled) setIntroStatus(status);
+      })
+      .catch(() => {
+        // Non-critical — the row just falls back to its default state.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [person?.id]);
 
   if (personId === undefined || loading || !person) {
     return (
@@ -58,6 +96,7 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
   }
 
   const meta = [person.title, person.company].filter(Boolean).join(' · ');
+  const introRow = getIntroductionRow(introStatus);
 
   const startEditing = () => {
     setForm({
@@ -105,6 +144,18 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
         },
       },
     ]);
+  };
+
+  const handleRequestIntroduction = async () => {
+    setIntroSubmitting(true);
+    try {
+      const status = await requestIntroduction(person.id);
+      setIntroStatus(status);
+    } catch {
+      Alert.alert('오류', '소개 요청을 보내지 못했어요. 다시 시도해주세요.');
+    } finally {
+      setIntroSubmitting(false);
+    }
   };
 
   return (
@@ -224,6 +275,19 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>배틀 카드</Text>
           <Text style={styles.contactLineMuted}>아직 생성된 배틀 카드가 없어요</Text>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionLabel}>소개 요청</Text>
+          <Pressable
+            disabled={introRow.disabled || introSubmitting}
+            onPress={handleRequestIntroduction}
+            style={styles.introRow}
+          >
+            <Text style={[styles.introRowLabel, introRow.disabled && styles.introRowLabelDisabled]}>
+              {introSubmitting ? '요청 보내는 중…' : introRow.label}
+            </Text>
+          </Pressable>
         </View>
 
         {callRecordingFinderOpen ? (
@@ -438,6 +502,19 @@ const styles = StyleSheet.create({
   closeInlinePanel: {
     fontSize: typography.meta.fontSize,
     color: colors.textQuaternary,
+  },
+  introRow: {
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  introRowLabel: {
+    fontSize: typography.body.fontSize,
+    fontWeight: '600',
+    color: colors.secondary,
+  },
+  introRowLabelDisabled: {
+    color: colors.textQuaternary,
+    fontWeight: '500',
   },
   fab: {
     position: 'absolute',

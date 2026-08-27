@@ -36,6 +36,9 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# EAS build config (local dev build setup, not shared with the team)
+eas.json
+
 # generated native folders
 /ios
 /android

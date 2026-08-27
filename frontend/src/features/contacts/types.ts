@@ -22,6 +22,10 @@ export type PersonListResponse = {
   items: Person[];
 };
 
+// Matches docs/api-spec.md's "Graph" section (introduction_request_status on a graph node) —
+// owned by the graph feature (김민경), consumed here as a cross-feature API call.
+export type IntroductionRequestStatus = 'pending' | 'approved' | 'declined' | null;
+
 // Matches docs/api-spec.md's "Conversation" section (POST /conversations response) —
 // owned by the conversation feature (박재경), consumed here as a cross-feature API call.
 export type ConversationSummaryResult = {

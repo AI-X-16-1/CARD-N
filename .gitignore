@@ -22,3 +22,7 @@ venv/
 # IDE
 .vscode/
 .idea/
+
+# Local scratch (not part of the app)
+/images/
+/DailyLog-MCP/
