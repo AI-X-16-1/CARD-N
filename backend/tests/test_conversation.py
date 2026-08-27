@@ -9,14 +9,19 @@ the server assembles reflects that.
 
 from collections.abc import AsyncIterator
 
+import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
+from google.genai import errors as genai_errors
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.core.base import Base
 from app.features.contacts.models import Person
-from app.features.conversation import models  # noqa: F401  registers the table on Base.metadata
+from app.features.conversation import (
+    models,  # noqa: F401  registers the table on Base.metadata
+    summarizer,
+)
 from app.features.conversation import service as service_module
 from app.features.conversation.schemas import ConversationSummary, SaveConversationRequest
 from app.features.conversation.service import ConversationService
@@ -245,3 +250,65 @@ async def test_graph_sync_is_skipped_without_a_driver(monkeypatch, db_session, p
 
     assert calls["bump"] == []
     assert calls["mentions"] == []
+
+
+# ─────────────────────────────────────────────────────────────
+# Retry policy — what is worth asking twice
+# ─────────────────────────────────────────────────────────────
+
+
+def _client_error(code: int) -> genai_errors.ClientError:
+    return genai_errors.ClientError(code, {"error": {"message": f"boom {code}"}})
+
+
+def _count_attempts(monkeypatch, raises: Exception) -> tuple[int, list[float]]:
+    """Run summarize() against a call that always fails, counting tries and sleeps."""
+    attempts = 0
+    slept: list[float] = []
+
+    def fake_call(prompt: str) -> str:
+        nonlocal attempts
+        attempts += 1
+        raise raises
+
+    monkeypatch.setattr(summarizer, "_call_llm", fake_call)
+    monkeypatch.setattr(summarizer.time, "sleep", slept.append)
+
+    with pytest.raises(Exception):  # noqa: B017 — the type is what each test asserts
+        summarizer.summarize("면담 내용", use_cache=False)
+    return attempts, slept
+
+
+def test_missing_api_key_fails_immediately(monkeypatch) -> None:
+    """No key is not a bad moment — sleeping 14 seconds first only hides the reason.
+
+    This is what a teammate hits on a fresh clone, so the message they wait for should
+    be the one telling them to add the key.
+    """
+    monkeypatch.setattr(summarizer, "_client", None)
+    monkeypatch.setattr(summarizer.settings, "gemini_api_key", "")
+
+    with pytest.raises(summarizer.SummaryUnavailable, match="GEMINI_API_KEY"):
+        summarizer.summarize("면담 내용", use_cache=False)
+
+
+def test_rejected_request_is_not_retried(monkeypatch) -> None:
+    """A revoked key or an unknown model name answers the same way every time."""
+    attempts, slept = _count_attempts(monkeypatch, _client_error(403))
+
+    assert attempts == 1
+    assert slept == []
+
+
+def test_rate_limit_is_retried(monkeypatch) -> None:
+    """429 is the opposite case: the quota resets, so backing off is the right move."""
+    attempts, slept = _count_attempts(monkeypatch, _client_error(429))
+
+    assert attempts == summarizer.MAX_RETRY
+    assert slept == [2, 4, 8]
+
+
+def test_transient_failure_is_still_retried(monkeypatch) -> None:
+    attempts, _ = _count_attempts(monkeypatch, ConnectionError("connection reset"))
+
+    assert attempts == summarizer.MAX_RETRY
