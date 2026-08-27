@@ -15,6 +15,7 @@ export type Person = {
   last_contact: string | null;
   conversation_count: number;
   created_at: string;
+  has_image: boolean;
 };
 
 export type PersonListResponse = {

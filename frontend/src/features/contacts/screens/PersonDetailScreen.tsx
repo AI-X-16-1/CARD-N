@@ -1,7 +1,7 @@
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, radius, size, typography } from '@/shared/theme';
@@ -10,6 +10,7 @@ import {
   deleteContact,
   fetchIntroductionRequestStatus,
   isNotFirstDegreeError,
+  personImageUrl,
   requestIntroduction,
   updatePerson,
   type UpdatePersonInput,
@@ -257,9 +258,17 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
         ) : (
           <>
             <View style={styles.profile}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{initialsOf(person.name)}</Text>
-              </View>
+              {person.has_image ? (
+                <Image
+                  source={{ uri: personImageUrl(person.id) }}
+                  style={styles.cardImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>{initialsOf(person.name)}</Text>
+                </View>
+              )}
               <Text style={styles.name}>{person.name}</Text>
               {meta ? <Text style={styles.meta}>{meta}</Text> : null}
               <View style={styles.badgeRow}>
@@ -464,6 +473,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface2,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Matches ScanCameraScreen's guide-frame aspect ratio (1.7) — this is that same
+  // corrected card image, just displayed here instead of thrown away after OCR.
+  cardImage: {
+    width: '70%',
+    aspectRatio: 1.7,
+    borderRadius: radius.card,
+    backgroundColor: colors.surface2,
   },
   avatarText: {
     color: colors.textPrimary,

@@ -48,12 +48,19 @@ Response 200:
     { "label": "Mobile", "value": "010-1234-5678", "confidence": 0.965 },
     { "label": "Email", "value": "hong@kakao.com", "confidence": 0.90 }
   ],
-  "raw_text": "Kakao\nMarketing Team Manager\nHong Gil-dong\n..."
+  "raw_text": "Kakao\nMarketing Team Manager\nHong Gil-dong\n...",
+  "image_token": "3f9c1e2a8b7d4f0e9a1c2b3d4e5f6a7b"
 }
 ```
 
 Only fields the pipeline actually found a value for are included (no null entries).
 `address`/`postal_code`/`region` appear the same way when present on the card.
+
+`image_token` references the corrected (contour-detected + perspective-warped) card
+image, staged server-side (`app/core/image_store.py`) — `null` if the pipeline couldn't
+produce one for this photo. Pass it back as `image_token` on `POST /contacts` to actually
+keep the picture against the new contact; an unclaimed staged image is simply never
+promoted (see the Contacts section below).
 
 ### POST /scan/ocr/batch
 
@@ -109,6 +116,7 @@ Response 200:
 | `GET` | `/contacts` | Retrieve list of contacts |
 | `POST` | `/contacts` | Register a contact |
 | `GET` | `/contacts/{id}` | Retrieve contact details |
+| `GET` | `/contacts/{id}/image` | The saved (corrected) business card image, if any |
 | `PUT` | `/contacts/{id}` | Update a contact |
 | `DELETE` | `/contacts/{id}` | Delete a contact |
 | `GET` | `/contacts/me` | Retrieve my business card |
@@ -137,11 +145,32 @@ Response 200:
       "relation": "client",
       "last_contact": "2024-03-15T09:00:00Z",
       "conversation_count": 3,
-      "created_at": "2024-01-10T14:30:00Z"
+      "created_at": "2024-01-10T14:30:00Z",
+      "has_image": true
     }
   ]
 }
 ```
+
+### POST /contacts, GET/GET /contacts/{id}/image
+
+`POST /contacts` accepts an optional `image_token` (from `POST /scan/ocr`'s response) —
+if it resolves to a still-unclaimed staged image, that image is saved against the new
+contact and `has_image` comes back `true`. An expired/unknown/omitted token just means no
+image (`has_image: false`); it never fails contact creation. Contacts created without a
+scan (`ManualInputForm`) never have one.
+
+```
+Request:
+{
+  "name": "Hong Gil-dong",
+  ...,                        // same fields as PersonResponse below, all but name optional
+  "image_token": "3f9c1e2a8b7d4f0e9a1c2b3d4e5f6a7b"  // optional
+}
+```
+
+`GET /contacts/{id}/image` returns the raw image (`image/jpeg`) when `has_image` is true,
+`404` otherwise. Not JSON — a direct `<Image>`/`<img>` source.
 
 ### Conversation history
 

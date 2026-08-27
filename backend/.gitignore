@@ -1,3 +1,6 @@
 
 # Summary response cache (app/features/conversation/summarizer.py)
 .cache/
+
+# Saved business card images (app/core/image_store.py)
+storage/

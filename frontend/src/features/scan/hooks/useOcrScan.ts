@@ -13,6 +13,10 @@ export type OcrField = {
 export type OcrResult = {
   fields: OcrField[];
   raw_text: string;
+  // A staging token for the corrected card image (app/core/image_store.py) — pass this
+  // through to createPerson() to actually keep the picture. null if the pipeline
+  // couldn't produce one for this photo.
+  image_token: string | null;
 };
 
 type ScanState =

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import FileResponse
 from neo4j import AsyncDriver
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,6 +65,13 @@ async def get_contact(
     person_id: int, service: ContactsService = Depends(_service)
 ) -> PersonResponse:
     return await service.get_person(person_id)
+
+
+@router.get("/{person_id}/image")
+async def get_contact_image(
+    person_id: int, service: ContactsService = Depends(_service)
+) -> FileResponse:
+    return FileResponse(await service.get_person_image_path(person_id))
 
 
 @router.put("/{person_id}", response_model=PersonResponse)

@@ -14,7 +14,14 @@ export async function parseOcrFields(
   return response.data.person;
 }
 
-export async function createPerson(person: ParsedPerson): Promise<CreatedPerson> {
+export type CreatePersonInput = ParsedPerson & {
+  // The OcrResponse.image_token from the scan this contact came from (see useOcrScan) —
+  // claims that staged corrected-card image for this new contact. Omitted entirely for
+  // contacts created via ManualInputForm (no scan, nothing to claim).
+  image_token?: string | null;
+};
+
+export async function createPerson(person: CreatePersonInput): Promise<CreatedPerson> {
   const response = await apiClient.post<CreatedPerson>('/contacts', person);
   return response.data;
 }

@@ -1,6 +1,7 @@
 from fastapi import HTTPException, UploadFile
 from starlette.concurrency import run_in_threadpool
 
+from app.core.image_store import stage_image
 from app.features.scan.ocr.pipeline import OcrPipelineResult, extract_business_card
 from app.features.scan.schemas import (
     OcrBatchItemResponse,
@@ -83,7 +84,12 @@ class ScanService:
     async def process_image(self, image: UploadFile) -> OcrResponse:
         image_bytes = await image.read()
         result = await _extract_or_400(image_bytes)
-        return _to_ocr_response(result)
+        response = _to_ocr_response(result)
+        # Batch mode doesn't do this (see process_batch) — its results never flow into
+        # a POST /contacts call today, so staging an image per photo there would just
+        # accumulate unclaimed files.
+        response.image_token = stage_image(result.image_bytes)
+        return response
 
     async def process_batch(self, images: list[UploadFile]) -> OcrBatchResponse:
         items = []

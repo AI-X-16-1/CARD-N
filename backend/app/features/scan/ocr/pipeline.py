@@ -84,10 +84,14 @@ def _ocr_predict(ocr, image: np.ndarray) -> tuple[list[str], list[tuple[int, int
 
 
 class OcrPipelineResult:
-    def __init__(self, fields: dict, etc: list[str], raw_lines: list[str]):
+    def __init__(self, fields: dict, etc: list[str], raw_lines: list[str], image_bytes: bytes):
         self.fields = fields
         self.etc = etc
         self.raw_lines = raw_lines
+        # The corrected (contour-detected + perspective-warped, or text-cluster-cropped)
+        # card image actually used for OCR — not the original photo — re-encoded to JPEG
+        # so ScanService can offer it for saving alongside the recognized fields.
+        self.image_bytes = image_bytes
 
 
 def extract_business_card(image_bytes: bytes) -> OcrPipelineResult:
@@ -114,6 +118,9 @@ def extract_business_card(image_bytes: bytes) -> OcrPipelineResult:
             cluster_lines, _ = _ocr_predict(ocr, text_crop)
             if cluster_lines:
                 lines = cluster_lines
+                crop = text_crop  # the region fields were actually read from
 
     fields, etc = parse_fields(lines)
-    return OcrPipelineResult(fields=fields, etc=etc, raw_lines=lines)
+    ok, encoded = cv2.imencode(".jpg", crop)
+    image_bytes = encoded.tobytes() if ok else b""
+    return OcrPipelineResult(fields=fields, etc=etc, raw_lines=lines, image_bytes=image_bytes)

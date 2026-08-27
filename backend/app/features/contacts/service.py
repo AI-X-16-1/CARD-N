@@ -1,10 +1,12 @@
 import logging
+from pathlib import Path
 
 from fastapi import HTTPException
 from neo4j import AsyncDriver
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.image_store import person_image_path, promote_staged_image
 from app.features.contacts.graph_sync import delete_person_node, sync_person_node
 from app.features.contacts.models import MyCard, Person
 from app.features.contacts.schemas import (
@@ -65,6 +67,7 @@ class ContactsService:
             last_contact=person.last_contact,
             conversation_count=0,
             created_at=person.created_at,
+            has_image=bool(person.image_path),
         )
 
     async def list_persons(
@@ -96,10 +99,21 @@ class ContactsService:
         )
 
     async def create_person(self, data: CreatePersonRequest) -> PersonResponse:
-        person = Person(**data.model_dump())
+        payload = data.model_dump()
+        image_token = payload.pop("image_token", None)
+        person = Person(**payload)
         self.db.add(person)
         await self.db.commit()
         await self.db.refresh(person)
+        if image_token:
+            # Needs person.id, so this can only happen after the first commit above —
+            # a second commit for just this one column beats holding the whole insert
+            # open across a filesystem move.
+            filename = promote_staged_image(image_token, person.id)
+            if filename:
+                person.image_path = filename
+                await self.db.commit()
+                await self.db.refresh(person)
         await self._sync_graph_node(person)
         return self._to_person_response(person)
 
@@ -108,6 +122,12 @@ class ContactsService:
         if person is None:
             raise HTTPException(status_code=404, detail="Person not found")
         return person
+
+    async def get_person_image_path(self, person_id: int) -> Path:
+        person = await self._get_person_or_404(person_id)
+        if not person.image_path:
+            raise HTTPException(status_code=404, detail="No saved card image for this contact")
+        return person_image_path(person.image_path)
 
     async def get_person(self, person_id: int) -> PersonResponse:
         person = await self._get_person_or_404(person_id)

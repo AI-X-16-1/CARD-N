@@ -22,6 +22,11 @@ class Person(Base):
     job_class: Mapped[str | None] = mapped_column(String(30))
     relation: Mapped[str] = mapped_column(String(20), default="other")
     context: Mapped[str | None] = mapped_column(Text)
+    # Filename under app/core/image_store.py's PERSONS_DIR (e.g. "42.jpg"), not a full
+    # path — set once, at creation, from the corrected scan image (see ScanService /
+    # ContactsService.create_person). Never re-set on update; a contact created via
+    # ManualInputForm (no scan) simply has none.
+    image_path: Mapped[str | None] = mapped_column(String(255))
     last_contact: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
