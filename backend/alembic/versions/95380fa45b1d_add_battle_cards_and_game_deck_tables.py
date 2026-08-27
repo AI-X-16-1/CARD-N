@@ -1,7 +1,7 @@
 """add battle_cards and game_deck tables
 
 Revision ID: 95380fa45b1d
-Revises: c41a7b9e2d08
+Revises: b51b9ab07230
 Create Date: 2026-08-27 19:04:32.118106
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = '95380fa45b1d'
-down_revision: str | Sequence[str] | None = 'c41a7b9e2d08'
+down_revision: str | Sequence[str] | None = 'b51b9ab07230'
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
