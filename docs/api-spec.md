@@ -151,6 +151,34 @@ conversation feature, whose router they live on.
 
 Saving a conversation updates this contact's `last_contact`.
 
+### GET /contacts/by-phone (proposed, not yet implemented)
+
+Looks up a single contact by phone number. Added for the incoming-call-alert feature
+(see `docs/call-alert-spec.md`) — the client normalizes the number read from the
+device's telephony API (strips spaces/dashes/`+82`) and sends it here to find who's
+calling before showing a notification.
+
+```
+Query params:
+  - phone: string (normalized, digits only, e.g. "01012345678")
+
+Response 200:
+{
+  "id": 1,
+  "name": "Hong Gil-dong",
+  "company": "Kakao",
+  "title": "Manager",
+  "job_class": "marketing"
+}
+
+Errors:
+  404 NOT_FOUND - no contact matches this phone number
+```
+
+Matching is exact on the normalized number only — no partial/fuzzy matching, so an
+unmatched call never surfaces any contact data (see `call-alert-spec.md`'s privacy
+rule).
+
 ---
 
 ## Graph
@@ -331,6 +359,34 @@ implement against, not something end-to-end testable with two live accounts in t
 | `POST` | `/conversations` | Save a summary to a contact's timeline |
 | `GET` | `/conversations?person_id=` | Read a contact's conversation history |
 | `DELETE` | `/conversations/{conversation_id}` | Delete one saved conversation |
+
+### GET /conversations?person_id= (response shape + `limit` param proposed)
+
+Not previously documented with a response example. Proposing the shape below now
+because the incoming-call-alert feature (`docs/call-alert-spec.md`) needs
+`limit=1, newest-first` to fetch just the latest summary without pulling the whole
+history.
+
+```
+Query params:
+  - person_id: int (required)
+  - limit: int (optional — proposed addition; omit for full history, newest first)
+
+Response 200:
+{
+  "items": [
+    {
+      "id": 15,
+      "person_id": 1,
+      "one_liner": "토스 김서연 디자이너와 온보딩 개편 초안 공유 및 일정 논의",
+      "summary": { ... same shape as POST /conversations' summary ... },
+      "duration_seconds": 372,
+      "recorded_at": "2026-08-26T14:00:00",
+      "created_at": "2026-08-26T14:06:11"
+    }
+  ]
+}
+```
 
 STT and summarization are two calls rather than the single `/conversations/upload` this
 spec originally described. Splitting them lets the user fix a misheard word — a person's
