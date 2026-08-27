@@ -260,6 +260,20 @@ Response 200:
 }
 ```
 
+**Open: nothing currently populates this.** A mutual connection requires a `MET_AT`
+edge between two people who are not me, and the only edge-creating code
+(`contacts/graph_sync.py`) writes `(me)-[MET_AT]-(contact)` and nothing else. The one
+path that used to write contact-to-contact edges inferred them from names an LLM heard
+in a conversation, and was removed — see `features.md`'s 김민경 touchpoints.
+
+Whatever replaces it **must be consent-gated, not inferred**. The point of the
+`INTRO_CONSENT` machinery below is that a person decides who gets to see them through
+whom; a mutual-connections list assembled without that decision leaks the same
+information the 2nd-degree privacy rule above exists to protect, just through a
+different screen. Any proposal here needs review before implementation — treating "we
+know both of them" as permission to link them is the mistake that got the previous
+version removed.
+
 ### Introduction Requests
 
 Lets a person opt in to being surfaced as a 2nd-degree connection through a specific 1st-degree

@@ -60,6 +60,26 @@
   a permanent edge the user was never shown and could not undo. The field stays in
   `summary_json` as inert data — do not wire it back into the graph without a UI where the
   user confirms the relationship first.
+
+**Where contact-to-contact edges come from — open, and deliberately so**:
+`contacts/graph_sync.py` writes `(me)-[MET_AT]-(contact)` and nothing else, so no edge
+exists between two of my contacts, or between a contact and a non-contact. Two features
+read those edges and are therefore empty:
+
+- **공통 인맥 / mutual connections** — `_MUTUAL_CONNECTIONS_QUERY` needs
+  `(mutual)-[MET_AT]-(target)`. The mention-inferred path was its only supplier, so this
+  goes to zero when that is removed. A replacement is wanted.
+- **2촌 / 2nd-degree** — `_SECOND_DEGREE_QUERY` additionally requires the person *not* be
+  one of my own contacts, so the mention path never fed it either (it could only ever
+  match people already synced from contacts). This has been structurally empty since it
+  was built; the `INTRO_CONSENT` request/approve/decline endpoints and their UI all work,
+  but nothing produces the underlying edge. Removing the mention path did not change this.
+
+Any replacement supplier **must be consent-gated, not inferred**. `INTRO_CONSENT` exists
+so a person chooses who sees them through whom; a mutual-connections list built without
+that choice exposes the same thing the 2nd-degree privacy rule protects, via a different
+screen. Design it in a PR and get it reviewed before building — "we know both of them" is
+not permission to link them, which is exactly what the removed version assumed.
 - Navigation: Bottom sheet "Profile" → pushes to PersonDetailScreen (강민구's screen)
 - → 강민구: PersonDetailScreen needs the same "소개 요청" action as GraphScreen's 1st-degree
   bottom sheet (see `ui-spec.md` §5 and `api-spec.md` "Introduction Requests"). The
