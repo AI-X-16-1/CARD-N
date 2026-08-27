@@ -279,9 +279,18 @@ export function useSkill(state: BattleState, myFieldIdx: number): BattleState {
       break;
     }
     case 'hr': {
-      field = applyBuffToAll(field, { hp: 2 });
+      // +2 max HP buff AND heal 2 into it (capped at the new max), so the
+      // effect is visible on the board — field tiles only ever render
+      // currentHp, so a buff-only change would look like nothing happened.
+      field = field.map((card) => {
+        if (!card) return card;
+        const buffed = addBuff(card, { hp: 2 });
+        const maxHp = calcEffStats(buffed, mySynergies).hp;
+        const currentHp = Math.min(maxHp, (card.currentHp ?? maxHp) + 2);
+        return { ...buffed, currentHp };
+      });
       ({ deck, hand } = drawUpTo(deck, hand, 1));
-      log.push(`${caster.name}의 복지 포인트 — 아군 전체 HP +2, 카드 1장 드로우`);
+      log.push(`${caster.name}의 복지 포인트 — 아군 전체 최대 HP +2 & 2 회복, 카드 1장 드로우`);
       break;
     }
     case 'finance': {

@@ -498,16 +498,22 @@ describe('useSkill', () => {
     expect(next.eField[0]?.buffs?.atk ?? 0).toBe(0);
   });
 
-  test('Benefits Points (hr): +2 HP buff to all allies and draws 1 card', () => {
-    const caster = makeCard('hr', 3, { skill: { name: 'Benefits Points', cost: 2, description: '' } });
-    const ally = makeCard('dev', 1);
+  test('Benefits Points (hr): +2 max HP buff + heal 2 to all allies, and draws 1 card', () => {
+    const caster = makeCard('hr', 3, {
+      skill: { name: 'Benefits Points', cost: 2, description: '' },
+      finalStats: { atk: 4, def: 5, int: 6, hp: 10 },
+      currentHp: 10,
+    });
+    const hurtAlly = makeCard('dev', 1, { finalStats: { atk: 4, def: 5, int: 6, hp: 10 }, currentHp: 3 });
     const drawCard = makeCard('pm', 1);
-    const state = makeState({ field: [caster, ally, null, null, null], deck: [drawCard], hand: [], cost: 2 });
+    const state = makeState({ field: [caster, hurtAlly, null, null, null], deck: [drawCard], hand: [], cost: 2 });
 
     const next = useSkill(state, 0);
 
     expect(next.field[0]?.buffs?.hp).toBe(2);
     expect(next.field[1]?.buffs?.hp).toBe(2);
+    expect(next.field[0]?.currentHp).toBe(12); // was full (10/10) -> tops up to the new max
+    expect(next.field[1]?.currentHp).toBe(5); // was 3 -> +2, still below the new max of 12
     expect(next.hand).toEqual([drawCard]);
     expect(next.deck).toEqual([]);
     expect(next.turnEvents).toEqual([{ type: 'draw', who: 'me', cardId: drawCard.id }]);

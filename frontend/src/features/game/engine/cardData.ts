@@ -29,7 +29,7 @@ export const SKILL: Record<JobClass, Skill> = {
     cost: 2,
     description: '적 필드에서 ATK가 가장 높은 카드의 ATK를 ceil(INT/2)만큼 감소',
   },
-  hr: { name: '복지 포인트', cost: 2, description: '아군 전체 HP +2, 카드 1장 드로우' },
+  hr: { name: '복지 포인트', cost: 2, description: '아군 전체 최대 HP +2 & 2 회복, 카드 1장 드로우' },
   finance: { name: '긴축 예산', cost: 2, description: '아군 전체 DEF +3 (영구)' },
   legal: { name: '소송', cost: 3, description: '적 히어로에게 INT만큼 직접 피해' },
   marketing: { name: '캠페인', cost: 2, description: '아군 전체 ATK +2 (영구)' },

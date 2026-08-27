@@ -47,7 +47,7 @@ Example: Marketing Team Manager → ATK = floor(7 × 1.35) = 9
 |------|--------|:---:|------|
 | Development Team | Hotfix | 2 | Restore HP + `ceil(INT/2)` to all allies |
 | Designer | UI Overhaul | 2 | Reduce ATK of the highest-ATK card on the enemy field by `ceil(INT/2)` |
-| HR Team | Benefits Points | 2 | +2 HP to all allies, draw 1 card |
+| HR Team | Benefits Points | 2 | +2 max HP to all allies and heal 2 into it (capped at max), draw 1 card |
 | Finance Team | Austerity Budget | 2 | +3 DEF to all allies (permanent) |
 | Legal Team | Lawsuit | 3 | Deal direct damage equal to INT to the enemy hero |
 | Marketing Team | Campaign | 2 | +2 ATK to all allies (permanent) |
