@@ -36,12 +36,12 @@
 ### 김민경 — Relationship graph
 
 **Screens**: GraphScreen (node graph + bottom sheet)
-**Backend**: Neo4j Cypher queries, N-degree relationship traversal, mutual contacts analysis, edge weight management
+**Backend**: Neo4j Cypher queries, N-degree relationship traversal, consented 2nd-degree exposure, edge weight management
 
 **Deliverables**:
 - Neo4j connection setup (`backend/app/neo4j_driver.py` — a shared module, so open a PR after initial setup)
 - Interactive relationship graph visualization (react-native-svg or Canvas)
-- Node tap → bottom sheet (person summary + mutual contacts)
+- Node tap → bottom sheet (person summary, conversation stats)
 - Filtering by role, search, 1st-degree/2nd-degree display
 
 **Touchpoints with other team members**:
@@ -61,25 +61,25 @@
   `summary_json` as inert data — do not wire it back into the graph without a UI where the
   user confirms the relationship first.
 
-**Where contact-to-contact edges come from — open, and deliberately so**:
+**Seeing past my own contacts requires consent — there is no other path**:
 `contacts/graph_sync.py` writes `(me)-[MET_AT]-(contact)` and nothing else, so no edge
-exists between two of my contacts, or between a contact and a non-contact. Two features
-read those edges and are therefore empty:
+exists between two of my contacts, or between a contact and a non-contact.
 
-- **공통 인맥 / mutual connections** — `_MUTUAL_CONNECTIONS_QUERY` needs
-  `(mutual)-[MET_AT]-(target)`. The mention-inferred path was its only supplier, so this
-  goes to zero when that is removed. A replacement is wanted.
-- **2촌 / 2nd-degree** — `_SECOND_DEGREE_QUERY` additionally requires the person *not* be
-  one of my own contacts, so the mention path never fed it either (it could only ever
-  match people already synced from contacts). This has been structurally empty since it
-  was built; the `INTRO_CONSENT` request/approve/decline endpoints and their UI all work,
-  but nothing produces the underlying edge. Removing the mention path did not change this.
+- **공통 인맥 / mutual connections — removed.** `GET /graph/{person_id}/mutual`, its Cypher,
+  the bottom sheet's tile and its "공통 인맥 보기" button are all gone. It named the people a
+  contact knows without any of them agreeing to be shown to me, which is precisely what the
+  2nd-degree rule gates — the gate just didn't cover this screen. Its only automatic supplier
+  (the mention-inferred edges) had already been removed for the same reason.
+- **2촌 / 2nd-degree — consented, and currently empty.** `_SECOND_DEGREE_QUERY` requires both
+  a `MET_AT` edge *and* an approved `INTRO_CONSENT`, and additionally excludes anyone already
+  my own contact. The `INTRO_CONSENT` request/approve/decline endpoints and their UI all work;
+  nothing yet produces the underlying edge, so the section renders empty. That is the correct
+  failure mode — empty, not "shown without asking".
 
-Any replacement supplier **must be consent-gated, not inferred**. `INTRO_CONSENT` exists
-so a person chooses who sees them through whom; a mutual-connections list built without
-that choice exposes the same thing the 2nd-degree privacy rule protects, via a different
-screen. Design it in a PR and get it reviewed before building — "we know both of them" is
-not permission to link them, which is exactly what the removed version assumed.
+**Do not add a way to populate these that skips consent.** `INTRO_CONSENT` exists so a person
+chooses who sees them through whom. Any future supplier of contact-to-contact edges needs that
+step in front of it, designed in a PR and reviewed before building — "I know both of them" is
+not permission to tell either one about the other, which is what both removed versions assumed.
 - Navigation: Bottom sheet "Profile" → pushes to PersonDetailScreen (강민구's screen)
 - → 강민구: PersonDetailScreen needs the same "소개 요청" action as GraphScreen's 1st-degree
   bottom sheet (see `ui-spec.md` §5 and `api-spec.md` "Introduction Requests"). The
@@ -247,7 +247,7 @@ After that, any changes are proposed by any team member via PR, and merged after
 | Owner | Task |
 |------|------|
 | 강민구 | Batch scan, manual input, card reveal (applying 문민재's assets), search |
-| 김민경 | Node interaction, filters, edge weights, mutual contacts |
+| 김민경 | Node interaction, filters, edge weights, introduction requests |
 | 박재경 | Real-time keywords, LLM prompt optimization, conversation-to-graph integration |
 | 이승환 | Complete battle UI, enemy AI, synergy, result screen, apply assets |
 | 문민재 | Final asset polish, VICTORY/DEFEAT effects |

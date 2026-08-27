@@ -224,7 +224,6 @@ endpoint would have to either decrypt-and-scan, or add an indexed blind-index co
 |--------|------|------|
 | `GET` | `/graph` | Full relationship graph data |
 | `GET` | `/graph/{person_id}/connections` | Connections for a specific person |
-| `GET` | `/graph/{person_id}/mutual` | Retrieve mutual connections |
 | `GET` | `/graph/stats` | Relationship graph statistics (1st-degree/2nd-degree counts, etc.) |
 | `POST` | `/graph/{person_id}/introduction-requests` | Request a 1st-degree contact's permission to be shown as a 2nd-degree connection to their network |
 | `GET` | `/graph/{person_id}/introduction-requests` | Status of my own outgoing request toward this one person |
@@ -281,36 +280,20 @@ Response 200:
 contact (`null` | `"pending"` | `"approved"` | `"declined"`) — see "Introduction Requests" below.
 Always `null` for degree-2 nodes.
 
-### GET /graph/{person_id}/mutual
+### Removed: GET /graph/{person_id}/mutual
 
-```
-Response 200:
-{
-  "person_id": 1,
-  "mutual_connections": [
-    {
-      "id": 5,
-      "name": "Kim Design",
-      "company": "Kakao",
-      "job_class": "design"
-    }
-  ]
-}
-```
+There is no mutual-connections endpoint. `GET /graph/{person_id}/mutual` existed and was
+removed, together with the "공통 인맥" tile and "공통 인맥 보기" button in `ui-spec.md` §4's
+bottom sheet.
 
-**Open: nothing currently populates this.** A mutual connection requires a `MET_AT`
-edge between two people who are not me, and the only edge-creating code
-(`contacts/graph_sync.py`) writes `(me)-[MET_AT]-(contact)` and nothing else. The one
-path that used to write contact-to-contact edges inferred them from names an LLM heard
-in a conversation, and was removed — see `features.md`'s 김민경 touchpoints.
+It returned the people a given contact and I both know — named, with company and job_class,
+and **without any of those people having consented to be shown to me**. That is exactly what
+the 2nd-degree privacy rule above gates behind an approved `INTRO_CONSENT`; the mutual list
+handed over the same information through a different screen, so the gate protected nothing.
 
-Whatever replaces it **must be consent-gated, not inferred**. The point of the
-`INTRO_CONSENT` machinery below is that a person decides who gets to see them through
-whom; a mutual-connections list assembled without that decision leaks the same
-information the 2nd-degree privacy rule above exists to protect, just through a
-different screen. Any proposal here needs review before implementation — treating "we
-know both of them" as permission to link them is the mistake that got the previous
-version removed.
+Introduction requests are unaffected and remain the only consented way to see past my own
+contacts. **A mutual-connections view may only come back with that consent step in front of
+it** — "I know both of them" is not permission to tell either one about the other.
 
 ### Introduction Requests
 

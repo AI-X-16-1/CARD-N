@@ -6,7 +6,6 @@ from app.features.graph.schemas import (
     IncomingIntroductionRequestsResponse,
     IntroductionRequestResponse,
     IntroductionRequestStatusResponse,
-    MutualConnectionsResponse,
 )
 from app.features.graph.service import GraphService
 from app.neo4j_driver import get_neo4j_driver
@@ -62,8 +61,3 @@ async def decline_introduction_request(person_id: int) -> IntroductionRequestRes
 @router.get("/stats")
 async def get_graph_stats() -> GraphStatsResponse:
     return await _service().get_stats()
-
-
-@router.get("/{person_id}/mutual")
-async def get_mutual_connections(person_id: int) -> MutualConnectionsResponse:
-    return await _service().get_mutual_connections(person_id)

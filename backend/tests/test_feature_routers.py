@@ -31,3 +31,11 @@ def test_introduction_request_routes_do_not_shadow_each_other() -> None:
 
     assert "get" in paths["/api/v1/graph/introduction-requests"]
     assert set(paths["/api/v1/graph/{person_id}/introduction-requests"]) == {"get", "post"}
+
+
+def test_no_mutual_connections_endpoint() -> None:
+    """Mutual connections were removed on privacy grounds: the list named people a
+    contact knows without any of them consenting, which is what INTRO_CONSENT gates
+    for 2nd-degree nodes. Pinned so it does not come back as a convenience.
+    """
+    assert "/api/v1/graph/{person_id}/mutual" not in app.openapi()["paths"]

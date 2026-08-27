@@ -152,9 +152,18 @@ Refer to `design-tokens.md` for color, typography, and spacing values.
 ### Tap Node → Bottom Sheet
 - Surface-2, radius 18px (top), drag handle
 - Avatar (rounded square) + name + company·role + "1촌"/"2촌" badge
-- 3 stat tiles: Conversations {n} / Mutual connections {n} / Last conversation {ago} (yellow)
+- 2 stat tiles: Conversations {n} / Last conversation {ago} (yellow)
 - "최근 대화 요약" (Recent conversation summary) card (latest timeline entry)
-- Buttons (1촌 sheet): "프로필" (Profile) (→ Person Detail) + "공통 인맥 보기" (View mutual connections) (Primary)
+- Buttons (1촌 sheet): "프로필" (Profile) (Primary, full width) → Person Detail
+
+**Removed: mutual connections.** The sheet used to carry a "Mutual connections {n}" tile and a
+"공통 인맥 보기" (View mutual connections) Primary button. Both are gone, along with
+`GET /graph/{person_id}/mutual`, on privacy grounds: the list named people a contact knows
+without any of those people consenting to be shown to me. That is the same exposure the
+2nd-degree rule in §4 gates behind an approved introduction request — it was simply reachable
+through a different screen. Introduction requests are unaffected and remain the one consented
+path to seeing beyond my own contacts. Do not reintroduce a mutual-connections view without
+that consent step.
 - 1촌 sheet also shows a "내 프로필 소개 요청" (Request that this contact introduce me) row below the
   buttons:
   - Default state: text button, "이 사람의 인맥에게 내 프로필 소개 요청" → calls
