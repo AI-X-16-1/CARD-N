@@ -14,12 +14,20 @@ promotes it into `persons/{person_id}.jpg`; if they cancel out of the scan flow,
 file is simply never claimed. Local dev only, so an occasional orphaned staged file isn't
 worth a cleanup job.
 """
+import re
 import uuid
 from pathlib import Path
 
 STORAGE_ROOT = Path(__file__).resolve().parents[2] / "storage" / "card_images"
 STAGING_DIR = STORAGE_ROOT / "staging"
 PERSONS_DIR = STORAGE_ROOT / "persons"
+
+# Exactly what stage_image() generates (uuid4().hex) — promote_staged_image's token comes
+# straight from the client (CreatePersonRequest.image_token) and gets interpolated into a
+# filesystem path, so anything looser than an exact format check (e.g. just rejecting "/")
+# is a path-traversal risk: "../persons/5" resolves outside STAGING_DIR entirely, and
+# .replace() would then move another contact's already-saved image out from under them.
+_TOKEN_RE = re.compile(r"^[0-9a-f]{32}$")
 
 
 def _ensure_dirs() -> None:
@@ -42,7 +50,11 @@ def promote_staged_image(token: str, person_id: int) -> str | None:
     """Moves a staged image to its permanent home for `person_id`. Returns the stored
     filename (Person.image_path) on success, None if the token doesn't resolve to a
     staged file (expired, already claimed, or never existed — a stale/replayed token
-    from the client shouldn't fail contact creation over a missing picture)."""
+    from the client shouldn't fail contact creation over a missing picture). Also None
+    for a malformed token (see _TOKEN_RE) instead of raising — same "just no picture"
+    handling as a token that's merely stale, not a reason to fail contact creation."""
+    if not _TOKEN_RE.fullmatch(token):
+        return None
     _ensure_dirs()
     staged_path = STAGING_DIR / f"{token}.jpg"
     if not staged_path.is_file():

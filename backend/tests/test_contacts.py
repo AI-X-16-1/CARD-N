@@ -124,3 +124,20 @@ def test_contact_ignores_unknown_image_token(client: TestClient, isolated_image_
     # fail contact creation over a missing picture.
     created = _create_person(client, image_token="not-a-real-token")
     assert created["has_image"] is False
+
+
+def test_contact_rejects_path_traversal_image_token(client: TestClient, isolated_image_store) -> None:
+    # A malicious image_token (this app takes it straight from the client) must never be
+    # allowed to resolve outside STAGING_DIR — a token like "../persons/5" would otherwise
+    # let a new contact steal (via the promote step's file *move*) an image already saved
+    # for an unrelated, existing contact.
+    victim = _create_person(client, image_token=image_store.stage_image(b"victim-image"))
+    assert victim["has_image"] is True
+
+    attacker = _create_person(client, image_token=f"../persons/{victim['id']}")
+    assert attacker["has_image"] is False
+
+    # The victim's image must still be theirs, untouched.
+    response = client.get(f"/api/v1/contacts/{victim['id']}/image")
+    assert response.status_code == 200
+    assert response.content == b"victim-image"
