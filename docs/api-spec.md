@@ -102,6 +102,7 @@ Response 200:
     "phone": "010-1234-5678",
     "email": "hong@kakao.com",
     "address": null,
+    "address_detail": null,
     "postal_code": null,
     "context": "Met at the 2024 AI Conference"
   }
@@ -114,6 +115,11 @@ Response 200:
 button (Daum/Kakao Postcode search) lets the user replace both with a verified,
 standardized address before saving — that result simply overwrites these two fields on
 the client before the request goes out, no separate endpoint involved.
+
+`address_detail` (동/층/호수 — anything a postcode search can't standardize) has no OCR
+field of its own; it's populated either by hand or from the postcode search result's
+building name (plus any floor/unit the client recovers from the OCR address text before
+that search overwrites it — see `AddressSearchModal`), then passed through the same way.
 
 ---
 
@@ -152,6 +158,7 @@ Response 200:
       "job_class": "marketing",
       "relation": "client",
       "address": null,
+      "address_detail": null,
       "postal_code": null,
       "last_contact": "2024-03-15T09:00:00Z",
       "conversation_count": 3,
