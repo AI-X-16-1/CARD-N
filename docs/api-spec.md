@@ -280,6 +280,52 @@ Response 200:
 contact (`null` | `"pending"` | `"approved"` | `"declined"`) — see "Introduction Requests" below.
 Always `null` for degree-2 nodes.
 
+### Acquaintances — where 2nd-degree people come from
+
+`contacts/graph_sync.py` only ever writes `(me)-[MET_AT]-(contact)`, so nothing used to
+produce an edge between a contact and someone who is not a contact of mine. Without such
+an edge `_SECOND_DEGREE_QUERY` can never match, and the 2nd-degree section stayed empty no
+matter how many contacts existed. These endpoints are that missing supplier.
+
+| Method | Path | Description |
+|--------|------|------|
+| `POST` | `/graph/{person_id}/acquaintances` | Record that this 1st-degree contact knows someone who is not my contact |
+| `GET` | `/graph/{person_id}/acquaintances` | People recorded against this contact, with their consent status |
+| `POST` | `/graph/acquaintances/{acquaintance_id}/consent` | Record that person's consent to being surfaced |
+
+```
+POST /graph/{person_id}/acquaintances
+Request:  { "name": "Jung Ha-neul", "job_class": "marketing" }
+
+Response 201:
+{ "id": -1, "name": "Jung Ha-neul", "job_class": "marketing", "status": "pending" }
+
+Errors:
+  404 NOT_FIRST_DEGREE - person_id is not one of my 1st-degree contacts
+```
+
+**Ids are negative.** Contact ids come from MySQL's autoincrement and are always positive,
+and "me" is `0`, so a person who exists only in the graph cannot collide with a contact
+created later — and the sign alone says "not in my contacts".
+
+**They start `pending`, and stay invisible until consent is recorded.** `GET /graph` does
+not return them and `stats.degree_2_count` does not count them, exactly as the 2nd-degree
+privacy rule above requires. Creating them already approved would make this endpoint hand
+out the exposure that rule exists to withhold.
+
+#### A note on who taps "consent"
+
+`POST /graph/acquaintances/{id}/consent` records *that person's* agreement to be surfaced
+through the contact who knows them. In a multi-user product they would give it themselves,
+in their own app. **This app has one user** (`ME_PERSON_ID = 0`, no auth — see the
+`my_card` note above), so there is nobody else to give it and it is recorded on their
+behalf.
+
+That is a limitation of the single-user MVP, not the intended model. The endpoint is named
+for what it records rather than for who taps it, so the distinction survives into a
+multi-user version — where this call would move behind that person's own session and
+everything else here would keep working unchanged.
+
 ### Removed: GET /graph/{person_id}/mutual
 
 There is no mutual-connections endpoint. `GET /graph/{person_id}/mutual` existed and was

@@ -149,3 +149,78 @@ async def fetch_incoming_intro_requests(driver: AsyncDriver, me_id: int) -> list
     async with driver.session() as session:
         result = await session.run(_INCOMING_INTRO_REQUESTS_QUERY, me_id=me_id)
         return [_row(record) async for record in result]
+
+
+# ─────────────────────────────────────────────────────────────
+# Acquaintances: people a contact knows, who are not contacts of mine
+# ─────────────────────────────────────────────────────────────
+#
+# Contact ids come from MySQL's autoincrement, so they are always positive, and "me" is 0.
+# Someone who exists only in the graph therefore takes a negative id — it cannot collide
+# with a contact created later, and the sign alone says "this person is not in my contacts".
+
+_NEXT_ACQUAINTANCE_ID_QUERY = """
+MATCH (p:Person) WHERE p.id < 0
+RETURN coalesce(min(p.id), 0) - 1 AS id
+"""
+
+# Starts unapproved on purpose: a 2nd-degree person appears only once consent is
+# recorded (api-spec.md's privacy rule), so creating them already approved would let
+# this endpoint hand out the exposure the rule exists to withhold.
+_CREATE_ACQUAINTANCE_QUERY = """
+MATCH (contact:Person {id: $contact_id})
+CREATE (person:Person {id: $person_id, name: $name, job_class: $job_class})
+MERGE (contact)-[r:MET_AT]-(person)
+  ON CREATE SET r.weight = 1, r.last_interaction = datetime(), r.origin = 'acquaintance'
+MERGE (person)-[c:INTRO_CONSENT]->(contact)
+  SET c.status = 'pending', c.requested_at = datetime()
+RETURN person.id AS id, person.name AS name, person.job_class AS job_class, c.status AS status
+"""
+
+_APPROVE_ACQUAINTANCE_QUERY = """
+MATCH (person:Person {id: $acquaintance_id})-[c:INTRO_CONSENT]->(contact:Person)
+SET c.status = 'approved', c.responded_at = datetime()
+RETURN person.id AS id, person.name AS name, person.job_class AS job_class, c.status AS status
+"""
+
+_ACQUAINTANCES_QUERY = """
+MATCH (person:Person)-[c:INTRO_CONSENT]->(contact:Person {id: $contact_id})
+WHERE person.id < 0
+RETURN person.id AS id, person.name AS name, person.job_class AS job_class, c.status AS status
+ORDER BY person.id DESC
+"""
+
+
+async def next_acquaintance_id(driver: AsyncDriver) -> int:
+    async with driver.session() as session:
+        result = await session.run(_NEXT_ACQUAINTANCE_ID_QUERY)
+        record = await result.single()
+        return int(record["id"])
+
+
+async def create_acquaintance(
+    driver: AsyncDriver, *, contact_id: int, person_id: int, name: str, job_class: str | None
+) -> dict | None:
+    async with driver.session() as session:
+        result = await session.run(
+            _CREATE_ACQUAINTANCE_QUERY,
+            contact_id=contact_id,
+            person_id=person_id,
+            name=name,
+            job_class=job_class,
+        )
+        record = await result.single()
+        return _row(record) if record is not None else None
+
+
+async def approve_acquaintance(driver: AsyncDriver, acquaintance_id: int) -> dict | None:
+    async with driver.session() as session:
+        result = await session.run(_APPROVE_ACQUAINTANCE_QUERY, acquaintance_id=acquaintance_id)
+        record = await result.single()
+        return _row(record) if record is not None else None
+
+
+async def fetch_acquaintances(driver: AsyncDriver, contact_id: int) -> list[dict]:
+    async with driver.session() as session:
+        result = await session.run(_ACQUAINTANCES_QUERY, contact_id=contact_id)
+        return [_row(record) async for record in result]

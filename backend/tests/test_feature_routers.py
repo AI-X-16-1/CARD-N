@@ -39,3 +39,13 @@ def test_no_mutual_connections_endpoint() -> None:
     for 2nd-degree nodes. Pinned so it does not come back as a convenience.
     """
     assert "/api/v1/graph/{person_id}/mutual" not in app.openapi()["paths"]
+
+
+def test_acquaintance_routes_do_not_shadow_each_other() -> None:
+    """`/{person_id}/acquaintances` and `/acquaintances/{id}/consent` differ only in shape,
+    and the second one's id is negative — pin that both stay reachable.
+    """
+    paths = app.openapi()["paths"]
+
+    assert set(paths["/api/v1/graph/{person_id}/acquaintances"]) == {"get", "post"}
+    assert "post" in paths["/api/v1/graph/acquaintances/{acquaintance_id}/consent"]

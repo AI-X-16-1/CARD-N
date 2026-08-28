@@ -1,6 +1,9 @@
 from fastapi import APIRouter, Query, status
 
 from app.features.graph.schemas import (
+    AcquaintanceResponse,
+    AcquaintancesResponse,
+    AddAcquaintanceRequest,
     GraphResponse,
     GraphStatsResponse,
     IncomingIntroductionRequestsResponse,
@@ -56,6 +59,24 @@ async def approve_introduction_request(person_id: int) -> IntroductionRequestRes
 @router.post("/introduction-requests/{person_id}/decline")
 async def decline_introduction_request(person_id: int) -> IntroductionRequestResponse:
     return await _service().respond_to_request(person_id, approve=False)
+
+
+# Acquaintances — the only path that creates a contact-to-contact edge, and so the only
+# way anyone appears in the 2nd-degree section. Kept under the contact who vouches for
+# them, because that relationship is the whole reason the person is visible at all.
+@router.post("/{person_id}/acquaintances", status_code=status.HTTP_201_CREATED)
+async def add_acquaintance(person_id: int, body: AddAcquaintanceRequest) -> AcquaintanceResponse:
+    return await _service().add_acquaintance(person_id, name=body.name, job_class=body.job_class)
+
+
+@router.get("/{person_id}/acquaintances")
+async def list_acquaintances(person_id: int) -> AcquaintancesResponse:
+    return await _service().list_acquaintances(person_id)
+
+
+@router.post("/acquaintances/{acquaintance_id}/consent")
+async def record_acquaintance_consent(acquaintance_id: int) -> AcquaintanceResponse:
+    return await _service().record_acquaintance_consent(acquaintance_id)
 
 
 @router.get("/stats")

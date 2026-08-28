@@ -70,11 +70,16 @@ exists between two of my contacts, or between a contact and a non-contact.
   contact knows without any of them agreeing to be shown to me, which is precisely what the
   2nd-degree rule gates — the gate just didn't cover this screen. Its only automatic supplier
   (the mention-inferred edges) had already been removed for the same reason.
-- **2촌 / 2nd-degree — consented, and currently empty.** `_SECOND_DEGREE_QUERY` requires both
-  a `MET_AT` edge *and* an approved `INTRO_CONSENT`, and additionally excludes anyone already
-  my own contact. The `INTRO_CONSENT` request/approve/decline endpoints and their UI all work;
-  nothing yet produces the underlying edge, so the section renders empty. That is the correct
-  failure mode — empty, not "shown without asking".
+- **2촌 / 2nd-degree — consented, and fed by acquaintances.** `_SECOND_DEGREE_QUERY` requires
+  both a `MET_AT` edge *and* an approved `INTRO_CONSENT`, and excludes anyone already my own
+  contact. `POST /graph/{person_id}/acquaintances` is what produces that edge: it records who
+  one of my contacts knows, as a graph-only Person with a negative id. They start `pending` and
+  stay invisible until `POST /graph/acquaintances/{id}/consent` records their agreement — so
+  the gate holds by construction rather than by convention.
+
+  **The consent is recorded on that person's behalf.** With one user and no auth there is
+  nobody else to give it; in a multi-user product they would, from their own app. See
+  `api-spec.md`'s note under Acquaintances before building on this.
 
 **Do not add a way to populate these that skips consent.** `INTRO_CONSENT` exists so a person
 chooses who sees them through whom. Any future supplier of contact-to-contact edges needs that
