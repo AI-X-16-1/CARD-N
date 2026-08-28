@@ -126,6 +126,14 @@ export async function deleteConversation(conversationId: number): Promise<void> 
   await apiClient.delete(`/conversations/${conversationId}`);
 }
 
+// Whisper runs at roughly real time and the summarizer calls an LLM behind a retry loop,
+// so both of these outlast apiClient's 10s default on anything but a very short clip.
+// Once axios aborts client-side the backend never finishes the request, so it leaves no
+// line in the access log either — which reads like the request never arrived.
+// features/conversation/api.ts overrides the same two endpoints for the same reason.
+const STT_TIMEOUT_MS = 15 * 60 * 1000;
+const LLM_TIMEOUT_MS = 3 * 60 * 1000;
+
 // Finds a call recording via CallRecordingFinder, transcribes it, summarizes it, and saves
 // the summary to the contact's timeline. The raw audio and transcript are never stored —
 // only `match.uri` (a device file reference) leaves this function's scope, and only the
@@ -142,17 +150,19 @@ export async function summarizeCallRecording(personId: number, match: CallRecord
   // No explicit Content-Type here: a multipart boundary must be generated per-request,
   // and hardcoding 'multipart/form-data' without one produces a malformed body (see
   // features/scan/hooks/useOcrScan.ts, which hit this exact issue first).
-  const transcribed = await apiClient.post<TranscribeResponse>('/conversations/transcribe', form);
+  const transcribed = await apiClient.post<TranscribeResponse>('/conversations/transcribe', form, {
+    timeout: STT_TIMEOUT_MS,
+  });
   const { text: transcript } = transcribed.data;
   // Whisper reports fractional seconds; SummarizeRequest/SaveConversationRequest both type
   // this field as `int | None`, and pydantic v2 rejects a non-integer float there.
   const durationSeconds = Math.round(transcribed.data.duration_seconds);
 
-  const summarized = await apiClient.post<SummarizeResponse>('/conversations/summarize', {
-    transcript,
-    person_id: personId,
-    duration_seconds: durationSeconds,
-  });
+  const summarized = await apiClient.post<SummarizeResponse>(
+    '/conversations/summarize',
+    { transcript, person_id: personId, duration_seconds: durationSeconds },
+    { timeout: LLM_TIMEOUT_MS },
+  );
 
   const saved = await apiClient.post<Conversation>('/conversations', {
     person_id: personId,
