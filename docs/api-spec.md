@@ -602,10 +602,10 @@ produces the card art and calls `PUT /game/cards/{id}/art` to attach it.
 
 Generates the battle-card image for `card_id`. No request body: the source
 photo is the contact's saved business card (`persons.image_path`, which must
-not be `NULL`), and the overlaid text is read from the `battle_cards` +
-`persons` rows. ComfyUI/Krea2 renders textless card art, then
-`name`/`company`/`job_class` and `grade`/`cost`/`final_stats`/`skill`/
-`passive`/`flavor_text` are drawn on top with PIL.
+not be `NULL`), `name`/`company` come from that `persons` row, and
+`job_class`/`grade`/`cost`/`final_stats`/`skill`/`passive`/`flavor_text` come
+from the `battle_cards` snapshot. ComfyUI/Krea2 renders textless card art,
+then that text is drawn on top with PIL.
 
 ```
 POST /id-card/{card_id}

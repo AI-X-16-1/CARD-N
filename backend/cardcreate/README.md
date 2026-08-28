@@ -6,10 +6,10 @@ card photo saved for the card's contact (`persons.image_path`); the text
 printed on top comes from the DB — not from the text on the business card:
 
 - from the `persons` row the card's `person_id` points at: **name**,
-  **company**, **job class**
-- from the `battle_cards` row itself: **grade**, **cost**, **final stats**
-  (ATK/DEF/INT/HP), **skill** (name/cost/description), **passive**,
-  **flavor text**
+  **company**
+- from the `battle_cards` snapshot: **job class**, **grade**, **cost**,
+  **final stats** (ATK/DEF/INT/HP), **skill** (name/cost/description),
+  **passive**, **flavor text**
 
 The finished image is written to disk and its path saved back to
 `battle_cards.illustration_url`.

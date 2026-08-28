@@ -36,7 +36,8 @@ async def _seed(session, *, image_path: str | None = "7.jpg") -> int:
     person = Person(
         name="홍길동",
         company="주식회사 카드엔",
-        job_class="marketing",
+        # stale/edited after the card was snapshotted - must NOT leak onto the card
+        job_class="dev",
         title="마케팅팀장",
         image_path=image_path,
     )
@@ -68,9 +69,9 @@ async def test_fetch_card_data_maps_person_and_battle_card_columns() -> None:
     # from persons
     assert record.text.name == "홍길동"
     assert record.text.company == "주식회사 카드엔"
-    assert record.text.job_class == "marketing"
     assert record.image_path == "7.jpg"
     # from battle_cards
+    assert record.text.job_class == "marketing"  # the snapshot, not persons.job_class ("dev")
     assert record.text.grade == 4
     assert record.text.cost == 4
     assert record.text.final_stats.atk == 9

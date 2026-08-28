@@ -28,12 +28,12 @@ class CardSkill(BaseModel):
 class GameCardData(BaseModel):
     """Text content overlaid onto a generated battle card.
 
-    ``name`` / ``company`` / ``job_class`` come from the ``persons`` row the
-    card's ``person_id`` points at; ``grade`` / ``cost`` / ``final_stats`` /
-    ``skill`` / ``passive`` / ``flavor_text`` come from the ``battle_cards`` row
-    itself (see ``repository.fetch_card_data``). The card's *image* is generated
-    from the contact's saved business-card photo; only the text printed on top
-    comes from here.
+    ``name`` / ``company`` come from the ``persons`` row the card's
+    ``person_id`` points at; ``job_class`` / ``grade`` / ``cost`` /
+    ``final_stats`` / ``skill`` / ``passive`` / ``flavor_text`` come from the
+    ``battle_cards`` snapshot (see ``repository.fetch_card_data``). The card's
+    *image* is generated from the contact's saved business-card photo; only the
+    text printed on top comes from here.
 
     Every field is optional so a partially-filled record still renders.
     """

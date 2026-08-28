@@ -5,10 +5,11 @@
 
 * the ORM ``BattleCard`` - so the caller can write ``illustration_url`` back
   once the image is generated,
-* a ``GameCardData`` with the fields printed onto the card
-  (``name`` / ``company`` / ``job_class`` from ``persons``; ``grade`` /
-  ``cost`` / ``final_stats`` / ``skill`` / ``passive`` / ``flavor_text`` from
-  ``battle_cards``),
+* a ``GameCardData`` with the fields printed onto the card (``name`` /
+  ``company`` from ``persons``; ``job_class`` / ``grade`` / ``cost`` /
+  ``final_stats`` / ``skill`` / ``passive`` / ``flavor_text`` from the
+  ``battle_cards`` snapshot, so editing the contact later doesn't change the
+  card),
 * ``Person.image_path`` - the saved business-card photo the card art is
   generated from.
 """
@@ -74,7 +75,9 @@ async def fetch_card_data(db: AsyncSession, card_id: int) -> CardRecord:
     text = GameCardData(
         name=person.name,
         company=person.company,
-        job_class=person.job_class,
+        # the battle_cards snapshot (one of the 8 fixed classes), not the
+        # contact's raw, editable, sometimes-null persons.job_class - PR #64 review.
+        job_class=card.job_class,
         grade=card.grade,
         cost=card.cost,
         final_stats=CardStats(**(card.final_stats or {})),
