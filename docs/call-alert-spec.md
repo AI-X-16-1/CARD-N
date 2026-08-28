@@ -115,9 +115,9 @@ and the real one follows about 8ms later:
 
 ```
 RINGING  number=<null>
-RINGING  number=01041783253   ← 8ms later
+RINGING  number=010XXXXXXXX   ← 8ms later
 IDLE     number=<null>
-IDLE     number=01041783253
+IDLE     number=010XXXXXXXX
 ```
 
 The receiver de-duplicated the repeats by comparing the call state against the previous
