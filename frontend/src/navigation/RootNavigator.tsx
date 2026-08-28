@@ -12,6 +12,7 @@ import ScanCameraScreen from '@/features/scan/screens/ScanCameraScreen';
 import ContactListScreen from '@/features/contacts/screens/ContactListScreen';
 import PersonDetailScreen from '@/features/contacts/screens/PersonDetailScreen';
 import GraphScreen from '@/features/graph/screens/GraphScreen';
+import CallAlertConsentScreen from '@/features/call-alert/screens/CallAlertConsentScreen';
 import ConversationRecordScreen from '@/features/conversation/screens/ConversationRecordScreen';
 import GameHomeScreen from '@/features/game/screens/GameHomeScreen';
 import CardDetailOverlay from '@/features/game/screens/CardDetailOverlay';
@@ -50,6 +51,9 @@ export type GraphStackParamList = {
   // graph tab was the last entry point where those buttons silently did nothing
   // (#40 fixed the same gap for 목록). Same shape as HomeStack and ListStack.
   ConversationRecord: { personId: number; mode?: 'record' | 'upload' };
+  // The call-alert consent screen. It sits in this stack because 관계도 and call-alert
+  // share an owner and the app has no settings screen to put it in yet.
+  CallAlert: undefined;
 };
 
 // Was a bare tab screen (ContactListScreen managed PersonDetail as local state,
@@ -72,7 +76,9 @@ export type TabParamList = {
 };
 
 export type RootStackParamList = {
-  Tabs: undefined;
+  // Spelled out rather than `undefined` so the deep-link config in ./linking.ts can name
+  // a screen inside the tabs — the call-alert notification targets 홈 > PersonDetail.
+  Tabs: NavigatorScreenParams<TabParamList> | undefined;
   Scan: NavigatorScreenParams<ScanStackParamList> | undefined;
 };
 
@@ -121,6 +127,7 @@ function GraphStackNavigator() {
       <GraphStack.Screen name="GraphHome" component={GraphScreen} />
       <GraphStack.Screen name="PersonDetail" component={PersonDetailScreen} />
       <GraphStack.Screen name="ConversationRecord" component={ConversationRecordScreen} />
+      <GraphStack.Screen name="CallAlert" component={CallAlertConsentScreen} />
     </GraphStack.Navigator>
   );
 }

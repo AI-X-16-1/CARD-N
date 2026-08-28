@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, LayoutChangeEvent, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { CallAlertButton } from '@/features/call-alert/components/CallAlertButton';
 import { colors, typography } from '@/shared/theme';
 
 import {
@@ -38,6 +39,7 @@ const EMPTY_GRAPH: GraphData = {
 type GraphStackParamList = {
   GraphHome: undefined;
   PersonDetail: { personId: number };
+  CallAlert: undefined;
 };
 
 export default function GraphScreen() {
@@ -194,10 +196,13 @@ export default function GraphScreen() {
             1촌 {graphData.stats.degree1Count}명 · 2촌 {graphData.stats.degree2Count}명
           </Text>
         </View>
-        <IntroductionBell
-          count={incomingRequests.length}
-          onPress={() => setIsRequestsSheetOpen(true)}
-        />
+        <View style={styles.headerActions}>
+          <CallAlertButton onPress={() => navigation.navigate('CallAlert')} />
+          <IntroductionBell
+            count={incomingRequests.length}
+            onPress={() => setIsRequestsSheetOpen(true)}
+          />
+        </View>
       </View>
 
       <View style={styles.searchFilterWrap}>
@@ -284,6 +289,11 @@ const styles = StyleSheet.create({
   },
   headerText: {
     gap: 4,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   title: {
     color: colors.textPrimary,
