@@ -1,10 +1,11 @@
 import { useFocusEffect, useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, radius, size, typography } from '@/shared/theme';
+import { AddressSearchModal } from '@/shared/components/AddressSearchModal';
 
 import {
   deleteContact,
@@ -20,8 +21,12 @@ import { CategoryChip } from '../components/CategoryChip';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { ConversationTimeline } from '../components/ConversationTimeline';
 import { JobBadge } from '../components/JobBadge';
+import { NoticeModal } from '../components/NoticeModal';
+import { PersonCardFace } from '../components/PersonCardFace';
 import { RelationBadge } from '../components/RelationBadge';
 import { usePersonDetail } from '../hooks/usePersonDetail';
+import { formatPhoneNumber } from '../lib/formatPhone';
+import { extractFloorDetail } from '../lib/extractFloorDetail';
 import { RELATION_LABELS } from '../jobLabels';
 import type { IntroductionRequestStatus, RelationCategory } from '../types';
 
@@ -48,10 +53,6 @@ type PersonDetailStackParamList = {
   ConversationRecord: { personId: number; mode?: 'record' | 'upload' };
 };
 
-function initialsOf(name: string): string {
-  return name.trim().slice(0, 2);
-}
-
 type Props = {
   // Passed when rendered inline (e.g. list → detail inside a single screen) instead
   // of as a registered stack route. Falls back to route params otherwise.
@@ -74,6 +75,15 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
   const [introStatus, setIntroStatus] = useState<IntroductionRequestStatus>(null);
   const [introSubmitting, setIntroSubmitting] = useState(false);
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+  // react-native-web's Alert.alert is a no-op — see ScanCameraScreen's NoticeModal for
+  // the same fix applied there.
+  const [notice, setNotice] = useState<{ title: string; message: string } | null>(null);
+  const [addressSearchOpen, setAddressSearchOpen] = useState(false);
+  // Which profile-header visual to show when both are available — the scanned card image
+  // takes priority by default (ui-spec.md §5 already treats it as "the" profile visual
+  // when present), with the generated card as the alternative. When there's no scanned
+  // image, the generated card is shown regardless of this state (see effectiveCardView).
+  const [cardView, setCardView] = useState<'image' | 'generated'>('image');
   const goBack = onBack ?? (() => navigation.goBack());
 
   // ConversationRecordScreen returns here after saving a summary, and `navigate` lands
@@ -116,8 +126,10 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
     );
   }
 
-  const meta = [person.title, person.company].filter(Boolean).join(' · ');
   const introRow = getIntroductionRow(introStatus);
+  // No scanned image to fall back to → always show the generated card, regardless of
+  // whatever cardView was last toggled to (there's nothing for 'image' to show here).
+  const effectiveCardView = person.has_image ? cardView : 'generated';
 
   const startEditing = () => {
     setForm({
@@ -127,6 +139,9 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
       title: person.title ?? '',
       phone: person.phone ?? '',
       email: person.email ?? '',
+      address: person.address ?? '',
+      address_detail: person.address_detail ?? '',
+      postal_code: person.postal_code ?? '',
       relation: person.relation,
       context: person.context ?? '',
     });
@@ -138,7 +153,7 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
 
   const handleSaveEdit = async () => {
     if (!form.name?.trim()) {
-      Alert.alert('이름을 입력해주세요', '이름은 비워둘 수 없어요.');
+      setNotice({ title: '이름을 입력해주세요', message: '이름은 비워둘 수 없어요.' });
       return;
     }
     setSaving(true);
@@ -147,7 +162,7 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
       await refetch();
       setEditing(false);
     } catch {
-      Alert.alert('오류', '저장하지 못했어요. 다시 시도해주세요.');
+      setNotice({ title: '오류', message: '저장하지 못했어요. 다시 시도해주세요.' });
     } finally {
       setSaving(false);
     }
@@ -170,12 +185,12 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
       // Retrying this action can never succeed here — the contact just isn't synced to
       // the graph yet. Point at the fix (re-save the contact) instead of "다시 시도해주세요".
       if (isNotFirstDegreeError(err)) {
-        Alert.alert(
-          '아직 요청할 수 없어요',
-          '이 연락처가 관계도에 아직 반영되지 않았어요. 연락처 정보를 한 번 수정해서 저장하면 다시 반영을 시도해요.',
-        );
+        setNotice({
+          title: '아직 요청할 수 없어요',
+          message: '이 연락처가 관계도에 아직 반영되지 않았어요. 연락처 정보를 한 번 수정해서 저장하면 다시 반영을 시도해요.',
+        });
       } else {
-        Alert.alert('오류', '소개 요청을 보내지 못했어요. 다시 시도해주세요.');
+        setNotice({ title: '오류', message: '소개 요청을 보내지 못했어요. 다시 시도해주세요.' });
       }
     } finally {
       setIntroSubmitting(false);
@@ -236,7 +251,7 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
             <TextInput
               style={styles.input}
               value={form.phone ?? ''}
-              onChangeText={(v) => setField('phone', v)}
+              onChangeText={(v) => setField('phone', formatPhoneNumber(v))}
               keyboardType="phone-pad"
               placeholderTextColor={colors.textMuted}
             />
@@ -248,6 +263,34 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
               keyboardType="email-address"
               autoCapitalize="none"
               placeholderTextColor={colors.textMuted}
+            />
+            <Text style={styles.fieldLabel}>주소</Text>
+            <View style={styles.addressRow}>
+              <TextInput
+                style={styles.addressInput}
+                value={form.address ?? ''}
+                onChangeText={(v) => setField('address', v)}
+                placeholder="주소를 검색하거나 직접 입력해주세요"
+                placeholderTextColor={colors.textMuted}
+              />
+              <Pressable style={styles.addressButton} onPress={() => setAddressSearchOpen(true)}>
+                <Text style={styles.addressButtonLabel}>주소 갱신</Text>
+              </Pressable>
+            </View>
+            <TextInput
+              style={styles.addressDetailInput}
+              value={form.address_detail ?? ''}
+              onChangeText={(v) => setField('address_detail', v)}
+              placeholder="상세 주소 (동/층/호수)"
+              placeholderTextColor={colors.textMuted}
+            />
+            <TextInput
+              style={styles.postalCodeInput}
+              value={form.postal_code ?? ''}
+              onChangeText={(v) => setField('postal_code', v)}
+              placeholder="우편번호"
+              placeholderTextColor={colors.textMuted}
+              keyboardType="number-pad"
             />
             <Text style={styles.fieldLabel}>관계</Text>
             <View style={styles.relationRow}>
@@ -271,23 +314,29 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
         ) : (
           <>
             <View style={styles.profile}>
-              {person.has_image ? (
+              {effectiveCardView === 'image' ? (
                 <Image
                   source={{ uri: personImageUrl(person.id) }}
                   style={styles.cardImage}
                   resizeMode="cover"
                 />
               ) : (
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>{initialsOf(person.name)}</Text>
-                </View>
+                <PersonCardFace person={person} style={styles.cardGeneratedWrap} qrSize={56} />
               )}
-              <Text style={styles.name}>{person.name}</Text>
-              {meta ? <Text style={styles.meta}>{meta}</Text> : null}
-              <View style={styles.badgeRow}>
-                <JobBadge jobClass={person.job_class} />
-                <RelationBadge relation={person.relation} />
-              </View>
+              {person.has_image ? (
+                <View style={styles.cardToggleRow}>
+                  <CategoryChip
+                    label="기존 이미지"
+                    active={cardView === 'image'}
+                    onPress={() => setCardView('image')}
+                  />
+                  <CategoryChip
+                    label="제작 명함"
+                    active={cardView === 'generated'}
+                    onPress={() => setCardView('generated')}
+                  />
+                </View>
+              ) : null}
             </View>
 
             <View style={styles.card}>
@@ -297,9 +346,20 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
               {person.email ? (
                 <Text style={styles.contactLine}>📧 {person.email}</Text>
               ) : null}
-              {!person.phone && !person.email ? (
+              {person.address ? (
+                <Text style={styles.contactLine}>
+                  📍 {person.address}
+                  {person.address_detail ? ` ${person.address_detail}` : ''}
+                  {person.postal_code ? ` (${person.postal_code})` : ''}
+                </Text>
+              ) : null}
+              {!person.phone && !person.email && !person.address ? (
                 <Text style={styles.contactLineMuted}>등록된 연락처 정보가 없어요</Text>
               ) : null}
+              <View style={styles.badgeRow}>
+                <JobBadge jobClass={person.job_class} />
+                <RelationBadge relation={person.relation} />
+              </View>
             </View>
           </>
         )}
@@ -357,7 +417,6 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
               startEditing();
             }}
           >
-            <Text style={styles.speedDialIcon}>✏️</Text>
             <Text style={styles.speedDialLabel}>수정</Text>
           </Pressable>
           <Pressable
@@ -367,7 +426,6 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
               handleDelete();
             }}
           >
-            <Text style={styles.speedDialIcon}>🗑</Text>
             <Text style={[styles.speedDialLabel, styles.speedDialLabelDanger]}>삭제</Text>
           </Pressable>
           <Pressable
@@ -377,7 +435,6 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
               setCallRecordingFinderOpen(true);
             }}
           >
-            <Text style={styles.speedDialIcon}>📼</Text>
             <Text style={styles.speedDialLabel}>자동검색</Text>
           </Pressable>
           <Pressable
@@ -393,7 +450,6 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
               }
             }}
           >
-            <Text style={styles.speedDialIcon}>🎙</Text>
             <Text style={styles.speedDialLabel}>녹음</Text>
           </Pressable>
         </View>
@@ -411,6 +467,26 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
         message={`${person.name}님을 삭제할까요?`}
         onCancel={() => setDeleteConfirmVisible(false)}
         onConfirm={performDelete}
+      />
+      <NoticeModal
+        visible={notice !== null}
+        title={notice?.title ?? ''}
+        message={notice?.message ?? ''}
+        onDismiss={() => setNotice(null)}
+      />
+
+      <AddressSearchModal
+        visible={addressSearchOpen}
+        initialQuery={form.address ?? ''}
+        onClose={() => setAddressSearchOpen(false)}
+        onSelect={(result) => {
+          const floorDetail = extractFloorDetail(form.address ?? '');
+          setField('address', result.address);
+          setField('postal_code', result.postalCode);
+          const detail = [result.buildingName, floorDetail].filter(Boolean).join(' ');
+          if (detail) setField('address_detail', detail);
+          setAddressSearchOpen(false);
+        }}
       />
     </SafeAreaView>
   );
@@ -477,6 +553,51 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 14,
   },
+  addressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  addressInput: {
+    flex: 1,
+    backgroundColor: colors.surface2,
+    borderRadius: radius.card,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: colors.textPrimary,
+    fontSize: typography.body.fontSize,
+  },
+  addressDetailInput: {
+    backgroundColor: colors.surface2,
+    borderRadius: radius.card,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: colors.textPrimary,
+    fontSize: typography.body.fontSize,
+    marginBottom: 8,
+  },
+  postalCodeInput: {
+    backgroundColor: colors.surface2,
+    borderRadius: radius.card,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: colors.textPrimary,
+    fontSize: typography.body.fontSize,
+    marginBottom: 14,
+    width: 140,
+  },
+  addressButton: {
+    backgroundColor: colors.surface1,
+    borderRadius: radius.pill,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  addressButtonLabel: {
+    color: colors.secondary,
+    fontSize: typography.meta.fontSize,
+    fontWeight: '600',
+  },
   content: {
     paddingHorizontal: 16,
     paddingBottom: 96,
@@ -487,35 +608,26 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     gap: 6,
   },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.surface2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  // Matches ScanCameraScreen's guide-frame aspect ratio (1.7) — this is that same
-  // corrected card image, just displayed here instead of thrown away after OCR.
+  // Same width/aspectRatio as cardGeneratedWrap below (both slots swap into the exact
+  // same spot via effectiveCardView, so a toggle between them shouldn't change the
+  // card's size) — full-width like home's own MyBusinessCard, not the narrower 70%
+  // this used before.
   cardImage: {
-    width: '70%',
-    aspectRatio: 1.7,
+    width: '100%',
+    aspectRatio: 1.72,
     borderRadius: radius.card,
     backgroundColor: colors.surface2,
   },
-  avatarText: {
-    color: colors.textPrimary,
-    fontSize: typography.body.fontSize,
-    fontWeight: '700',
+  // Only sizes PersonCardFace (width/aspectRatio) — its own radius/border/padding come
+  // from its internal styles.card and stay untouched, since this object never sets them.
+  cardGeneratedWrap: {
+    width: '100%',
+    aspectRatio: 1.72,
   },
-  name: {
-    fontSize: typography.personName.fontSize,
-    fontWeight: typography.personName.fontWeight,
-    color: colors.textPrimary,
-  },
-  meta: {
-    fontSize: typography.meta.fontSize,
-    color: colors.textQuaternary,
+  cardToggleRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 4,
   },
   badgeRow: {
     flexDirection: 'row',
@@ -595,17 +707,16 @@ const styles = StyleSheet.create({
     gap: 8,
     alignItems: 'flex-end',
   },
+  // Fixed width (rather than hugging each label) so "자동검색" (4 characters) doesn't
+  // make its pill wider than "수정"/"삭제"/"녹음" — every item in the menu reads as the
+  // same size regardless of label length.
   speedDialItem: {
-    flexDirection: 'row',
+    width: 104,
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
     backgroundColor: colors.surface3,
     borderRadius: radius.pill,
     paddingVertical: 10,
-    paddingHorizontal: 16,
-  },
-  speedDialIcon: {
-    fontSize: 18,
   },
   speedDialLabel: {
     fontSize: typography.body.fontSize,

@@ -1,4 +1,5 @@
 """Pydantic schemas for the scan feature."""
+
 from pydantic import BaseModel
 
 
@@ -45,6 +46,7 @@ class ParsedPerson(BaseModel):
     phone: str | None = None
     email: str | None = None
     address: str | None = None
+    address_detail: str | None = None
     postal_code: str | None = None
     context: str | None = None
 

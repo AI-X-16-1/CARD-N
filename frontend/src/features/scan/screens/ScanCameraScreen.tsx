@@ -1,22 +1,70 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Animated, BackHandler, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, BackHandler, Easing, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { useNavigation } from '@react-navigation/native';
 
 import { colors, radius, typography } from '@/shared/theme';
 import { extractErrorMessage, useOcrScan } from '@/features/scan/hooks/useOcrScan';
+import { useBatchScan } from '@/features/scan/hooks/useBatchScan';
 import { ScanResultPanel } from '@/features/scan/components/ScanResultPanel';
 import { ManualInputForm } from '@/features/scan/components/ManualInputForm';
 import { CardRevealPanel } from '@/features/scan/components/CardRevealPanel';
+import { BatchTray } from '@/features/scan/components/BatchTray';
+import { BatchItemEditor } from '@/features/scan/components/BatchItemEditor';
 import { CloseConfirmModal } from '@/features/scan/components/CloseConfirmModal';
+import { NoticeModal } from '@/features/scan/components/NoticeModal';
 import { createPerson, parseOcrFields } from '@/features/scan/api';
 import type { CreatedPerson, ParsedPerson } from '@/features/scan/types';
+import type { OcrField } from '@/features/scan/hooks/useOcrScan';
 
 type CaptureMode = 'single' | 'batch';
 type Step = 'camera' | 'manual' | 'reveal';
 
 const GUIDE_ASPECT_RATIO = 1.7;
+// guideFrame (the dashed card outline) is 86% of the viewfinder's width, centered — see
+// its style below. CameraView fills the same viewfinder edge-to-edge, so the photo's own
+// pixels are treated as sharing that rendered frame, and the same fraction/aspect crops
+// it down to just what the guide outlined instead of sending the whole background too.
+const GUIDE_WIDTH_FRACTION = 0.86;
+
+// Matches backend/app/features/scan/ocr/pipeline.py's MAX_SIDE — the server downscales
+// anything wider than this before OCR anyway, so a phone photo (often 3000px+ even after
+// cropping to the guide frame) uploads a lot of pixels the server immediately throws
+// away. Capping it client-side here cuts upload time with no accuracy cost, since the
+// server would've produced the same downscaled image either way.
+const MAX_UPLOAD_WIDTH = 1800;
+
+// Camera-only: a gallery pick was never framed against guideFrame, so cropping it the
+// same way would cut an arbitrary photo to a rect the user never aligned anything to.
+async function cropToGuideFrame(photo: { uri: string; width: number; height: number }): Promise<string> {
+  // Some Android devices report takePictureAsync's width/height as the raw sensor
+  // orientation (landscape) and rely on an EXIF rotation tag to display it upright —
+  // ImageManipulator's crop operates on the raw, un-rotated pixel buffer and ignores that
+  // tag, so cropping straight against photo.width/height can crop the wrong axis entirely
+  // (this is what showed up as the output image's width/height being swapped). A no-op
+  // manipulation first bakes the EXIF rotation into the actual pixels — crop against its
+  // (possibly swapped) width/height instead of the original photo's.
+  const normalized = await ImageManipulator.manipulateAsync(photo.uri, [], {
+    compress: 1,
+    format: ImageManipulator.SaveFormat.JPEG,
+  });
+  const cropWidth = Math.round(normalized.width * GUIDE_WIDTH_FRACTION);
+  const cropHeight = Math.min(Math.round(cropWidth / GUIDE_ASPECT_RATIO), normalized.height);
+  const originX = Math.round((normalized.width - cropWidth) / 2);
+  const originY = Math.round((normalized.height - cropHeight) / 2);
+  const result = await ImageManipulator.manipulateAsync(
+    normalized.uri,
+    [
+      { crop: { originX, originY, width: cropWidth, height: cropHeight } },
+      ...(cropWidth > MAX_UPLOAD_WIDTH ? [{ resize: { width: MAX_UPLOAD_WIDTH } }] : []),
+    ],
+    { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+  );
+  return result.uri;
+}
 
 export default function ScanCameraScreen() {
   const navigation = useNavigation();
@@ -25,11 +73,31 @@ export default function ScanCameraScreen() {
   const [step, setStep] = useState<Step>('camera');
   const [saving, setSaving] = useState(false);
   const [capturing, setCapturing] = useState(false);
+  const [pickingImage, setPickingImage] = useState(false);
   const [createdPerson, setCreatedPerson] = useState<CreatedPerson | null>(null);
+  // The just-taken/picked photo behind the current single-mode OCR result, kept purely
+  // client-side (never round-tripped through the backend) so ScanResultPanel can show it
+  // next to the fields for comparison while correcting a misread.
+  const [singlePhotoUri, setSinglePhotoUri] = useState<string | null>(null);
+  // Which batch tray card is open in BatchItemEditor, if any — null means the tray view.
+  const [editingBatchItemId, setEditingBatchItemId] = useState<number | null>(null);
   const [confirmCloseVisible, setConfirmCloseVisible] = useState(false);
+  // react-native-web's Alert.alert is a no-op — a single-OK notice alert both hides its
+  // message and drops whatever the OK button was supposed to do (see NoticeModal). onOk
+  // covers the one call site (batch save) where dismissing the alert used to also reset
+  // state and navigate — everything else is a plain message with nothing else to run.
+  const [notice, setNotice] = useState<{ title: string; message: string; onOk?: () => void } | null>(
+    null
+  );
   const cameraRef = useRef<CameraView>(null);
   const scanLineY = useRef(new Animated.Value(0)).current;
   const { state, isScanning, scan, reset } = useOcrScan();
+  const batch = useBatchScan();
+
+  const resetScan = () => {
+    reset();
+    setSinglePhotoUri(null);
+  };
 
   // ScanCameraScreen is the only screen in ScanStack, presented as a fullScreenModal on
   // top of the tab navigator (see RootNavigator's "Scan" route) — this stack has nothing
@@ -37,6 +105,22 @@ export default function ScanCameraScreen() {
   const handleClose = () => {
     const parent = navigation.getParent();
     (parent ?? navigation).goBack();
+  };
+
+  // ui-spec.md §3-4: batch save lands on 목록, not just back where the modal was opened
+  // from. RootStackParamList (navigation/RootNavigator.tsx) doesn't model the tab
+  // navigator's nested routes on its "Tabs" screen — that's shared ground outside this
+  // folder — so this reaches through with a local cast instead of widening that type.
+  const goToContactList = () => {
+    const parent = navigation.getParent();
+    if (!parent) {
+      handleClose();
+      return;
+    }
+    (parent.navigate as (name: string, params?: object) => void)('Tabs', {
+      screen: '목록',
+      params: { screen: 'ContactList' },
+    });
   };
 
   // Any explicit "leave the scan" action (✕, hardware back) goes through this instead
@@ -53,7 +137,7 @@ export default function ScanCameraScreen() {
   };
 
   const handleDone = () => {
-    reset();
+    resetScan();
     setStep('camera');
     setCreatedPerson(null);
     handleClose();
@@ -107,22 +191,94 @@ export default function ScanCameraScreen() {
     // flip true until after it resolves and scan() starts — a fast double-tap on the
     // shutter during that window isn't caught by the buttons' `disabled={isScanning}`
     // below, and would fire two captures/scans at once. Guard the capture phase too.
-    if (!cameraRef.current || capturing) return;
+    if (!cameraRef.current || capturing || pickingImage) return;
     setCapturing(true);
     try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
-      if (photo?.uri) {
-        await scan(photo.uri);
+      // expo-camera's web preview mirrors a front-facing camera (the only kind most
+      // laptops have) via CSS so it feels like a normal selfie, but capture defaults to
+      // the raw, unmirrored frame — so whatever the user aligned against guideFrame on
+      // screen comes out horizontally flipped, and PaddleOCR can't read mirrored text.
+      // `isImageMirror` is web-only (see expo-camera's CameraPictureOptions); native
+      // (iOS/Android, real back camera) never mirrors the preview, so this only changes
+      // web capture, matching it to what the preview actually showed.
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.8,
+        ...(Platform.OS === 'web' ? { isImageMirror: true } : {}),
+      });
+      if (!photo?.uri) return;
+      const croppedUri = await cropToGuideFrame(photo);
+      if (mode === 'batch') {
+        // Not awaited: addShot tracks this shot's OCR call in its own tray slot, so the
+        // shutter is free again immediately and the next photo doesn't queue behind it.
+        batch.addShot(croppedUri);
+      } else {
+        setSinglePhotoUri(croppedUri);
+        await scan(croppedUri);
       }
     } catch {
-      Alert.alert('오류', '사진을 촬영하지 못했어요. 다시 시도해주세요.');
+      setNotice({ title: '오류', message: '사진을 촬영하지 못했어요. 다시 시도해주세요.' });
     } finally {
       setCapturing(false);
     }
   };
 
-  const handleGalleryPress = () => {
-    Alert.alert('준비 중', '갤러리에서 불러오기는 아직 지원하지 않아요.');
+  const handleSaveSelectedBatch = async () => {
+    const { saved, skipped } = await batch.saveSelected();
+    if (saved === 0) {
+      setNotice({ title: '저장하지 못했어요', message: '선택한 카드가 없어요. 저장할 카드를 먼저 선택해주세요.' });
+      return;
+    }
+    setNotice({
+      title: '저장 완료',
+      message:
+        skipped > 0 ? `${saved}장 저장했어요. ${skipped}장은 저장하지 못했어요.` : `${saved}장 저장했어요.`,
+      onOk: () => {
+        batch.reset();
+        goToContactList();
+      },
+    });
+  };
+
+  const handleSaveBatchEdit = (fields: OcrField[], context: string) => {
+    if (editingBatchItemId === null) return;
+    batch.updateItem(editingBatchItemId, fields, context);
+    setEditingBatchItemId(null);
+  };
+
+  // Batch mode lets the picker return multiple photos at once (each becomes its own
+  // BatchTray shot via addShot, same as a continuous burst of camera captures). Single
+  // mode picks exactly one and forces crop-to-guide so the picked photo matches what the
+  // OCR pipeline expects from a camera shot framed against guideFrame.
+  const handleGalleryPress = async () => {
+    if (capturing || pickingImage) return;
+    setPickingImage(true);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setNotice({ title: '권한이 필요해요', message: '갤러리에서 사진을 가져오려면 사진 접근 권한을 허용해주세요.' });
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.8,
+        allowsMultipleSelection: mode === 'batch',
+        allowsEditing: mode === 'single',
+        aspect: mode === 'single' ? [GUIDE_ASPECT_RATIO, 1] : undefined,
+      });
+      if (result.canceled || result.assets.length === 0) return;
+
+      if (mode === 'batch') {
+        result.assets.forEach((asset) => batch.addShot(asset.uri));
+      } else {
+        setSinglePhotoUri(result.assets[0].uri);
+        await scan(result.assets[0].uri);
+      }
+    } catch {
+      setNotice({ title: '오류', message: '갤러리에서 사진을 가져오지 못했어요. 다시 시도해주세요.' });
+    } finally {
+      setPickingImage(false);
+    }
   };
 
   const handleManualInputPress = () => setStep('manual');
@@ -130,17 +286,13 @@ export default function ScanCameraScreen() {
   const handleSaveFromResult = async (
     values: Record<string, string>,
     context: string,
-    postalCode: string,
+    addressDetail: string,
   ) => {
     if (state.status !== 'done') return;
-    // ScanResultPanel always shows a "Name" input, synthesizing one when OCR didn't
-    // find it (see its comment) — mirror that here so a name the user typed into that
-    // synthetic field actually makes it into the request, instead of being dropped
-    // because state.result.fields never had a "Name" entry for values.Name to attach to.
-    const baseFields = state.result.fields.some((f) => f.label === 'Name')
-      ? state.result.fields
-      : [{ label: 'Name', value: '', confidence: 0 }, ...state.result.fields];
-    const updatedFields = baseFields.map((field) => ({
+    // The backend always sends a "Name" entry now (see scan/service.py's
+    // _to_field_responses), even when OCR found nothing for it, so there's always a
+    // field here for a user-typed value to attach to.
+    const updatedFields = state.result.fields.map((field) => ({
       ...field,
       value: values[field.label] ?? field.value,
     }));
@@ -148,7 +300,7 @@ export default function ScanCameraScreen() {
     // CreatePersonRequest requires name server-side — catch an empty one here and
     // point at the fix instead of a raw validation error round-tripping as a 422.
     if (!updatedFields.find((f) => f.label === 'Name')?.value.trim()) {
-      Alert.alert('이름을 입력해주세요', '이름을 인식하지 못했어요. 위 "Name" 항목에 직접 입력해주세요.');
+      setNotice({ title: '이름을 입력해주세요', message: '이름을 인식하지 못했어요. 위 "Name" 항목에 직접 입력해주세요.' });
       return;
     }
 
@@ -157,18 +309,13 @@ export default function ScanCameraScreen() {
       const parsed = await parseOcrFields(updatedFields, context);
       const person = await createPerson({
         ...parsed,
-        // parsed.postal_code only carries what OCR itself guessed (rarely anything —
-        // see scan/service.py's FIELD_CONFIDENCE comment), and there's no "Postal Code"
-        // field in updatedFields for the user to have corrected it through. The address
-        // search widget's result is the one postal code actually worth trusting, so it
-        // wins whenever the user has used it.
-        postal_code: postalCode || parsed.postal_code,
+        address_detail: addressDetail || undefined,
         image_token: state.result.image_token,
       });
       setCreatedPerson(person);
       setStep('reveal');
     } catch (error) {
-      Alert.alert('오류', extractErrorMessage(error));
+      setNotice({ title: '오류', message: extractErrorMessage(error) });
     } finally {
       setSaving(false);
     }
@@ -181,7 +328,7 @@ export default function ScanCameraScreen() {
       setCreatedPerson(created);
       setStep('reveal');
     } catch (error) {
-      Alert.alert('오류', extractErrorMessage(error));
+      setNotice({ title: '오류', message: extractErrorMessage(error) });
     } finally {
       setSaving(false);
     }
@@ -190,12 +337,25 @@ export default function ScanCameraScreen() {
   const closeConfirmModal = (
     <CloseConfirmModal visible={confirmCloseVisible} onCancel={cancelClose} onConfirm={proceedClose} />
   );
+  const noticeModal = (
+    <NoticeModal
+      visible={notice !== null}
+      title={notice?.title ?? ''}
+      message={notice?.message ?? ''}
+      onDismiss={() => {
+        const onOk = notice?.onOk;
+        setNotice(null);
+        onOk?.();
+      }}
+    />
+  );
 
   if (step === 'reveal' && createdPerson) {
     return (
       <SafeAreaView style={styles.container}>
         <CardRevealPanel person={createdPerson} onDone={handleDone} />
         {closeConfirmModal}
+        {noticeModal}
       </SafeAreaView>
     );
   }
@@ -209,6 +369,24 @@ export default function ScanCameraScreen() {
           saving={saving}
         />
         {closeConfirmModal}
+        {noticeModal}
+      </SafeAreaView>
+    );
+  }
+
+  const editingBatchItem =
+    editingBatchItemId !== null ? batch.items.find((item) => item.id === editingBatchItemId) : undefined;
+
+  if (editingBatchItem) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <BatchItemEditor
+          item={editingBatchItem}
+          onCancel={() => setEditingBatchItemId(null)}
+          onSave={handleSaveBatchEdit}
+        />
+        {closeConfirmModal}
+        {noticeModal}
       </SafeAreaView>
     );
   }
@@ -218,12 +396,14 @@ export default function ScanCameraScreen() {
       <SafeAreaView style={styles.container}>
         <ScanResultPanel
           fields={state.result.fields}
-          onRetake={reset}
+          photoUri={singlePhotoUri}
+          onRetake={resetScan}
           onClose={confirmClose}
           onSave={handleSaveFromResult}
           saving={saving}
         />
         {closeConfirmModal}
+        {noticeModal}
       </SafeAreaView>
     );
   }
@@ -245,6 +425,7 @@ export default function ScanCameraScreen() {
           <Text style={styles.recognizingText}>인식 중…</Text>
         </View>
         {closeConfirmModal}
+        {noticeModal}
       </SafeAreaView>
     );
   }
@@ -264,6 +445,7 @@ export default function ScanCameraScreen() {
           </Pressable>
         </View>
         {closeConfirmModal}
+        {noticeModal}
       </SafeAreaView>
     );
   }
@@ -275,7 +457,7 @@ export default function ScanCameraScreen() {
           onPress={confirmClose}
           hitSlop={8}
           style={styles.closeButtonWrap}
-          disabled={capturing}
+          disabled={capturing || pickingImage}
         >
           <Text style={styles.closeButton}>✕</Text>
         </Pressable>
@@ -284,7 +466,7 @@ export default function ScanCameraScreen() {
           <Pressable
             style={[styles.toggleOption, mode === 'single' && styles.toggleOptionActive]}
             onPress={() => setMode('single')}
-            disabled={capturing}
+            disabled={capturing || pickingImage}
           >
             <Text style={[styles.toggleLabel, mode === 'single' && styles.toggleLabelActive]}>
               단일
@@ -293,7 +475,7 @@ export default function ScanCameraScreen() {
           <Pressable
             style={[styles.toggleOption, mode === 'batch' && styles.toggleOptionActive]}
             onPress={() => setMode('batch')}
-            disabled={capturing}
+            disabled={capturing || pickingImage}
           >
             <Text style={[styles.toggleLabel, mode === 'batch' && styles.toggleLabelActive]}>
               연속
@@ -328,26 +510,44 @@ export default function ScanCameraScreen() {
             <Text style={styles.scanningText}>{state.message}</Text>
           </View>
         )}
+        {mode === 'batch' && batch.items.length > 0 && (
+          <View style={styles.batchCountBadge} pointerEvents="none">
+            <Text style={styles.batchCountBadgeLabel}>{batch.items.length}장</Text>
+          </View>
+        )}
       </View>
 
       <Text style={styles.hint}>
         {mode === 'single' ? '명함을 프레임에 맞춰주세요' : '연속으로 촬영하세요'}
       </Text>
 
+      {mode === 'batch' && (
+        <BatchTray
+          items={batch.items}
+          selectedCount={batch.selectedCount}
+          savingAll={batch.savingAll}
+          onToggleSelected={batch.toggleSelected}
+          onOpenEditor={setEditingBatchItemId}
+          onRemove={batch.removeItem}
+          onSaveSelected={handleSaveSelectedBatch}
+        />
+      )}
+
       <View style={styles.bottomBar}>
-        <Pressable style={styles.sideButton} onPress={handleGalleryPress} disabled={capturing}>
+        <Pressable style={styles.sideButton} onPress={handleGalleryPress} disabled={capturing || pickingImage}>
           <Text style={styles.sideButtonLabel}>갤러리</Text>
         </Pressable>
-        <Pressable style={styles.shutter} onPress={handleShutterPress} disabled={capturing} />
+        <Pressable style={styles.shutter} onPress={handleShutterPress} disabled={capturing || pickingImage} />
         <Pressable
           style={styles.sideButton}
           onPress={handleManualInputPress}
-          disabled={capturing}
+          disabled={capturing || pickingImage}
         >
           <Text style={styles.manualInputLabel}>직접 입력</Text>
         </Pressable>
       </View>
       {closeConfirmModal}
+      {noticeModal}
     </SafeAreaView>
   );
 }
@@ -444,6 +644,20 @@ const styles = StyleSheet.create({
   scanningText: {
     color: colors.textPrimary,
     fontSize: typography.body.fontSize,
+  },
+  batchCountBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: 'rgba(10,10,15,0.7)',
+    borderRadius: radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  batchCountBadgeLabel: {
+    color: colors.textPrimary,
+    fontSize: typography.meta.fontSize,
+    fontWeight: '700',
   },
   hint: {
     color: colors.textTertiary,

@@ -19,6 +19,7 @@ class CreatePersonRequest(BaseModel):
     relation: RelationCategory = "other"
     context: str | None = None
     address: str | None = None
+    address_detail: str | None = None
     postal_code: str | None = None
     # A staging token from POST /scan/ocr's OcrResponse.image_token — claims that staged
     # image for this new contact. Not a Person column itself (see ContactsService.create_person).
@@ -36,6 +37,7 @@ class UpdatePersonRequest(BaseModel):
     relation: RelationCategory | None = None
     context: str | None = None
     address: str | None = None
+    address_detail: str | None = None
     postal_code: str | None = None
 
 
@@ -51,6 +53,7 @@ class PersonResponse(BaseModel):
     relation: str
     context: str | None
     address: str | None
+    address_detail: str | None
     postal_code: str | None
     last_contact: datetime | None
     conversation_count: int

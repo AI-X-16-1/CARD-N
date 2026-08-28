@@ -8,11 +8,13 @@
 // a pre-existing recording instead of recording live, but processes the counterpart's voice
 // the same way (STT + LLM + a stored summary), so it needs the same notice.
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius, typography } from '@/shared/theme';
 
 import { AudioPlayButton, AudioPlayButtonBoundary } from './AudioPlayButton';
+import { ConfirmModal } from './ConfirmModal';
+import { NoticeModal } from './NoticeModal';
 import type { CallRecordingMatch } from '../lib/callRecordings';
 import { useCallRecordingFinder } from '../hooks/useCallRecordingFinder';
 
@@ -43,9 +45,21 @@ type Props = {
 };
 
 export default function CallRecordingFinder({ personId, phone, onSummarySaved }: Props) {
-  const { searching, result, searchError, search, summaryStatus, summaryError, generateSummary } =
-    useCallRecordingFinder(personId, phone);
+  const {
+    searching,
+    result,
+    searchError,
+    search,
+    dismissSearchError,
+    summaryStatus,
+    summaryError,
+    generateSummary,
+  } = useCallRecordingFinder(personId, phone);
   const [page, setPage] = useState(0);
+  // react-native-web's Alert.alert is a no-op, so the consent gate below needs a real
+  // Modal — the match awaiting confirmation lives here rather than as a bare boolean so
+  // "안내했어요, 계속" knows which one to actually summarize.
+  const [pendingGenerate, setPendingGenerate] = useState<CallRecordingMatch | null>(null);
 
   // A fresh search result replaces the whole match list — start back on page 1 rather
   // than stranding the view on a page index that may no longer exist.
@@ -57,22 +71,14 @@ export default function CallRecordingFinder({ personId, phone, onSummarySaved }:
 
   const handleGenerate = (match: CallRecordingMatch) => {
     if (summaryStatus[match.id] === 'summarizing') return;
-    Alert.alert(
-      '통화 요약 생성 전 확인',
-      '이 통화의 원본 파일은 저장되지 않고, 생성된 요약만 기록에 저장돼요.\n\n통화 상대방에게 이 사실을 안내하셨나요?',
-      [
-        { text: '취소', style: 'cancel' },
-        {
-          text: '안내했어요, 계속',
-          onPress: () => generateSummary(match).then(() => onSummarySaved?.()),
-        },
-      ]
-    );
+    setPendingGenerate(match);
   };
 
-  if (searchError) {
-    Alert.alert('오류', `통화 녹음을 검색하는 중 문제가 발생했어요.\n${searchError}`);
-  }
+  const confirmGenerate = () => {
+    const match = pendingGenerate;
+    setPendingGenerate(null);
+    if (match) generateSummary(match).then(() => onSummarySaved?.());
+  };
 
   return (
     <View>
@@ -162,6 +168,23 @@ export default function CallRecordingFinder({ personId, phone, onSummarySaved }:
           ) : null}
         </View>
       )}
+
+      <ConfirmModal
+        visible={pendingGenerate !== null}
+        title="통화 요약 생성 전 확인"
+        message={
+          '이 통화의 원본 파일은 저장되지 않고, 생성된 요약만 기록에 저장돼요.\n\n통화 상대방에게 이 사실을 안내하셨나요?'
+        }
+        confirmLabel="안내했어요, 계속"
+        onCancel={() => setPendingGenerate(null)}
+        onConfirm={confirmGenerate}
+      />
+      <NoticeModal
+        visible={!!searchError}
+        title="오류"
+        message={`통화 녹음을 검색하는 중 문제가 발생했어요.\n${searchError ?? ''}`}
+        onDismiss={dismissSearchError}
+      />
     </View>
   );
 }

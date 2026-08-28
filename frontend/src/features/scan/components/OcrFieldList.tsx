@@ -1,9 +1,8 @@
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { colors, radius, typography } from '@/shared/theme';
-import type { OcrField } from '@/features/scan/hooks/useOcrScan';
-
-const CONFIDENCE_THRESHOLD = 0.9;
+import { CONFIDENCE_THRESHOLD, type OcrField } from '@/features/scan/hooks/useOcrScan';
+import { formatPhoneNumber } from '../lib/formatPhone';
 
 type Props = {
   fields: OcrField[];
@@ -12,12 +11,18 @@ type Props = {
 };
 
 export function OcrFieldList({ fields, values, onChangeValue }: Props) {
+  // The backend always sends every known column now (see scan/service.py's
+  // _to_field_responses), including ones it found nothing for, so the user can fill
+  // them in by hand instead of the column just being absent. fields.length is the
+  // fixed total either way, so the "인식" count has to come from which ones actually
+  // have a value, not from how many entries are in the array.
+  const recognizedCount = fields.filter((f) => f.value.trim().length > 0).length;
   const needsReviewCount = fields.filter((f) => f.confidence < CONFIDENCE_THRESHOLD).length;
 
   return (
     <View>
       <Text style={styles.summary}>
-        {fields.length}개 항목 인식{needsReviewCount > 0 ? ` · ${needsReviewCount}개 확인 필요` : ''}
+        {recognizedCount}개 항목 인식{needsReviewCount > 0 ? ` · ${needsReviewCount}개 확인 필요` : ''}
       </Text>
       {fields.map((field) => {
         const ok = field.confidence >= CONFIDENCE_THRESHOLD;
@@ -35,8 +40,12 @@ export function OcrFieldList({ fields, values, onChangeValue }: Props) {
             <TextInput
               style={styles.input}
               value={values[field.label] ?? field.value}
-              onChangeText={(text) => onChangeValue(field.label, text)}
+              onChangeText={(text) =>
+                onChangeValue(field.label, field.label === 'Mobile' ? formatPhoneNumber(text) : text)
+              }
+              placeholder="직접 입력"
               placeholderTextColor={colors.textMuted}
+              keyboardType={field.label === 'Mobile' ? 'phone-pad' : undefined}
             />
           </View>
         );

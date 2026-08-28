@@ -71,5 +71,16 @@ export function useCallRecordingFinder(personId: number, phone: string | null) {
     [personId]
   );
 
-  return { searching, result, searchError, search, summaryStatus, summaryError, generateSummary };
+  const dismissSearchError = useCallback(() => setSearchError(null), []);
+
+  return {
+    searching,
+    result,
+    searchError,
+    search,
+    dismissSearchError,
+    summaryStatus,
+    summaryError,
+    generateSummary,
+  };
 }

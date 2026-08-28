@@ -51,14 +51,18 @@ FIELD_LABELS: dict[str, str] = {
 
 
 def _to_field_responses(fields: dict[str, str | None]) -> list[OcrFieldResponse]:
+    # Always emit every known column, even ones OCR found nothing for, so the review
+    # screen has a place to type a missing value by hand instead of that column just
+    # being absent. A missing value always gets confidence 0 regardless of the
+    # field-type baseline above — that baseline describes how reliable a *found* value
+    # of this type is, not "nothing was found here", which always needs review.
     return [
         OcrFieldResponse(
             label=FIELD_LABELS[key],
-            value=value,
-            confidence=FIELD_CONFIDENCE[key],
+            value=fields.get(key) or "",
+            confidence=FIELD_CONFIDENCE[key] if fields.get(key) else 0.0,
         )
-        for key, value in fields.items()
-        if value
+        for key in FIELD_LABELS
     ]
 
 
