@@ -42,3 +42,7 @@ eas.json
 # generated native folders
 /ios
 /android
+
+# Gradle output for local native modules. Their sources are committed (that is the
+# point of modules/), but building them leaves a build/ dir behind that is not.
+modules/*/android/build/
