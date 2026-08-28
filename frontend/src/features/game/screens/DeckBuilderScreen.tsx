@@ -6,6 +6,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { colors, radius, typography } from '@/shared/theme';
 import { JOB_COLOR } from '@/features/game/constants';
+import { CardArt } from '@/features/game/components/CardArt';
 import { DeckStrip } from '@/features/game/components/DeckStrip';
 import { StatRow } from '@/features/game/components/StatRow';
 import { averageCost, compendiumCompletion } from '@/features/game/engine/deckStats';
@@ -241,6 +242,7 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
                 style={[styles.tile, { borderColor: JOB_COLOR[slot.jobClass] }, inDeck && styles.tileInDeck]}
                 onPress={() => openSlot(slot)}
               >
+                <CardArt uri={sample.illustrationUrl} variant="tile" />
                 {inDeck && <Text style={styles.checkMark}>✓</Text>}
                 {slot.owned.length > 1 && <Text style={styles.ownedCount}>×{slot.owned.length}</Text>}
                 <Text style={styles.tileStars}>{'★'.repeat(slot.grade)}</Text>

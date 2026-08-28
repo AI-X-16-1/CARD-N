@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius, typography } from '@/shared/theme';
 import { JOB_COLOR } from '@/features/game/constants';
+import { CardArt } from '@/features/game/components/CardArt';
 import { StatRow } from '@/features/game/components/StatRow';
 import type { BattleCard } from '@/features/game/engine/types';
 
@@ -36,6 +37,7 @@ export function DeckStrip({ deckSlots, collection, onRemove, onLongPressCard }: 
             onPress={() => onRemove(card.id)}
             onLongPress={onLongPressCard ? () => onLongPressCard(card.id) : undefined}
           >
+            <CardArt uri={card.illustrationUrl} variant="tile" />
             <Text style={styles.tileStars}>{'★'.repeat(card.grade)}</Text>
             <Text style={styles.tileName} numberOfLines={1}>
               {card.name}

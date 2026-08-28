@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius, typography } from '@/shared/theme';
 import { JOB_COLOR, PASSIVE_INFO } from '@/features/game/constants';
+import { CardArt } from '@/features/game/components/CardArt';
 import { hexToRgba } from '@/features/game/utils/color';
 import type { BattleCard, Stats } from '@/features/game/engine/types';
 
@@ -20,6 +21,7 @@ export function CardDetailPanel({ card, effStats, actions }: Props) {
 
   return (
     <>
+      <CardArt uri={card.illustrationUrl} variant="detail" />
       <Text style={styles.stars}>{'★'.repeat(card.grade)}</Text>
       <Text style={styles.name}>{card.name}</Text>
       <Text style={styles.company}>{card.company}</Text>

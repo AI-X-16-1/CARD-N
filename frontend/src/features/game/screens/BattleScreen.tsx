@@ -12,6 +12,7 @@ import Animated, {
 
 import { colors, radius, typography } from '@/shared/theme';
 import { JOB_COLOR, SYNERGY_INFO } from '@/features/game/constants';
+import { CardArt } from '@/features/game/components/CardArt';
 import { CardDetailPanel } from '@/features/game/components/CardDetailPanel';
 import { StatRow } from '@/features/game/components/StatRow';
 import { attack, calcEffStats, checkSynergies, endTurn, initBattle, playCard, useSkill } from '@/features/game/engine/battle';
@@ -780,6 +781,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
                 fanCardStyle(i, state.hand.length, selectedHandIdx === i),
               ]}
             >
+              <CardArt uri={card.illustrationUrl} variant="tile" />
               <View style={[styles.infoBadge, styles.noPointerEvents]}>
                 <Text style={styles.infoBadgeText}>i</Text>
               </View>
@@ -1022,6 +1024,7 @@ function FieldRow({
               mine && hiddenIdx === i && styles.hiddenCard,
             ]}
           >
+            <CardArt uri={card.illustrationUrl} variant="tile" />
             <View style={[styles.infoBadge, styles.noPointerEvents]}>
               <Text style={styles.infoBadgeText}>i</Text>
             </View>
