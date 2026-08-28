@@ -127,7 +127,11 @@ export default function ScanCameraScreen() {
 
   const handleManualInputPress = () => setStep('manual');
 
-  const handleSaveFromResult = async (values: Record<string, string>, context: string) => {
+  const handleSaveFromResult = async (
+    values: Record<string, string>,
+    context: string,
+    postalCode: string,
+  ) => {
     if (state.status !== 'done') return;
     // ScanResultPanel always shows a "Name" input, synthesizing one when OCR didn't
     // find it (see its comment) — mirror that here so a name the user typed into that
@@ -151,7 +155,16 @@ export default function ScanCameraScreen() {
     setSaving(true);
     try {
       const parsed = await parseOcrFields(updatedFields, context);
-      const person = await createPerson({ ...parsed, image_token: state.result.image_token });
+      const person = await createPerson({
+        ...parsed,
+        // parsed.postal_code only carries what OCR itself guessed (rarely anything —
+        // see scan/service.py's FIELD_CONFIDENCE comment), and there's no "Postal Code"
+        // field in updatedFields for the user to have corrected it through. The address
+        // search widget's result is the one postal code actually worth trusting, so it
+        // wins whenever the user has used it.
+        postal_code: postalCode || parsed.postal_code,
+        image_token: state.result.image_token,
+      });
       setCreatedPerson(person);
       setStep('reveal');
     } catch (error) {
