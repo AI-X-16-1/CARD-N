@@ -18,6 +18,19 @@ interface GameStore {
   /** Hydrate collection + deck from the backend. Safe to call more than once. */
   load: () => Promise<void>;
   toggleSelected: (id: number) => void;
+  /** Fill the empty deck slots with random owned cards not already in the deck. */
+  randomFillDeck: () => void;
+  /** Clear every deck slot. */
+  clearDeck: () => void;
+}
+
+function shuffle<T>(items: T[]): T[] {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
 }
 
 function slotsToIds(slots: (number | null)[]): number[] {
@@ -78,6 +91,27 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
       const next = [...state.deckSlots];
       next[emptyIdx] = id;
+      persist(next);
+      return { deckSlots: next };
+    }),
+
+  randomFillDeck: () =>
+    set((state) => {
+      const inDeck = new Set(slotsToIds(state.deckSlots));
+      const pool = shuffle(
+        state.collection.map((c) => c.id).filter((id) => !inDeck.has(id)),
+      );
+      const next = [...state.deckSlots];
+      for (let i = 0; i < next.length && pool.length > 0; i++) {
+        if (next[i] === null) next[i] = pool.shift()!;
+      }
+      persist(next);
+      return { deckSlots: next };
+    }),
+
+  clearDeck: () =>
+    set(() => {
+      const next = Array(MAX_DECK_SIZE).fill(null);
       persist(next);
       return { deckSlots: next };
     }),

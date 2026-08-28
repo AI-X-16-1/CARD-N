@@ -62,6 +62,61 @@ describe('load', () => {
   });
 });
 
+describe('clearDeck', () => {
+  test('empties every deck slot and persists the empty list', () => {
+    useGameStore.getState().toggleSelected(10);
+    useGameStore.getState().toggleSelected(20);
+
+    useGameStore.getState().clearDeck();
+
+    expect(useGameStore.getState().deckSlots).toEqual(Array(MAX_DECK_SIZE).fill(null));
+    expect(mockedApi.saveDeck).toHaveBeenLastCalledWith([]);
+  });
+});
+
+describe('randomFillDeck', () => {
+  test('fills only the empty slots, leaving an already-placed card where it is', () => {
+    useGameStore.setState({ collection: Array.from({ length: 12 }, (_, i) => card(i + 1)) });
+    useGameStore.getState().toggleSelected(3); // slot 0
+
+    useGameStore.getState().randomFillDeck();
+
+    const slots = useGameStore.getState().deckSlots;
+    expect(slots[0]).toBe(3);
+    expect(slots.every((id) => id !== null)).toBe(true);
+  });
+
+  test('never places a card that is already in the deck', () => {
+    useGameStore.setState({ collection: [card(1), card(2), card(3)] });
+    useGameStore.getState().toggleSelected(2);
+
+    useGameStore.getState().randomFillDeck();
+
+    const ids = useGameStore.getState().deckSlots.filter((id): id is number => id !== null);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toContain(2);
+  });
+
+  test('leaves the remaining slots null when the owned pool runs out', () => {
+    useGameStore.setState({ collection: [card(1), card(2), card(3)] });
+
+    useGameStore.getState().randomFillDeck();
+
+    const slots = useGameStore.getState().deckSlots;
+    expect([...slots.filter((id): id is number => id !== null)].sort((a, b) => a - b)).toEqual([1, 2, 3]);
+    expect(slots.filter((id) => id === null)).toHaveLength(MAX_DECK_SIZE - 3);
+  });
+
+  test('persists the filled deck to the backend', () => {
+    useGameStore.setState({ collection: [card(1), card(2)] });
+
+    useGameStore.getState().randomFillDeck();
+
+    const lastArg = mockedApi.saveDeck.mock.calls.at(-1)?.[0] ?? [];
+    expect([...lastArg].sort((a, b) => a - b)).toEqual([1, 2]);
+  });
+});
+
 describe('toggleSelected', () => {
   test('adds a card id into the first empty slot', () => {
     useGameStore.getState().toggleSelected(10);
