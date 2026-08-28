@@ -5,6 +5,30 @@ import { summarizeCallRecording } from '../api';
 
 type SummaryStatus = 'idle' | 'summarizing' | 'done' | 'error';
 
+/**
+ * Say which of the three requests failed, and how.
+ *
+ * summarizeCallRecording chains transcribe -> summarize -> save, so a bare
+ * `e.message` ("Network Error") names neither the step nor the cause — and those read
+ * very differently: ECONNABORTED is our own timeout firing, while a plain transport
+ * error means the request never left the device.
+ */
+function describeFailure(e: unknown): string {
+  const error = e as {
+    code?: string;
+    message?: string;
+    config?: { url?: string };
+    response?: { data?: { detail?: string } };
+  };
+
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === 'string' && detail) return detail;
+
+  const message = error?.message ?? '요약 생성에 실패했어요.';
+  const where = [error?.config?.url, error?.code].filter(Boolean).join(', ');
+  return where ? `${message} (${where})` : message;
+}
+
 export function useCallRecordingFinder(personId: number, phone: string | null) {
   const [searching, setSearching] = useState(false);
   const [result, setResult] = useState<CallRecordingSearchResult | null>(null);
@@ -40,7 +64,7 @@ export function useCallRecordingFinder(personId: number, phone: string | null) {
         setSummaryStatus((prev) => ({ ...prev, [match.id]: 'error' }));
         setSummaryError((prev) => ({
           ...prev,
-          [match.id]: e instanceof Error ? e.message : '요약 생성에 실패했어요.',
+          [match.id]: describeFailure(e),
         }));
       }
     },
