@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.base import Base
 from app.dependencies import get_db
 from app.features.contacts import models  # noqa: F401  registers tables on Base.metadata
+from app.features.game import models as game_models  # noqa: F401  same
 from app.main import app
 from app.neo4j_driver import get_neo4j_driver
 

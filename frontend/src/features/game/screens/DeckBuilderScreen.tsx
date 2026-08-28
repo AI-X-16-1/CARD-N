@@ -56,6 +56,8 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
   const collection = useGameStore((s) => s.collection);
   const deckSlots = useGameStore((s) => s.deckSlots);
   const toggleSelected = useGameStore((s) => s.toggleSelected);
+  const status = useGameStore((s) => s.status);
+  const reload = useGameStore((s) => s.load);
 
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
   const [filterOpen, setFilterOpen] = useState(false);
@@ -153,6 +155,14 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
           </Text>
           <Text style={styles.metaText}>평균 코스트 {avgCost.toFixed(1)}</Text>
         </View>
+        {status === 'loading' && <Text style={styles.metaText}>카드 컬렉션 불러오는 중…</Text>}
+        {status === 'error' && (
+          <Pressable onPress={() => reload()}>
+            <Text style={[styles.metaText, styles.reloadText]}>
+              컬렉션을 불러오지 못했어요. 다시 시도 ↻
+            </Text>
+          </Pressable>
+        )}
 
         <View style={styles.grid}>
           {deckSlots.map((cardId, i) => {
@@ -411,6 +421,10 @@ const styles = StyleSheet.create({
   metaText: {
     color: colors.textTertiary,
     fontSize: typography.meta.fontSize,
+  },
+  reloadText: {
+    color: colors.primaryLight,
+    fontWeight: '700',
   },
   grid: {
     flexDirection: 'row',
