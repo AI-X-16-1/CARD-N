@@ -1,6 +1,7 @@
 # Incoming Call Alert — Feature Spec
 
-**Status**: assigned to 김민경, implemented (native path not yet verified on a device).
+**Status**: assigned to 김민경, implemented. The ring path is verified on hardware
+(Galaxy S25+, Android 16) — see "Findings that changed the design" #6.
 **Proposed by**: 김민경 (2026-08-27). Design approved in PR #41, then revised — see
 "Findings that changed the design".
 
@@ -103,6 +104,32 @@ Android 8 stopped manifest-declared receivers from getting most implicit broadca
 so it is still delivered on API 26+. That is what lets the alert fire when the app's
 process is gone — a runtime-registered receiver would die with the process.
 
+### 6. RINGING arrives twice, and only the second delivery carries the number
+
+Found on a Galaxy S25+ (Android 16) the first time the feature ran on hardware: the alert
+never appeared even though permissions were granted and the cache held the caller.
+
+Android delivers `ACTION_PHONE_STATE_CHANGED` more than once per call, and the deliveries
+are **not equivalent** — the first `RINGING` arrives with a null `EXTRA_INCOMING_NUMBER`
+and the real one follows about 8ms later:
+
+```
+RINGING  number=<null>
+RINGING  number=01041783253   ← 8ms later
+IDLE     number=<null>
+IDLE     number=01041783253
+```
+
+The receiver de-duplicated the repeats by comparing the call state against the previous
+one. That let the first, numberless `RINGING` consume the transition, so the delivery
+that actually carried the number was discarded as "no change" and nothing was ever
+posted. The number was arriving correctly the whole time.
+
+De-duplication is therefore keyed on **the number already alerted for during the current
+ringing episode**, not on the state transition. A blank delivery now falls through
+without consuming anything, and leaving `RINGING` (answered or ended) resets the episode
+so the next call alerts again.
+
 ## What the cache costs
 
 Moving the lookup on-device means keeping **every contact's phone number and last
@@ -193,13 +220,13 @@ frontend/src/features/call-alert/        ← 김민경
 
 ## Still to do
 
-- **Verify on a device.** The native path has not been exercised on real hardware yet —
-  a prebuild plus an actual incoming call is the only way to confirm the receiver fires,
-  the number arrives unredacted, and the deep link lands on PersonDetailScreen.
 - **Register the consent screen in navigation.** `src/navigation/` is shared and needs a
   separate branch with 2+ approvals (`CLAUDE.md`), so it is not part of this change; the
-  screen exists but nothing routes to it yet.
+  screen exists but nothing routes to it yet. Device testing so far has needed temporary
+  local wiring, thrown away afterwards.
 - **Deep-link handling on cold start.** The notification's `cardn://person/{id}` intent
   needs the navigator to consume it — same navigation-ownership constraint as above.
+  **Still unverified on hardware for that reason**: the alert itself is confirmed, but
+  tapping it has only been exercised against throwaway wiring.
 - **Mute/DND toggle**: out of scope. Withdrawing permission turns the feature off and
   clears the cache, which covers the opt-out case for now.

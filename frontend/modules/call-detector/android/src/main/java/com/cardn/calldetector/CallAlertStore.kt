@@ -17,7 +17,7 @@ import org.json.JSONObject
 object CallAlertStore {
   private const val PREFS = "cardn_call_alert"
   private const val KEY_PREFIX = "phone:"
-  private const val KEY_LAST_STATE = "last_call_state"
+  private const val KEY_ALERTED_FOR = "alerted_for"
 
   data class Contact(val personId: Int, val name: String, val summary: String?)
 
@@ -65,14 +65,26 @@ object CallAlertStore {
   }
 
   /**
-   * Android re-broadcasts PHONE_STATE several times per call, and a manifest receiver is
-   * a fresh instance each time, so the previous state has to live here rather than in a
-   * field.
+   * One alert per ringing episode, tracked here because a manifest receiver is a fresh
+   * instance on every broadcast and cannot hold this in a field.
+   *
+   * Keyed by the number rather than by call state on purpose. Android delivers RINGING
+   * more than once per call and **only some of those deliveries carry
+   * EXTRA_INCOMING_NUMBER** — on a Galaxy S25 the first RINGING arrives with a null
+   * number and the real one follows 8ms later. De-duplicating on the state transition
+   * instead let that first, useless broadcast consume the episode, so the delivery that
+   * actually carried the number was discarded and no alert was ever posted.
    */
-  fun consumeStateTransition(context: Context, state: String?): Boolean {
-    val store = prefs(context)
-    val previous = store.getString(KEY_LAST_STATE, null)
-    store.edit().putString(KEY_LAST_STATE, state).apply()
-    return previous != state
+  fun alertedFor(context: Context): String? =
+    prefs(context).getString(KEY_ALERTED_FOR, null)
+
+  fun markAlerted(context: Context, rawNumber: String) {
+    val normalized = PhoneNumbers.normalize(rawNumber)
+    prefs(context).edit().putString(KEY_ALERTED_FOR, normalized).apply()
+  }
+
+  /** The call was answered or ended, so the next RINGING begins a fresh episode. */
+  fun endRingEpisode(context: Context) {
+    prefs(context).edit().remove(KEY_ALERTED_FOR).apply()
   }
 }
