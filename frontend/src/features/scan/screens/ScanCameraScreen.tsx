@@ -211,7 +211,7 @@ export default function ScanCameraScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <Pressable onPress={confirmClose} hitSlop={8} style={styles.closeButtonWrap} disabled>
+          <Pressable onPress={confirmClose} hitSlop={8} style={styles.closeButtonWrap}>
             <Text style={styles.closeButton}>✕</Text>
           </Pressable>
           <Text style={styles.title}>명함 스캔</Text>
