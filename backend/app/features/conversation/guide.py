@@ -51,6 +51,10 @@ class Topic:
     naming: tuple[str, ...]
     supporting: tuple[str, ...]
     answer: str
+    #: Groups the question must hit at least one word from *each* of, or the topic is
+    #: not a candidate at all. Scoring alone cannot express "a verb AND what it acts
+    #: on", which is what separates 대화 기록 삭제 from 사람 삭제 — both are 삭제.
+    requires: tuple[tuple[str, ...], ...] = ()
 
 
 # Order is the tie-break: the first topic holding the top score wins, so the specific
@@ -66,6 +70,37 @@ TOPICS: tuple[Topic, ...] = (
             "그렇게 쌓인 관계를 그래프로 보고, 카드 배틀 게임까지 하는 앱입니다.\n"
             "하단 탭은 홈, 목록, 가운데 스캔 버튼, 관계도, 게임 다섯 개입니다."
         ),
+    ),
+    # Both delete topics are gated on a delete verb, so they cannot steal a question
+    # that never asked to delete anything. That is what lets them sit this early, where
+    # they win the ties against the topic that owns the noun — 명함 삭제 is a deletion,
+    # not a scan.
+    Topic(
+        id="delete_conversation",
+        question="대화 기록은 어떻게 지우나요?",
+        naming=("대화", "기록", "요약", "녹음"),
+        supporting=("삭제", "지우", "지워", "지울", "없애", "타임라인"),
+        requires=(
+            # 지우다 conjugates into different syllables, and Korean precomposes them,
+            # so 지워 does not contain 지우 — each form has to be listed.
+            ("삭제", "지우", "지워", "지울", "없애"),
+            ("대화", "기록", "요약", "녹음"),
+        ),
+        answer=(
+            "사람 상세 화면의 대화 기록에서 지울 항목의 '삭제'를 누릅니다.\n"
+            "확인 창에서 한 번 더 누르면 그 요약만 지워지고, 사람은 목록에 그대로 남습니다."
+        ),
+    ),
+    Topic(
+        id="delete_person",
+        question="등록한 사람을 어떻게 지우나요?",
+        naming=("사람", "연락처", "목록", "명함", "등록"),
+        supporting=("삭제", "지우", "지워", "지울", "없애"),
+        requires=(
+            ("삭제", "지우", "지워", "지울", "없애"),
+            ("사람", "연락처", "목록", "명함", "등록"),
+        ),
+        answer="목록 탭에서 지울 사람의 행을 길게 누르면 삭제할 수 있습니다.",
     ),
     Topic(
         id="scan_batch",
@@ -152,13 +187,6 @@ TOPICS: tuple[Topic, ...] = (
         ),
     ),
     Topic(
-        id="delete_person",
-        question="등록한 사람을 어떻게 지우나요?",
-        naming=("삭제", "지우", "지울", "없애"),
-        supporting=("목록", "연락처", "사람"),
-        answer="목록 탭에서 지울 사람의 행을 길게 누르면 삭제할 수 있습니다.",
-    ),
-    Topic(
         id="contacts",
         question="목록에서 사람은 어떻게 찾나요?",
         naming=("목록", "검색", "찾"),
@@ -235,12 +263,19 @@ def _score(topic: Topic, question: str) -> int:
     return naming + sum(SUPPORTING_WEIGHT for word in topic.supporting if word in question)
 
 
+def _gated_out(topic: Topic, question: str) -> bool:
+    """True when the question misses one of the groups `requires` insists on."""
+    return any(not any(word in question for word in group) for group in topic.requires)
+
+
 def _match(question: str) -> Topic | None:
     """The best-scoring topic, or None when nothing cleared MATCH_THRESHOLD."""
     normalized = _normalize(question)
     best: Topic | None = None
     best_score = MATCH_THRESHOLD - 1
     for topic in TOPICS:
+        if _gated_out(topic, normalized):
+            continue
         score = _score(topic, normalized)
         if score > best_score:  # strict, so a tie leaves the earlier topic in place
             best, best_score = topic, score

@@ -565,6 +565,14 @@ already had, and risked describing a screen that does not exist. Matching is key
 scoring over the last user turn; a question that clears the threshold gets its topic's
 answer verbatim.
 
+A topic may also declare `requires`: groups of words the question must hit one of
+*each* of, or the topic is not a candidate at all. Scoring alone cannot express "a verb
+AND the thing it acts on", which is what separates 대화 기록 삭제 (a summary in the
+timeline) from 사람 삭제 (a row in 목록) — both are 삭제. Because a gated topic cannot be
+reached by a question that never asked to delete anything, the delete topics sit early
+in the table and win the ties against the topic that owns the noun: 명함 삭제 is a
+deletion, not a scan.
+
 ```
 Request:
 {

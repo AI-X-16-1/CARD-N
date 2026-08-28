@@ -48,6 +48,13 @@ def _topic(topic_id):
         ("목록에서 사람 어떻게 찾아요", "contacts"),
         ("직함으로 검색돼요?", "contacts"),
         ("사람 삭제하고 싶어요", "delete_person"),
+        ("등록한 사람 어떻게 지워요?", "delete_person"),
+        ("연락처 지우고 싶어", "delete_person"),
+        ("명함 삭제할래", "delete_person"),  # a deletion, not a scan
+        ("대화 기록 삭제할 수 있어요?", "delete_conversation"),
+        ("대화 삭제하고 싶어요", "delete_conversation"),
+        ("녹음 기록 지우고 싶어", "delete_conversation"),
+        ("요약 지울 수 있나요?", "delete_conversation"),
         ("게임 어떻게 해요?", "game"),
         ("덱은 어디서 짜요", "game"),
         ("상세 화면에 뭐가 있어요?", "person_detail"),
@@ -67,6 +74,7 @@ def test_a_question_reaches_the_topic_it_means(question, expected):
         pytest.param("오늘 날씨 어때?", id="small-talk"),
         pytest.param("파이썬으로 퀵소트 짜줘", id="off-topic-task"),
         pytest.param("누가 만들었어요?", id="one-generic-word-is-not-enough"),
+        pytest.param("삭제하고 싶어요", id="delete-what-exactly"),
         pytest.param("ㅁㄴㅇㄹ", id="gibberish"),
     ],
 )
@@ -81,6 +89,40 @@ def test_asking_who_is_registered_is_declined_not_guessed():
     assert matched is not None and matched.id == "who_is_registered"
     assert "확인해 드릴 수 없습니다" in matched.answer
     assert "목록 탭" in matched.answer
+
+
+def test_deleting_a_conversation_is_not_confused_with_deleting_a_person():
+    """The two share every delete verb, so the noun is what has to tell them apart.
+
+    Reported on #54 by the contacts owner: 대화 기록 삭제 used to land on delete_person,
+    which sent people to long-press a row in 목록 — that deletes the person. Conversation
+    summaries have their own 삭제 on each row of the timeline
+    (features/contacts/components/ConversationTimeline.tsx).
+    """
+    conversation = _match("대화 기록 삭제할 수 있어요?")
+    assert conversation is not None and conversation.id == "delete_conversation"
+    assert "대화 기록" in conversation.answer
+    assert "사람은 목록에 그대로" in conversation.answer
+
+    person = _match("등록한 사람 어떻게 지워요?")
+    assert person is not None and person.id == "delete_person"
+
+
+def test_a_delete_topic_needs_a_delete_verb():
+    """`requires` is what keeps these two early in the table without them stealing.
+
+    They are declared before scan and contacts so they win the tie on 명함 삭제 and
+    목록에서 삭제 — which is only safe because a question that never asked to delete
+    anything cannot reach them at all.
+    """
+    for question, expected in [
+        ("명함 어떻게 등록해?", "scan"),
+        ("목록에서 사람 어떻게 찾아요", "contacts"),
+        ("녹음 기록은 어디서 봐요?", "record"),
+        ("요약에는 뭐가 나와요?", "summary"),
+    ]:
+        matched = _match(question)
+        assert matched is not None and matched.id == expected, question
 
 
 def test_no_keyword_is_a_substring_of_another_in_the_same_topic():
