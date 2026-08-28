@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 
 import { colors, radius, typography } from '@/shared/theme';
 
-import { AddressSearchModal } from './AddressSearchModal';
+import { AddressSearchModal } from '@/shared/components/AddressSearchModal';
 import { OcrFieldList } from './OcrFieldList';
 import type { OcrField } from '../hooks/useOcrScan';
 
