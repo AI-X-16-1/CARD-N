@@ -9,6 +9,7 @@ import { extractErrorMessage, useOcrScan } from '@/features/scan/hooks/useOcrSca
 import { ScanResultPanel } from '@/features/scan/components/ScanResultPanel';
 import { ManualInputForm } from '@/features/scan/components/ManualInputForm';
 import { CardRevealPanel } from '@/features/scan/components/CardRevealPanel';
+import { CloseConfirmModal } from '@/features/scan/components/CloseConfirmModal';
 import { createPerson, parseOcrFields } from '@/features/scan/api';
 import type { CreatedPerson, ParsedPerson } from '@/features/scan/types';
 
@@ -25,6 +26,7 @@ export default function ScanCameraScreen() {
   const [saving, setSaving] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [createdPerson, setCreatedPerson] = useState<CreatedPerson | null>(null);
+  const [confirmCloseVisible, setConfirmCloseVisible] = useState(false);
   const cameraRef = useRef<CameraView>(null);
   const scanLineY = useRef(new Animated.Value(0)).current;
   const { state, isScanning, scan, reset } = useOcrScan();
@@ -40,12 +42,14 @@ export default function ScanCameraScreen() {
   // Any explicit "leave the scan" action (✕, hardware back) goes through this instead
   // of handleClose directly, so an in-progress scan/entry can't be lost to an accidental
   // tap or back-press. handleDone (after a successful save) bypasses it — there's
-  // nothing left to lose at that point.
-  const confirmClose = () => {
-    Alert.alert('스캔을 취소하시겠습니까?', '지금 나가면 스캔한 내용이 저장되지 않아요.', [
-      { text: '계속하기', style: 'cancel' },
-      { text: '취소하고 나가기', style: 'destructive', onPress: handleClose },
-    ]);
+  // nothing left to lose at that point. Renders as CloseConfirmModal (below) rather than
+  // Alert.alert, since react-native-web's Alert.alert is a no-op and would silently do
+  // nothing on web instead of confirming.
+  const confirmClose = () => setConfirmCloseVisible(true);
+  const cancelClose = () => setConfirmCloseVisible(false);
+  const proceedClose = () => {
+    setConfirmCloseVisible(false);
+    handleClose();
   };
 
   const handleDone = () => {
@@ -170,10 +174,15 @@ export default function ScanCameraScreen() {
     }
   };
 
+  const closeConfirmModal = (
+    <CloseConfirmModal visible={confirmCloseVisible} onCancel={cancelClose} onConfirm={proceedClose} />
+  );
+
   if (step === 'reveal' && createdPerson) {
     return (
       <SafeAreaView style={styles.container}>
         <CardRevealPanel person={createdPerson} onDone={handleDone} />
+        {closeConfirmModal}
       </SafeAreaView>
     );
   }
@@ -186,6 +195,7 @@ export default function ScanCameraScreen() {
           onSave={handleSaveFromManual}
           saving={saving}
         />
+        {closeConfirmModal}
       </SafeAreaView>
     );
   }
@@ -200,6 +210,7 @@ export default function ScanCameraScreen() {
           onSave={handleSaveFromResult}
           saving={saving}
         />
+        {closeConfirmModal}
       </SafeAreaView>
     );
   }
@@ -211,7 +222,7 @@ export default function ScanCameraScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <Pressable onPress={confirmClose} hitSlop={8} style={styles.closeButtonWrap} disabled>
+          <Pressable onPress={confirmClose} hitSlop={8} style={styles.closeButtonWrap}>
             <Text style={styles.closeButton}>✕</Text>
           </Pressable>
           <Text style={styles.title}>명함 스캔</Text>
@@ -220,6 +231,7 @@ export default function ScanCameraScreen() {
         <View style={styles.recognizingBox}>
           <Text style={styles.recognizingText}>인식 중…</Text>
         </View>
+        {closeConfirmModal}
       </SafeAreaView>
     );
   }
@@ -238,6 +250,7 @@ export default function ScanCameraScreen() {
             <Text style={styles.primaryButtonLabel}>권한 허용하기</Text>
           </Pressable>
         </View>
+        {closeConfirmModal}
       </SafeAreaView>
     );
   }
@@ -321,6 +334,7 @@ export default function ScanCameraScreen() {
           <Text style={styles.manualInputLabel}>직접 입력</Text>
         </Pressable>
       </View>
+      {closeConfirmModal}
     </SafeAreaView>
   );
 }

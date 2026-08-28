@@ -1,6 +1,7 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { colors, typography } from '@/shared/theme';
+import { colors, radius, typography } from '@/shared/theme';
+import { personImageUrl } from '../api';
 import { formatRelativeTime } from '../formatRelativeTime';
 import { jobColor, jobLabel } from '../jobTint';
 import type { RecentPerson } from '../types';
@@ -23,14 +24,22 @@ export function RecentContactRow({ person, onPress }: Props) {
 
   return (
     <Pressable style={styles.row} onPress={() => onPress(person)}>
-      <View
-        style={[
-          styles.avatar,
-          { backgroundColor: hexToRgba(ringColor, 0.16), borderColor: ringColor },
-        ]}
-      >
-        <Text style={[styles.avatarLabel, { color: ringColor }]}>{initial}</Text>
-      </View>
+      {person.has_image ? (
+        <Image
+          source={{ uri: personImageUrl(person.id) }}
+          style={[styles.thumbnail, { borderColor: ringColor }]}
+          resizeMode="cover"
+        />
+      ) : (
+        <View
+          style={[
+            styles.avatar,
+            { backgroundColor: hexToRgba(ringColor, 0.16), borderColor: ringColor },
+          ]}
+        >
+          <Text style={[styles.avatarLabel, { color: ringColor }]}>{initial}</Text>
+        </View>
+      )}
       <View style={styles.info}>
         <Text style={styles.name}>{person.name}</Text>
         <Text style={styles.meta}>
@@ -56,6 +65,13 @@ const styles = StyleSheet.create({
     borderWidth: 1.6,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  thumbnail: {
+    width: 44,
+    height: 28,
+    borderRadius: radius.gameCard,
+    borderWidth: 1.6,
+    backgroundColor: colors.surface2,
   },
   avatarLabel: {
     fontSize: 14,
