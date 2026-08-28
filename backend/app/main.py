@@ -1,4 +1,6 @@
 import asyncio
+import logging
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -13,6 +15,24 @@ from app.features.scan.ocr.pipeline import warmup as warmup_ocr
 from app.features.scan.router import router as scan_router
 from app.neo4j_driver import close_neo4j_driver
 
+logger = logging.getLogger(__name__)
+
+
+async def _warmup(load: Callable[[], None], name: str) -> None:
+    """Load a model up front, but never at the cost of the server starting at all.
+
+    Both loaders stay lazy underneath, so a failure here just gives the cost back to
+    the first request — which is where it sat before any of this. Letting the failure
+    out instead would take contacts, graph and game down with it over a model only
+    /transcribe or /scan needs, and the reason would be nowhere near the symptom. That
+    is not theoretical right now: #33 moved Whisper to large-v3-turbo, so everyone's
+    cache is empty and the first startup after a clone downloads ~1.6GB.
+    """
+    try:
+        await asyncio.to_thread(load)
+    except Exception:
+        logger.warning("%s warmup failed — the first request will load it", name, exc_info=True)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -24,8 +44,8 @@ async def lifespan(app: FastAPI):
     # spend that time inside C extensions that release the GIL, so loading them
     # together finishes sooner than one after the other.
     await asyncio.gather(
-        asyncio.to_thread(warmup_ocr),
-        asyncio.to_thread(warmup_stt),
+        _warmup(warmup_ocr, "ocr"),
+        _warmup(warmup_stt, "whisper"),
     )
     yield
     await close_neo4j_driver()

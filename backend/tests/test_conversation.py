@@ -10,6 +10,8 @@ The warmup tests at the bottom stay on the right side of that line by stubbing t
 model out — what they pin down is when it gets built, not what it transcribes.
 """
 
+import threading
+import time
 from collections.abc import AsyncIterator
 
 import pytest
@@ -326,21 +328,38 @@ def test_warmup_can_be_turned_off(monkeypatch) -> None:
     assert calls == []
 
 
-def test_the_model_is_built_once_and_under_the_lock(monkeypatch) -> None:
-    """Requests transcribe in threadpool threads, so two of them arriving before the
-    model is up would otherwise each load their own multi-gigabyte copy."""
-    locked_while_building = []
+def test_the_model_is_built_once_under_concurrent_callers(monkeypatch) -> None:
+    """Requests transcribe in threadpool threads, so several arriving before the model
+    is up would otherwise each load their own multi-gigabyte copy.
+
+    The callers really do race here — a barrier releases them together and the fake
+    load holds the lock long enough for the losers to arrive while it is still held,
+    which is the window the double-checked lock exists to close.
+    """
+    builds = []
+    start_together = threading.Barrier(4)
 
     class _FakeModel:
         def __init__(self, name, device=None, compute_type=None) -> None:
-            locked_while_building.append(stt._model_lock.locked())
+            builds.append(stt._model_lock.locked())
+            time.sleep(0.05)
 
     monkeypatch.setattr(stt, "WhisperModel", _FakeModel)
     monkeypatch.setattr(stt, "_model", None)
     monkeypatch.setattr(stt, "_loaded_key", "")
 
-    first = stt._get_model()
-    second = stt._get_model()
+    got = []
 
-    assert locked_while_building == [True]
-    assert first is second
+    def call() -> None:
+        start_together.wait(timeout=5)
+        got.append(stt._get_model())
+
+    threads = [threading.Thread(target=call) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert builds == [True], "built more than once, or built outside the lock"
+    assert len(got) == 4
+    assert all(model is got[0] for model in got)
