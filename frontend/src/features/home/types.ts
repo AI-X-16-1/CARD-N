@@ -16,4 +16,5 @@ export type RecentPerson = {
   title: string | null;
   job_class: string | null;
   created_at: string;
+  has_image: boolean;
 };

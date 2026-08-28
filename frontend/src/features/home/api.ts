@@ -14,6 +14,12 @@ export async function fetchRecentContacts(): Promise<{ total: number; items: Rec
   return response.data;
 }
 
+// GET /contacts/{id}/image serves the corrected card image directly (FileResponse on
+// the backend) — a plain URL for an <Image> source. Only meaningful when has_image is true.
+export function personImageUrl(personId: number): string {
+  return `${apiClient.defaults.baseURL}/contacts/${personId}/image`;
+}
+
 // The backend's MyCard fields are all nullable (a fresh card starts empty); MyCard's own
 // fields are non-nullable strings so every screen's controlled <TextInput> can bind to
 // `card.field` directly without an `?? ''` at each call site — the null/'' translation

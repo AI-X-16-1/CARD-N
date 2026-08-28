@@ -23,7 +23,7 @@ export function ContactRow({ person, onPress, onLongPress }: Props) {
       onPress={() => onPress(person)}
       onLongPress={onLongPress ? () => onLongPress(person) : undefined}
     >
-      <CardThumbnail jobClass={person.job_class} />
+      <CardThumbnail personId={person.id} jobClass={person.job_class} hasImage={person.has_image} />
       <View style={styles.body}>
         <View style={styles.nameLine}>
           <Text style={styles.name} numberOfLines={1}>
