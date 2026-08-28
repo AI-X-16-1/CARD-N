@@ -2,6 +2,7 @@
 on in-memory image bytes inside a FastAPI request instead of a CLI script over a
 folder of files.
 """
+
 import os
 import threading
 from io import BytesIO
@@ -74,13 +75,24 @@ def _downscale(image: np.ndarray, max_side: int = MAX_SIDE) -> np.ndarray:
     return cv2.resize(image, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
 
 
-def _ocr_predict(ocr, image: np.ndarray) -> tuple[list[str], list[tuple[int, int, int, int]]]:
+def _ocr_predict(
+    ocr, image: np.ndarray
+) -> tuple[list[str], list[tuple[int, int, int, int]], np.ndarray]:
     result = ocr.predict(image)
     if not result:
-        return [], []
-    lines = list(result[0]["rec_texts"])
-    boxes = [tuple(int(v) for v in b) for b in result[0].get("rec_boxes", [])]
-    return lines, boxes
+        return [], [], image
+    r0 = result[0]
+    lines = list(r0["rec_texts"])
+    boxes = [tuple(int(v) for v in b) for b in r0.get("rec_boxes", [])]
+    # use_doc_orientation_classify=True (see _get_ocr) already corrects for a
+    # sideways/upside-down card before reading it — that correction just never made it
+    # back into the image we save. `rot_img` is that same corrected image (a no-op
+    # rotation when the card was already upright), so using it here instead of the raw
+    # `image` we were given fixes the saved card photo the same way the recognized text
+    # already benefits from, at no extra inference cost.
+    dpr = r0.get("doc_preprocessor_res")
+    corrected = dpr["rot_img"] if dpr is not None else image
+    return lines, boxes, corrected
 
 
 class OcrPipelineResult:
@@ -108,17 +120,19 @@ def extract_business_card(image_bytes: bytes) -> OcrPipelineResult:
     crop = cards[0] if cards else image
     contour_detected = bool(cards)
 
-    lines, boxes = _ocr_predict(ocr, crop)
+    lines, boxes, crop = _ocr_predict(ocr, crop)
 
     # Contour detection failed (e.g. weak card/background contrast) — retry against
-    # just the region where OCR found text clustered together.
+    # just the region where OCR found text clustered together. `boxes` are in `crop`'s
+    # coordinate frame (post orientation-correction, since that's what detection actually
+    # ran against), so this has to crop from `crop`, not the original `image`.
     if not contour_detected and boxes:
         text_crop = crop_by_text_cluster(crop, boxes)
         if text_crop is not None:
-            cluster_lines, _ = _ocr_predict(ocr, text_crop)
+            cluster_lines, _, cluster_crop = _ocr_predict(ocr, text_crop)
             if cluster_lines:
                 lines = cluster_lines
-                crop = text_crop  # the region fields were actually read from
+                crop = cluster_crop  # the (orientation-corrected) region fields were actually read from
 
     fields, etc = parse_fields(lines)
     ok, encoded = cv2.imencode(".jpg", crop)
