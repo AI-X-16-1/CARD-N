@@ -54,6 +54,22 @@ Example: Marketing Team Manager → ATK = floor(7 × 1.35) = 9
 | Sales Team | Cold Call | 3 | Deal `INT + 3` damage to a random card on the enemy field |
 | Planning/PM | Roadmap | 2 | Draw 2 cards |
 
+## Passives (One per role, always on)
+
+Passives need no action and no cost. Each proc appends a `패시브 · …` line
+to the battle log. They apply to both sides.
+
+| Role | Passive | Effect | Trigger |
+|------|---------|--------|---------|
+| Development Team | 밤샘코딩 | Its attacks contend with only half of the target's DEF (mitigation uses `floor(DEF/4)` instead of `floor(DEF/2)`) | on attack |
+| Designer | 디테일광 | Any attacker that strikes this card permanently loses 1 ATK (stacks) | when hit |
+| HR Team | 복지왕 | At turn start, heals the allies in the two adjacent field slots by 1 (capped at max HP) | turn start |
+| Finance Team | 짠돌이 | Takes 1 less damage from every hit it takes (as defender, and as an attacker eating a counterattack); still floored at 1 | when hit |
+| Legal Team | 빈틈없음 | Takes no counterattack damage when it attacks | on attack |
+| Marketing Team | 트렌드세터 | On entering the field, every other ally already on the field gains +1 ATK permanently (one-time) | on play |
+| Sales Team | 영업왕 | +2 damage when it attacks the enemy hero | on attack |
+| Planning/PM | 일정관리 | At turn start, if this side's hand is down to 2 or fewer, draw 1 extra card (once, regardless of how many PM cards) | turn start |
+
 ## Synergies (Auto-triggered on your field)
 
 | Name | Condition | Effect |

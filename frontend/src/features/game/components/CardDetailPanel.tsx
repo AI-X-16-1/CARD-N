@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius, typography } from '@/shared/theme';
-import { JOB_COLOR } from '@/features/game/constants';
+import { JOB_COLOR, PASSIVE_INFO } from '@/features/game/constants';
 import { hexToRgba } from '@/features/game/utils/color';
 import type { BattleCard, Stats } from '@/features/game/engine/types';
 
@@ -41,8 +41,8 @@ export function CardDetailPanel({ card, effStats, actions }: Props) {
         <Text style={styles.chipDesc}>{card.skill.description}</Text>
       </View>
       <View style={styles.chip}>
-        <Text style={styles.chipTitle}>패시브 · {card.jobLabel}</Text>
-        <Text style={styles.chipDesc}>{card.passive}</Text>
+        <Text style={styles.chipTitle}>패시브 · {PASSIVE_INFO[card.jobClass].name}</Text>
+        <Text style={styles.chipDesc}>{PASSIVE_INFO[card.jobClass].effect}</Text>
       </View>
 
       {!!card.flavorText && <Text style={styles.flavor}>“{card.flavorText}”</Text>}

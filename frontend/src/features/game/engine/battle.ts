@@ -1,4 +1,19 @@
 import type { BattleCard, BattleEvent, BattleState, EffectiveStats, Stats, Synergy } from './types';
+import {
+  defMitigationDivisor,
+  devPierceLog,
+  extraDamageReduction,
+  financeReduceLog,
+  heroAttackBonus,
+  ignoresCounter,
+  legalNoCounterLog,
+  retaliatesWithAtkDebuff,
+  designDebuffLog,
+  marketingEntryLog,
+  hrRegenLog,
+  pmDrawLog,
+  salesHeroLog,
+} from './passives';
 
 const SYNERGY_STAT_BONUS: Record<string, Partial<Stats>> = {
   'GTM Team': { atk: 2 },
@@ -115,15 +130,22 @@ export function playCard(state: BattleState, handIdx: number, fieldSlot: number)
     justPlayed: true,
   };
 
-  const field = [...state.field];
+  let field = [...state.field];
   field[fieldSlot] = placed;
+  const log = [...state.log, `${card.name} 카드를 필드에 배치`];
+
+  // marketing 트렌드세터: on-enter, pump every other ally already on the field.
+  if (placed.jobClass === 'marketing' && field.some((c, i) => c && i !== fieldSlot)) {
+    field = field.map((c, i) => (c && i !== fieldSlot ? addBuff(c, { atk: 1 }) : c));
+    log.push(marketingEntryLog());
+  }
 
   return {
     ...state,
     hand: state.hand.filter((_, i) => i !== handIdx),
     field,
     cost: state.cost - card.cost,
-    log: [...state.log, `${card.name} 카드를 필드에 배치`],
+    log,
     turnEvents: [],
   };
 }
@@ -155,10 +177,11 @@ export function attack(
   const log = [...state.log];
 
   if (targetFieldIdx === 'hero') {
-    const dmg = atkStats.atk;
+    const dmg = atkStats.atk + heroAttackBonus(attacker);
     eHp -= dmg;
     field[myFieldIdx] = { ...attacker, hasActed: true };
     log.push(`${attacker.name} → 상대 히어로에게 ${dmg} 피해`);
+    if (attacker.jobClass === 'sales') log.push(salesHeroLog());
   } else {
     const defender = state.eField[targetFieldIdx];
     if (!defender) throw new Error(`attack: no card in enemy field at index ${targetFieldIdx}`);
@@ -166,17 +189,31 @@ export function attack(
     const eSynergies = checkSynergies(state.eField.filter((c): c is BattleCard => c !== null));
     const defStats = calcEffStats(defender, eSynergies);
 
-    const dmgToDefender = Math.max(1, atkStats.atk - Math.floor(defStats.def / 2));
-    const dmgToAttacker = Math.max(1, Math.floor(defStats.atk / 2));
+    const mitigation = Math.floor(defStats.def / defMitigationDivisor(attacker));
+    const rawToDefender = atkStats.atk - mitigation - extraDamageReduction(defender);
+    const rawToAttacker = Math.floor(defStats.atk / 2) - extraDamageReduction(attacker);
+    const dmgToDefender = Math.max(1, rawToDefender);
+    const dmgToAttacker = ignoresCounter(attacker) ? 0 : Math.max(1, rawToAttacker);
 
     const defenderHp = (defender.currentHp ?? defStats.hp) - dmgToDefender;
     const attackerHp = (attacker.currentHp ?? atkStats.hp) - dmgToAttacker;
 
     eField[targetFieldIdx] = defenderHp <= 0 ? null : { ...defender, currentHp: defenderHp };
-    field[myFieldIdx] =
+    let attackerAfter: BattleCard | null =
       attackerHp <= 0 ? null : { ...attacker, currentHp: attackerHp, hasActed: true };
+    if (attackerAfter && retaliatesWithAtkDebuff(defender)) {
+      attackerAfter = addBuff(attackerAfter, { atk: -1 });
+    }
+    field[myFieldIdx] = attackerAfter;
 
     log.push(`${attacker.name} → ${defender.name}에게 ${dmgToDefender} 피해 (반격 ${dmgToAttacker})`);
+    if (attackerAfter && retaliatesWithAtkDebuff(defender)) log.push(designDebuffLog(attacker.name));
+    if (attacker.jobClass === 'dev' && defStats.def >= 2) log.push(devPierceLog());
+    if (defender.jobClass === 'finance' && atkStats.atk - mitigation >= 2) log.push(financeReduceLog());
+    if (attacker.jobClass === 'finance' && !ignoresCounter(attacker) && Math.floor(defStats.atk / 2) >= 2) {
+      log.push(financeReduceLog());
+    }
+    if (ignoresCounter(attacker) && Math.floor(defStats.atk / 2) >= 1) log.push(legalNoCounterLog());
   }
 
   const next: BattleState = {
@@ -227,6 +264,44 @@ function addBuff(card: BattleCard, buff: Partial<Stats>): BattleCard {
 
 function applyBuffToAll(field: (BattleCard | null)[], buff: Partial<Stats>): (BattleCard | null)[] {
   return field.map((card) => (card ? addBuff(card, buff) : card));
+}
+
+// hr passive (복지왕): every hr card on this field heals the allies in its two
+// adjacent slots by 1, capped at their max HP. Pushes a log line per heal.
+// pm passive (일정관리): if this field has a pm card and the hand is down to
+// 2 or fewer, draw 1 extra card at turn start.
+function applyPmDraw(
+  field: (BattleCard | null)[],
+  deck: BattleCard[],
+  hand: BattleCard[],
+  log: string[],
+): { deck: BattleCard[]; hand: BattleCard[] } {
+  if (hand.length > 2 || !field.some((c) => c?.jobClass === 'pm')) return { deck, hand };
+  const drawn = drawUpTo(deck, hand, 1);
+  if (drawn.hand.length > hand.length) log.push(pmDrawLog());
+  return drawn;
+}
+
+function applyHrRegen(
+  field: (BattleCard | null)[],
+  synergies: Synergy[],
+  log: string[],
+): (BattleCard | null)[] {
+  const next = [...field];
+  next.forEach((hrCard, hrSlot) => {
+    if (hrCard?.jobClass !== 'hr') return;
+    for (const n of [hrSlot - 1, hrSlot + 1]) {
+      if (n < 0 || n >= next.length) continue;
+      const ally = next[n];
+      if (!ally) continue;
+      const maxHp = calcEffStats(ally, synergies).hp;
+      const cur = ally.currentHp ?? maxHp;
+      if (cur >= maxHp) continue;
+      next[n] = { ...ally, currentHp: Math.min(maxHp, cur + 1) };
+      log.push(hrRegenLog(ally.name));
+    }
+  });
+  return next;
 }
 
 export function useSkill(state: BattleState, myFieldIdx: number): BattleState {
@@ -354,8 +429,10 @@ export function endTurn(state: BattleState): BattleState {
   const eMaxCost = Math.min(MAX_COST_CAP, state.eMaxCost + 1);
   let eCost = eMaxCost;
   let { deck: eDeck, hand: eHand } = drawUpTo(state.eDeck, state.eHand, 1);
+  let eField = readyField(state.eField);
+  eField = applyHrRegen(eField, checkSynergies(eField.filter((c): c is BattleCard => c !== null)), log);
+  ({ deck: eDeck, hand: eHand } = applyPmDraw(eField, eDeck, eHand, log));
   events.push(...drawEvents('enemy', state.eHand, eHand));
-  const eField = readyField(state.eField);
   let field = [...state.field];
   let myHp = state.myHp;
 
@@ -380,6 +457,13 @@ export function endTurn(state: BattleState): BattleState {
     played += 1;
     events.push({ type: 'play', who: 'enemy', cardId: card.id, slot });
     log.push(`상대가 ${card.name} 카드를 배치`);
+
+    if (card.jobClass === 'marketing' && eField.some((c, i) => c && i !== slot)) {
+      for (let k = 0; k < eField.length; k++) {
+        if (eField[k] && k !== slot) eField[k] = addBuff(eField[k]!, { atk: 1 });
+      }
+      log.push(marketingEntryLog());
+    }
   }
 
   // Each ready enemy card attacks.
@@ -395,7 +479,8 @@ export function endTurn(state: BattleState): BattleState {
 
     if (myAliveIdx.length === 0) {
       if (state.turnN === 1) continue; // no first-turn rush
-      myHp -= atkStats.atk;
+      const heroDmg = atkStats.atk + heroAttackBonus(attacker);
+      myHp -= heroDmg;
       eField[i] = { ...attacker, hasActed: true };
       events.push({
         type: 'attack',
@@ -407,7 +492,8 @@ export function endTurn(state: BattleState): BattleState {
         attackerHp: attacker.currentHp ?? atkStats.hp,
         targetHp: null,
       });
-      log.push(`상대의 ${attacker.name} → 내 히어로에게 ${atkStats.atk} 피해`);
+      log.push(`상대의 ${attacker.name} → 내 히어로에게 ${heroDmg} 피해`);
+      if (attacker.jobClass === 'sales') log.push(salesHeroLog());
       continue;
     }
 
@@ -428,7 +514,12 @@ export function endTurn(state: BattleState): BattleState {
     const attackerHp = (attacker.currentHp ?? atkStats.hp) - dmgToAttacker;
 
     field[targetIdx] = defenderHp <= 0 ? null : { ...defender, currentHp: defenderHp };
-    eField[i] = attackerHp <= 0 ? null : { ...attacker, currentHp: attackerHp, hasActed: true };
+    let eAttackerAfter: BattleCard | null =
+      attackerHp <= 0 ? null : { ...attacker, currentHp: attackerHp, hasActed: true };
+    if (eAttackerAfter && retaliatesWithAtkDebuff(defender)) {
+      eAttackerAfter = addBuff(eAttackerAfter, { atk: -1 });
+    }
+    eField[i] = eAttackerAfter;
 
     events.push({
       type: 'attack',
@@ -441,13 +532,16 @@ export function endTurn(state: BattleState): BattleState {
       targetHp: defenderHp <= 0 ? null : defenderHp,
     });
     log.push(`상대의 ${attacker.name} → ${defender.name}에게 ${dmgToDefender} 피해 (반격 ${dmgToAttacker})`);
+    if (eAttackerAfter && retaliatesWithAtkDebuff(defender)) log.push(designDebuffLog(attacker.name));
   }
 
   // --- My new turn setup ---
   const maxCost = Math.min(MAX_COST_CAP, state.maxCost + 1);
-  const { deck, hand } = drawUpTo(state.deck, state.hand, 1);
-  events.push(...drawEvents('me', state.hand, hand));
   field = readyField(field);
+  field = applyHrRegen(field, checkSynergies(field.filter((c): c is BattleCard => c !== null)), log);
+  let { deck, hand } = drawUpTo(state.deck, state.hand, 1);
+  ({ deck, hand } = applyPmDraw(field, deck, hand, log));
+  events.push(...drawEvents('me', state.hand, hand));
 
   const next: BattleState = {
     ...state,
