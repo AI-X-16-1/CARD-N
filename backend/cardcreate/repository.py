@@ -20,6 +20,12 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# NOTE (PR #64 review): this reads the contacts/game feature tables directly.
+# backend/CLAUDE.md rule 1 wants cross-feature access to go through app/core/ or
+# an API. Until this module is folded into the game feature (or a
+# `GET /game/cards/{id}` + `GET /contacts/{id}/image` call replaces the query),
+# it stays a read-only join, matching how game/service.py already imports
+# contacts.models.Person.
 from app.features.contacts.models import Person
 from app.features.game.models import BattleCard
 from cardcreate.schemas import CardSkill, CardStats, GameCardData

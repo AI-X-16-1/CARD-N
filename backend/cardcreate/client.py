@@ -56,18 +56,29 @@ class ComfyUIClient:
                 history = history_response.json()
 
                 entry = history.get(prompt_id)
-                if entry and entry.get("outputs", {}).get(output_node_id):
-                    image_info = entry["outputs"][output_node_id]["images"][0]
-                    view_response = await http.get(
-                        "/view",
-                        params={
-                            "filename": image_info["filename"],
-                            "subfolder": image_info.get("subfolder", ""),
-                            "type": image_info.get("type", "output"),
-                        },
-                    )
-                    view_response.raise_for_status()
-                    return view_response.content
+                if entry:
+                    status = entry.get("status", {})
+                    if status.get("status_str") == "error":
+                        # ComfyUI reports a failed run (bad model name, OOM, a
+                        # missing custom node, ...) here - `outputs` just stays
+                        # empty, so without this check the loop polls until the
+                        # timeout and then raises a misleading "timed out".
+                        raise ComfyUIGenerationError(
+                            f"ComfyUI failed to run prompt {prompt_id}: "
+                            f"{status.get('messages', status)}"
+                        )
+                    if entry.get("outputs", {}).get(output_node_id):
+                        image_info = entry["outputs"][output_node_id]["images"][0]
+                        view_response = await http.get(
+                            "/view",
+                            params={
+                                "filename": image_info["filename"],
+                                "subfolder": image_info.get("subfolder", ""),
+                                "type": image_info.get("type", "output"),
+                            },
+                        )
+                        view_response.raise_for_status()
+                        return view_response.content
 
                 await asyncio.sleep(self.settings.poll_interval_seconds)
                 elapsed += self.settings.poll_interval_seconds

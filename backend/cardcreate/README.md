@@ -60,8 +60,14 @@ process as a `shared/` change.
    so the prompt asks for a textless design and steps 5-6 clean up and then
    draw the real text.
 7. Write the finished image to `storage/card_images/illustrations/{card_id}.png`
-   (`storage.save_illustration`) and save that relative path to the row's
-   `battle_cards.illustration_url`, then commit.
+   (`storage.save_illustration`) and save the **bare filename** (`{card_id}.png`,
+   the same convention as `Person.image_path`, resolved by
+   `storage.card_illustration_path`) to `battle_cards.illustration_url`, then
+   commit.
+
+Steps 1, 2 (crop/clean), 4-7 (fit/erase/overlay/store) are CPU-bound and run
+on a worker thread (`starlette.concurrency.run_in_threadpool`), like the scan
+feature's OCR - a single request must not block the event loop.
 
 ## Requirements
 
@@ -110,10 +116,12 @@ is **not** registered in `app/main.py` yet — see Status above.
 ## Testing
 
 `backend/tests/test_cardcreate_*.py` cover the pure, no-network pieces:
-crop/resize (`image_utils`), card detection, watermark/hallucinated-text
-removal, the text overlay (`overlay`), and the DB read (`repository`, against
-an in-memory SQLite). The ComfyUI client and the full `service.generate`
-pipeline aren't unit-tested since they need a live ComfyUI server.
+crop/resize (`image_utils`), card detection (incl. the 45-degree corner case),
+watermark/hallucinated-text removal, the text overlay (`overlay`), the DB read
+(`repository`, against in-memory SQLite), the result store (`storage`), and the
+ComfyUI client's error fast-fail (`client`, with a mock transport). The full
+`service.generate` pipeline isn't unit-tested since it needs a live ComfyUI
+server.
 
 `scripts`-style manual check: run the overlay over a fake generated
 background to eyeball the layout without ComfyUI — build a `GameCardData` by

@@ -29,14 +29,19 @@ def _skin_mask(bgr: np.ndarray) -> np.ndarray:
 
 
 def _order_points(points: np.ndarray) -> np.ndarray:
-    rect = np.zeros((4, 2), dtype="float32")
-    total = points.sum(axis=1)
-    rect[0] = points[np.argmin(total)]
-    rect[2] = points[np.argmax(total)]
-    diff = np.diff(points, axis=1)
-    rect[1] = points[np.argmin(diff)]
-    rect[3] = points[np.argmax(diff)]
-    return rect
+    """Return the 4 corners as top-left, top-right, bottom-right, bottom-left.
+
+    Sorting by the angle of each corner around the centroid is stable at any
+    rotation. The older "corner = min/max of x+y and x-y" trick ties two
+    corners together near 45 degrees - exactly the tilt this module exists to
+    straighten - and collapses the quad into a broken perspective transform.
+    """
+    pts = np.asarray(points, dtype="float32")
+    centroid = pts.mean(axis=0)
+    angles = np.arctan2(pts[:, 1] - centroid[1], pts[:, 0] - centroid[0])
+    ordered = pts[np.argsort(angles)]  # clockwise in image coords (y points down)
+    start = int(np.argmin(ordered.sum(axis=1)))  # rotate so index 0 is top-left
+    return np.roll(ordered, -start, axis=0).astype("float32")
 
 
 def _warp_to_rect(image: np.ndarray, box: np.ndarray) -> np.ndarray:
@@ -48,6 +53,13 @@ def _warp_to_rect(image: np.ndarray, box: np.ndarray) -> np.ndarray:
     height = int(
         max(np.linalg.norm(top_right - bottom_right), np.linalg.norm(top_left - bottom_left))
     )
+    # Near 45 degrees, which corner counts as "top-left" is ambiguous, so the
+    # quad can come out portrait. Business cards are landscape - rotate the
+    # corner assignment by one (and swap the dimensions) so the output
+    # orientation is consistent for the downstream overlay.
+    if height > width:
+        rect = np.roll(rect, -1, axis=0).astype("float32")
+        width, height = height, width
     destination = np.array(
         [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]], dtype="float32"
     )

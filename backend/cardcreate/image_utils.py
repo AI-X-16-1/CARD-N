@@ -2,6 +2,8 @@ import statistics
 from io import BytesIO
 from math import ceil
 
+import cv2
+import numpy as np
 from PIL import Image, ImageChops, ImageFilter
 
 
@@ -30,42 +32,21 @@ def _open_mask(mask: Image.Image, size: int = 5) -> Image.Image:
     return mask.filter(ImageFilter.MinFilter(size)).filter(ImageFilter.MaxFilter(size))
 
 
-def _border_connected_mask(background_like: bytes, width: int, height: int) -> bytearray:
-    """Flood fill from every border pixel across connected "background-like"
-    pixels. This follows the actual (possibly L-shaped, off-center) backdrop
-    region instead of assuming it's a simple margin on every side."""
-    visited = bytearray(width * height)
-    stack = []
+def _border_connected_mask(background_like: Image.Image) -> np.ndarray:
+    """Bool HxW array, True wherever a border-connected run of "background-like"
+    pixels reaches. Follows the actual (possibly L-shaped, off-center) backdrop
+    region instead of assuming a simple even margin.
 
-    for x in range(width):
-        for idx in (x, (height - 1) * width + x):
-            if background_like[idx] and not visited[idx]:
-                visited[idx] = 1
-                stack.append(idx)
-    for y in range(height):
-        for idx in (y * width, y * width + width - 1):
-            if background_like[idx] and not visited[idx]:
-                visited[idx] = 1
-                stack.append(idx)
-
-    while stack:
-        idx = stack.pop()
-        x, y = idx % width, idx // width
-        neighbors = []
-        if x > 0:
-            neighbors.append(idx - 1)
-        if x < width - 1:
-            neighbors.append(idx + 1)
-        if y > 0:
-            neighbors.append(idx - width)
-        if y < height - 1:
-            neighbors.append(idx + width)
-        for nidx in neighbors:
-            if background_like[nidx] and not visited[nidx]:
-                visited[nidx] = 1
-                stack.append(nidx)
-
-    return visited
+    A 1px synthetic border of background-like is added so one corner seed
+    covers the whole real border; ``cv2.floodFill`` then does the fill in C
+    with the same 4-connectivity as the old hand-rolled stack.
+    """
+    arr = np.asarray(background_like, dtype=np.uint8)  # 255 = background-like, 0 = content
+    padded = cv2.copyMakeBorder(arr, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=255)
+    ff_mask = np.zeros((padded.shape[0] + 2, padded.shape[1] + 2), np.uint8)
+    cv2.floodFill(padded, ff_mask, (0, 0), 0, loDiff=0, upDiff=0, flags=4)
+    # ff_mask marks filled pixels as 1, offset by (1, 1); strip that plus the pad.
+    return ff_mask[2:-2, 2:-2].astype(bool)
 
 
 def trim_background(image: Image.Image, pixel_tolerance: int = 30) -> Image.Image:
@@ -78,7 +59,6 @@ def trim_background(image: Image.Image, pixel_tolerance: int = 30) -> Image.Imag
     shape (which isn't always a simple even margin) instead of assuming the
     card sits centered with uniform margins on every side.
     """
-    width, height = image.size
     background = Image.new(image.mode, image.size, _estimate_background_color(image))
 
     diff = ImageChops.difference(image, background).convert("L")
@@ -86,24 +66,19 @@ def trim_background(image: Image.Image, pixel_tolerance: int = 30) -> Image.Imag
     cleaned_content_mask = _open_mask(content_mask)
     background_like = cleaned_content_mask.point(lambda p: 0 if p else 255)
 
-    visited = _border_connected_mask(background_like.tobytes(), width, height)
-
-    min_x = max_x = min_y = max_y = None
-    for y in range(height):
-        row = visited[y * width : (y + 1) * width]
-        first = row.find(0)
-        if first == -1:
-            continue
-        last = row.rfind(0)
-        min_y = y if min_y is None else min_y
-        max_y = y
-        min_x = first if min_x is None else min(min_x, first)
-        max_x = last if max_x is None else max(max_x, last)
-
-    if min_x is None:
+    # The card is whatever the border flood fill can't reach.
+    content_ys, content_xs = np.where(~_border_connected_mask(background_like))
+    if content_ys.size == 0:
         return image
 
-    return image.crop((min_x, min_y, max_x + 1, max_y + 1))
+    return image.crop(
+        (
+            int(content_xs.min()),
+            int(content_ys.min()),
+            int(content_xs.max()) + 1,
+            int(content_ys.max()) + 1,
+        )
+    )
 
 
 def fill_crop_to_ratio(image_bytes: bytes, target_width: int, target_height: int) -> bytes:
