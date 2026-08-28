@@ -17,6 +17,7 @@ import {
 } from '../api';
 import CallRecordingFinder from '../components/CallRecordingFinder';
 import { CategoryChip } from '../components/CategoryChip';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { ConversationTimeline } from '../components/ConversationTimeline';
 import { JobBadge } from '../components/JobBadge';
 import { RelationBadge } from '../components/RelationBadge';
@@ -72,6 +73,7 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
   const [form, setForm] = useState<UpdatePersonInput>({});
   const [introStatus, setIntroStatus] = useState<IntroductionRequestStatus>(null);
   const [introSubmitting, setIntroSubmitting] = useState(false);
+  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
   const goBack = onBack ?? (() => navigation.goBack());
 
   useEffect(() => {
@@ -134,18 +136,12 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
     }
   };
 
-  const handleDelete = () => {
-    Alert.alert('연락처 삭제', `${person.name}님을 삭제할까요?`, [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '삭제',
-        style: 'destructive',
-        onPress: async () => {
-          await deleteContact(person.id);
-          goBack();
-        },
-      },
-    ]);
+  const handleDelete = () => setDeleteConfirmVisible(true);
+
+  const performDelete = async () => {
+    setDeleteConfirmVisible(false);
+    await deleteContact(person.id);
+    goBack();
   };
 
   const handleRequestIntroduction = async () => {
@@ -391,6 +387,14 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
           <Text style={styles.fabIcon}>{actionSheetOpen ? '✕' : '+'}</Text>
         </Pressable>
       ) : null}
+
+      <ConfirmModal
+        visible={deleteConfirmVisible}
+        title="연락처 삭제"
+        message={`${person.name}님을 삭제할까요?`}
+        onCancel={() => setDeleteConfirmVisible(false)}
+        onConfirm={performDelete}
+      />
     </SafeAreaView>
   );
 }
