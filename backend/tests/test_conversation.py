@@ -5,8 +5,13 @@ process (model weights, Gemini). What is worth pinning down is everything around
 that a summary lands on the right contact, that re-summarizing the same recording
 updates in place instead of inflating the meeting count, and that the prompt context
 the server assembles reflects that.
+
+The warmup tests at the bottom stay on the right side of that line by stubbing the
+model out — what they pin down is when it gets built, not what it transcribes.
 """
 
+import threading
+import time
 from collections.abc import AsyncIterator
 
 import pytest
@@ -20,6 +25,7 @@ from app.core.base import Base
 from app.features.contacts.models import Person
 from app.features.conversation import (
     models,  # noqa: F401  registers the table on Base.metadata
+    stt,
     summarizer,
 )
 from app.features.conversation import service as service_module
@@ -297,3 +303,63 @@ def test_transient_failure_is_still_retried(monkeypatch) -> None:
     attempts, _ = _count_attempts(monkeypatch, ConnectionError("connection reset"))
 
     assert attempts == summarizer.MAX_RETRY
+
+
+def test_warmup_loads_the_model_up_front(monkeypatch) -> None:
+    """The lifespan hook calls this so that no request has to wait for the load."""
+    calls = []
+    monkeypatch.setattr(stt, "_get_model", lambda: calls.append(1))
+    monkeypatch.setattr(stt.settings, "whisper_warmup", True)
+
+    stt.warmup()
+
+    assert calls == [1]
+
+
+def test_warmup_can_be_turned_off(monkeypatch) -> None:
+    """Warming up moves the cost to startup, which `uvicorn --reload` then pays on
+    every save — worth opting out of while developing."""
+    calls = []
+    monkeypatch.setattr(stt, "_get_model", lambda: calls.append(1))
+    monkeypatch.setattr(stt.settings, "whisper_warmup", False)
+
+    stt.warmup()
+
+    assert calls == []
+
+
+def test_the_model_is_built_once_under_concurrent_callers(monkeypatch) -> None:
+    """Requests transcribe in threadpool threads, so several arriving before the model
+    is up would otherwise each load their own multi-gigabyte copy.
+
+    The callers really do race here — a barrier releases them together and the fake
+    load holds the lock long enough for the losers to arrive while it is still held,
+    which is the window the double-checked lock exists to close.
+    """
+    builds = []
+    start_together = threading.Barrier(4)
+
+    class _FakeModel:
+        def __init__(self, name, device=None, compute_type=None) -> None:
+            builds.append(stt._model_lock.locked())
+            time.sleep(0.05)
+
+    monkeypatch.setattr(stt, "WhisperModel", _FakeModel)
+    monkeypatch.setattr(stt, "_model", None)
+    monkeypatch.setattr(stt, "_loaded_key", "")
+
+    got = []
+
+    def call() -> None:
+        start_together.wait(timeout=5)
+        got.append(stt._get_model())
+
+    threads = [threading.Thread(target=call) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert builds == [True], "built more than once, or built outside the lock"
+    assert len(got) == 4
+    assert all(model is got[0] for model in got)
