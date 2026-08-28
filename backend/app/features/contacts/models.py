@@ -22,6 +22,9 @@ class Person(Base):
     job_class: Mapped[str | None] = mapped_column(String(30))
     relation: Mapped[str] = mapped_column(String(20), default="other")
     context: Mapped[str | None] = mapped_column(Text)
+    address: Mapped[str | None] = mapped_column(EncryptedString(255))
+    # A public code, not personally-identifying on its own — plain, unlike address/phone/email.
+    postal_code: Mapped[str | None] = mapped_column(String(10))
     # Filename under app/core/image_store.py's PERSONS_DIR (e.g. "42.jpg"), not a full
     # path — set once, at creation, from the corrected scan image (see ScanService /
     # ContactsService.create_person). Never re-set on update; a contact created via

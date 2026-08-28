@@ -45,6 +45,7 @@ class ParsedPerson(BaseModel):
     phone: str | None = None
     email: str | None = None
     address: str | None = None
+    postal_code: str | None = None
     context: str | None = None
 
 

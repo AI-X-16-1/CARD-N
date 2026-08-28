@@ -102,10 +102,18 @@ Response 200:
     "phone": "010-1234-5678",
     "email": "hong@kakao.com",
     "address": null,
+    "postal_code": null,
     "context": "Met at the 2024 AI Conference"
   }
 }
 ```
+
+`address`/`postal_code` here are whatever OCR itself guessed (rarely anything for
+`postal_code` — see the confidence note above); pass this straight through to
+`POST /contacts` and it lands on the `Person` row. The scan review screen's "주소 갱신"
+button (Daum/Kakao Postcode search) lets the user replace both with a verified,
+standardized address before saving — that result simply overwrites these two fields on
+the client before the request goes out, no separate endpoint involved.
 
 ---
 
@@ -143,6 +151,8 @@ Response 200:
       "title": "Manager",
       "job_class": "marketing",
       "relation": "client",
+      "address": null,
+      "postal_code": null,
       "last_contact": "2024-03-15T09:00:00Z",
       "conversation_count": 3,
       "created_at": "2024-01-10T14:30:00Z",
@@ -703,6 +713,35 @@ There is no auth in this project, so the deck is a single global configuration.
 
 `illustration_url` is `null` until the asset pipeline (ComfyUI / Krea2)
 produces the card art and calls `PUT /game/cards/{id}/art` to attach it.
+
+#### POST /id-card/{card_id} — card-art generation (draft, `backend/cardcreate/`)
+
+> **Draft.** Not registered in `app/main.py` yet — `backend/cardcreate/` is
+> outside the `docs/features.md` ownership table, so wiring it in needs a
+> separate branch/PR with 2+ approvals (same process as a `shared/` change).
+
+Generates the battle-card image for `card_id`. No request body: the source
+photo is the contact's saved business card (`persons.image_path`, which must
+not be `NULL`), `name`/`company` come from that `persons` row, and
+`job_class`/`grade`/`cost`/`final_stats`/`skill`/`passive`/`flavor_text` come
+from the `battle_cards` snapshot. ComfyUI/Krea2 renders textless card art,
+then that text is drawn on top with PIL.
+
+```
+POST /id-card/{card_id}
+(no body)
+
+Response 200:
+  Content-Type: image/png   (the finished card image)
+
+Errors:
+  404  battle card {card_id} not found
+  422  the card's contact has no saved business-card image (image_path is NULL)
+```
+
+Side effect: the finished image is stored and its filename saved to
+`battle_cards.illustration_url`. (It writes the column directly for now; it
+should move to calling `PUT /game/cards/{id}/art` — see PR #64 review.)
 
 ### POST /game/cards
 

@@ -31,18 +31,27 @@ class IncomingCallReceiver : BroadcastReceiver() {
     if (intent.action != TelephonyManager.ACTION_PHONE_STATE_CHANGED) return
 
     val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE)
-    // Collapse the repeated broadcasts Android sends during one call into one alert.
-    val changed = CallAlertStore.consumeStateTransition(context, state)
-    if (!changed || state != TelephonyManager.EXTRA_STATE_RINGING) return
+    if (state != TelephonyManager.EXTRA_STATE_RINGING) {
+      // Answered or ended: the next ring is a new call and deserves its own alert.
+      CallAlertStore.endRingEpisode(context)
+      return
+    }
 
-    // Blank for withheld/unknown callers, and blank if READ_CALL_LOG was refused.
+    // Blank for withheld/unknown callers, and blank if READ_CALL_LOG was refused. Android
+    // sends RINGING several times and only some deliveries carry the number, so a blank
+    // one must fall through silently rather than end the episode.
     val number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
     if (number.isNullOrBlank()) return
+
+    // Collapse the remaining repeats into a single alert per caller per ring.
+    if (CallAlertStore.alertedFor(context) == PhoneNumbers.normalize(number)) return
 
     // An unknown number is not ours to talk about: no notification, nothing logged.
     val contact = CallAlertStore.lookup(context, number) ?: return
 
     if (!canPostNotifications(context)) return
+
+    CallAlertStore.markAlerted(context, number)
     notify(context, contact)
   }
 

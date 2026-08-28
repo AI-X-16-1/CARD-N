@@ -51,6 +51,31 @@ describe('load', () => {
     expect(state.deckSlots).toEqual([30, 10, null, null, null, null, null, null]);
   });
 
+  test('a brand-new user (no cards, no saved deck) is seeded with the starter deck', async () => {
+    mockedApi.fetchCards.mockResolvedValue([]);
+    mockedApi.fetchDeck.mockResolvedValue([]);
+
+    await useGameStore.getState().load();
+
+    const state = useGameStore.getState();
+    expect(state.status).toBe('ready');
+    expect(state.collection).toHaveLength(15);
+    // First 8 starter cards fill the editable deck slots.
+    expect(state.deckSlots.filter((id) => id !== null)).toHaveLength(8);
+    expect(state.deckSlots).toEqual(state.collection.slice(0, 8).map((c) => c.id));
+  });
+
+  test('an existing user with cards but no saved deck keeps empty deck slots', async () => {
+    mockedApi.fetchCards.mockResolvedValue([card(10), card(20)]);
+    mockedApi.fetchDeck.mockResolvedValue([]);
+
+    await useGameStore.getState().load();
+
+    const state = useGameStore.getState();
+    expect(state.collection.map((c) => c.id)).toEqual([10, 20]);
+    expect(state.deckSlots).toEqual(Array(8).fill(null));
+  });
+
   test('sets status "error" and leaves the collection empty when the request fails', async () => {
     mockedApi.fetchCards.mockRejectedValue(new Error('network'));
     mockedApi.fetchDeck.mockResolvedValue([]);
@@ -59,6 +84,81 @@ describe('load', () => {
 
     expect(useGameStore.getState().status).toBe('error');
     expect(useGameStore.getState().collection).toEqual([]);
+  });
+});
+
+describe('clearDeck', () => {
+  test('empties every deck slot and persists the empty list', () => {
+    useGameStore.getState().toggleSelected(10);
+    useGameStore.getState().toggleSelected(20);
+
+    useGameStore.getState().clearDeck();
+
+    expect(useGameStore.getState().deckSlots).toEqual(Array(MAX_DECK_SIZE).fill(null));
+    expect(mockedApi.saveDeck).toHaveBeenLastCalledWith([]);
+  });
+});
+
+describe('randomFillDeck', () => {
+  test('fills only the empty slots, leaving an already-placed card where it is', () => {
+    useGameStore.setState({ collection: Array.from({ length: 12 }, (_, i) => card(i + 1)) });
+    useGameStore.getState().toggleSelected(3); // slot 0
+
+    useGameStore.getState().randomFillDeck();
+
+    const slots = useGameStore.getState().deckSlots;
+    expect(slots[0]).toBe(3);
+    expect(slots.every((id) => id !== null)).toBe(true);
+  });
+
+  test('never places a card that is already in the deck', () => {
+    useGameStore.setState({ collection: [card(1), card(2), card(3)] });
+    useGameStore.getState().toggleSelected(2);
+
+    useGameStore.getState().randomFillDeck();
+
+    const ids = useGameStore.getState().deckSlots.filter((id): id is number => id !== null);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toContain(2);
+  });
+
+  test('leaves the remaining slots null when the owned pool runs out', () => {
+    useGameStore.setState({ collection: [card(1), card(2), card(3)] });
+
+    useGameStore.getState().randomFillDeck();
+
+    const slots = useGameStore.getState().deckSlots;
+    expect([...slots.filter((id): id is number => id !== null)].sort((a, b) => a - b)).toEqual([1, 2, 3]);
+    expect(slots.filter((id) => id === null)).toHaveLength(MAX_DECK_SIZE - 3);
+  });
+
+  test('persists the filled deck to the backend', () => {
+    useGameStore.setState({ collection: [card(1), card(2)] });
+
+    useGameStore.getState().randomFillDeck();
+
+    const lastArg = mockedApi.saveDeck.mock.calls.at(-1)?.[0] ?? [];
+    expect([...lastArg].sort((a, b) => a - b)).toEqual([1, 2]);
+  });
+});
+
+describe('addTestCards', () => {
+  test('appends 10 cards with fresh unique ids, keeping the existing collection', () => {
+    useGameStore.setState({ collection: [card(1), card(5)] });
+
+    useGameStore.getState().addTestCards();
+
+    const ids = useGameStore.getState().collection.map((c) => c.id);
+    expect(ids).toHaveLength(12);
+    expect(ids.slice(0, 2)).toEqual([1, 5]);
+    expect(ids.slice(2).every((id) => id > 5)).toBe(true);
+    expect(new Set(ids).size).toBe(12);
+  });
+
+  test('works from an empty collection', () => {
+    useGameStore.getState().addTestCards();
+
+    expect(useGameStore.getState().collection).toHaveLength(10);
   });
 });
 

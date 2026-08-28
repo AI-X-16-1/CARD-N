@@ -12,6 +12,8 @@ export type Person = {
   job_class: string | null;
   relation: RelationCategory;
   context: string | null;
+  address: string | null;
+  postal_code: string | null;
   last_contact: string | null;
   conversation_count: number;
   created_at: string;

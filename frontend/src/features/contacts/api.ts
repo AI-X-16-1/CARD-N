@@ -44,6 +44,8 @@ export type UpdatePersonInput = {
   email?: string | null;
   relation?: RelationCategory;
   context?: string | null;
+  address?: string | null;
+  postal_code?: string | null;
 };
 
 export async function updatePerson(personId: number, data: UpdatePersonInput): Promise<Person> {

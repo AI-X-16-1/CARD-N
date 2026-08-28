@@ -115,7 +115,16 @@ class ScanService:
         person_kwargs: dict[str, str] = {}
         for label, value in values.items():
             key = label_to_key.get(label)
-            if key in ("name", "company", "department", "title", "phone", "email", "address"):
+            if key in (
+                "name",
+                "company",
+                "department",
+                "title",
+                "phone",
+                "email",
+                "address",
+                "postal_code",
+            ):
                 person_kwargs[key] = value
 
         # job_class / grade (per api-spec.md's /scan/parse example) classify the role

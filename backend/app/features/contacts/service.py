@@ -64,6 +64,8 @@ class ContactsService:
             job_class=person.job_class,
             relation=person.relation,
             context=person.context,
+            address=person.address,
+            postal_code=person.postal_code,
             last_contact=person.last_contact,
             conversation_count=0,
             created_at=person.created_at,
