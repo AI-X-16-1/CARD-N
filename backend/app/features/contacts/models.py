@@ -23,6 +23,11 @@ class Person(Base):
     relation: Mapped[str] = mapped_column(String(20), default="other")
     context: Mapped[str | None] = mapped_column(Text)
     address: Mapped[str | None] = mapped_column(EncryptedString(255))
+    # Floor/unit/building detail the postcode search can't know (it only returns the
+    # road/jibun address) — kept separate from `address` rather than concatenated in, so
+    # re-opening "주소 갱신" later can re-populate just the searched part without losing
+    # or duplicating whatever detail was typed alongside it.
+    address_detail: Mapped[str | None] = mapped_column(EncryptedString(100))
     # A public code, not personally-identifying on its own — plain, unlike address/phone/email.
     postal_code: Mapped[str | None] = mapped_column(String(10))
     # Filename under app/core/image_store.py's PERSONS_DIR (e.g. "42.jpg"), not a full

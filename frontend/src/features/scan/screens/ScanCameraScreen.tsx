@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Alert, Animated, BackHandler, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { useNavigation } from '@react-navigation/native';
 
 import { colors, radius, typography } from '@/shared/theme';
@@ -17,6 +18,47 @@ type CaptureMode = 'single' | 'batch';
 type Step = 'camera' | 'manual' | 'reveal';
 
 const GUIDE_ASPECT_RATIO = 1.7;
+// guideFrame (the dashed card outline) is 86% of the viewfinder's width, centered — see
+// its style below. CameraView fills the same viewfinder edge-to-edge, so the photo's own
+// pixels are treated as sharing that rendered frame, and the same fraction/aspect crops
+// it down to just what the guide outlined instead of sending the whole background too.
+const GUIDE_WIDTH_FRACTION = 0.86;
+
+// Matches backend/app/features/scan/ocr/pipeline.py's MAX_SIDE — the server downscales
+// anything wider than this before OCR anyway, so a phone photo (often 3000px+ even after
+// cropping to the guide frame) uploads a lot of pixels the server immediately throws
+// away. Capping it client-side here cuts upload time with no accuracy cost, since the
+// server would've produced the same downscaled image either way.
+const MAX_UPLOAD_WIDTH = 1800;
+
+// Camera-only: a gallery pick was never framed against guideFrame, so cropping it the
+// same way would cut an arbitrary photo to a rect the user never aligned anything to.
+async function cropToGuideFrame(photo: { uri: string; width: number; height: number }): Promise<string> {
+  // Some Android devices report takePictureAsync's width/height as the raw sensor
+  // orientation (landscape) and rely on an EXIF rotation tag to display it upright —
+  // ImageManipulator's crop operates on the raw, un-rotated pixel buffer and ignores that
+  // tag, so cropping straight against photo.width/height can crop the wrong axis entirely
+  // (this is what showed up as the output image's width/height being swapped). A no-op
+  // manipulation first bakes the EXIF rotation into the actual pixels — crop against its
+  // (possibly swapped) width/height instead of the original photo's.
+  const normalized = await ImageManipulator.manipulateAsync(photo.uri, [], {
+    compress: 1,
+    format: ImageManipulator.SaveFormat.JPEG,
+  });
+  const cropWidth = Math.round(normalized.width * GUIDE_WIDTH_FRACTION);
+  const cropHeight = Math.min(Math.round(cropWidth / GUIDE_ASPECT_RATIO), normalized.height);
+  const originX = Math.round((normalized.width - cropWidth) / 2);
+  const originY = Math.round((normalized.height - cropHeight) / 2);
+  const result = await ImageManipulator.manipulateAsync(
+    normalized.uri,
+    [
+      { crop: { originX, originY, width: cropWidth, height: cropHeight } },
+      ...(cropWidth > MAX_UPLOAD_WIDTH ? [{ resize: { width: MAX_UPLOAD_WIDTH } }] : []),
+    ],
+    { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+  );
+  return result.uri;
+}
 
 export default function ScanCameraScreen() {
   const navigation = useNavigation();
@@ -26,10 +68,19 @@ export default function ScanCameraScreen() {
   const [saving, setSaving] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [createdPerson, setCreatedPerson] = useState<CreatedPerson | null>(null);
+  // The just-taken photo behind the current OCR result, kept purely client-side (never
+  // round-tripped through the backend) so ScanResultPanel can show it next to the fields
+  // for comparison while correcting a misread.
+  const [singlePhotoUri, setSinglePhotoUri] = useState<string | null>(null);
   const [confirmCloseVisible, setConfirmCloseVisible] = useState(false);
   const cameraRef = useRef<CameraView>(null);
   const scanLineY = useRef(new Animated.Value(0)).current;
   const { state, isScanning, scan, reset } = useOcrScan();
+
+  const resetScan = () => {
+    reset();
+    setSinglePhotoUri(null);
+  };
 
   // ScanCameraScreen is the only screen in ScanStack, presented as a fullScreenModal on
   // top of the tab navigator (see RootNavigator's "Scan" route) — this stack has nothing
@@ -53,7 +104,7 @@ export default function ScanCameraScreen() {
   };
 
   const handleDone = () => {
-    reset();
+    resetScan();
     setStep('camera');
     setCreatedPerson(null);
     handleClose();
@@ -111,9 +162,10 @@ export default function ScanCameraScreen() {
     setCapturing(true);
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
-      if (photo?.uri) {
-        await scan(photo.uri);
-      }
+      if (!photo?.uri) return;
+      const croppedUri = await cropToGuideFrame(photo);
+      setSinglePhotoUri(croppedUri);
+      await scan(croppedUri);
     } catch {
       Alert.alert('오류', '사진을 촬영하지 못했어요. 다시 시도해주세요.');
     } finally {
@@ -130,17 +182,13 @@ export default function ScanCameraScreen() {
   const handleSaveFromResult = async (
     values: Record<string, string>,
     context: string,
-    postalCode: string,
+    addressDetail: string,
   ) => {
     if (state.status !== 'done') return;
-    // ScanResultPanel always shows a "Name" input, synthesizing one when OCR didn't
-    // find it (see its comment) — mirror that here so a name the user typed into that
-    // synthetic field actually makes it into the request, instead of being dropped
-    // because state.result.fields never had a "Name" entry for values.Name to attach to.
-    const baseFields = state.result.fields.some((f) => f.label === 'Name')
-      ? state.result.fields
-      : [{ label: 'Name', value: '', confidence: 0 }, ...state.result.fields];
-    const updatedFields = baseFields.map((field) => ({
+    // The backend always sends a "Name" entry now (see scan/service.py's
+    // _to_field_responses), even when OCR found nothing for it, so there's always a
+    // field here for a user-typed value to attach to.
+    const updatedFields = state.result.fields.map((field) => ({
       ...field,
       value: values[field.label] ?? field.value,
     }));
@@ -157,12 +205,7 @@ export default function ScanCameraScreen() {
       const parsed = await parseOcrFields(updatedFields, context);
       const person = await createPerson({
         ...parsed,
-        // parsed.postal_code only carries what OCR itself guessed (rarely anything —
-        // see scan/service.py's FIELD_CONFIDENCE comment), and there's no "Postal Code"
-        // field in updatedFields for the user to have corrected it through. The address
-        // search widget's result is the one postal code actually worth trusting, so it
-        // wins whenever the user has used it.
-        postal_code: postalCode || parsed.postal_code,
+        address_detail: addressDetail || undefined,
         image_token: state.result.image_token,
       });
       setCreatedPerson(person);
@@ -218,7 +261,8 @@ export default function ScanCameraScreen() {
       <SafeAreaView style={styles.container}>
         <ScanResultPanel
           fields={state.result.fields}
-          onRetake={reset}
+          photoUri={singlePhotoUri}
+          onRetake={resetScan}
           onClose={confirmClose}
           onSave={handleSaveFromResult}
           saving={saving}
