@@ -6,12 +6,12 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { colors, radius, typography } from '@/shared/theme';
 import { JOB_COLOR } from '@/features/game/constants';
-import { CardArt } from '@/features/game/components/CardArt';
 import { DeckStrip } from '@/features/game/components/DeckStrip';
 import { StatRow } from '@/features/game/components/StatRow';
 import { averageCost, compendiumCompletion } from '@/features/game/engine/deckStats';
 import { JOB_CLASSES, JOB_LABEL, SKILL } from '@/features/game/engine/cardData';
 import { completeDeckTo15, groupCompendium, type CompendiumSlot } from '@/features/game/engine/mockCollection';
+import { createStarterDeck } from '@/features/game/engine/starterDeck';
 import type { BattleCard, JobClass } from '@/features/game/engine/types';
 import { MAX_DECK_SIZE, useGameStore } from '@/features/game/store/gameStore';
 import type { GameStackParamList } from '@/navigation/RootNavigator';
@@ -19,6 +19,10 @@ import type { GameStackParamList } from '@/navigation/RootNavigator';
 type Props = {
   onStartBattle: (deck: BattleCard[]) => void;
 };
+
+// Dev-only affordances (e.g. the "+ 테스트 카드" button) — a production build
+// never shows them.
+const IS_DEV = typeof __DEV__ !== 'undefined' && __DEV__;
 
 type FilterKey = 'all' | 'grade3minus' | 'grade4plus' | JobClass;
 
@@ -60,6 +64,7 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
   const toggleSelected = useGameStore((s) => s.toggleSelected);
   const randomFillDeck = useGameStore((s) => s.randomFillDeck);
   const clearDeck = useGameStore((s) => s.clearDeck);
+  const addTestCard = useGameStore((s) => s.addTestCard);
   const status = useGameStore((s) => s.status);
   const reload = useGameStore((s) => s.load);
 
@@ -107,7 +112,9 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
   }
 
   function startBattle() {
-    onStartBattle(completeDeckTo15(deckCards, collection));
+    // No cards picked (new user, or deck cleared) → the fixed starter deck.
+    // Otherwise round the picks out to a full 15-card battle deck.
+    onStartBattle(deckCards.length === 0 ? createStarterDeck() : completeDeckTo15(deckCards, collection));
   }
 
   function openSlot(slot: CompendiumSlot) {
@@ -143,6 +150,14 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
           </View>
         </View>
       </View>
+
+      {IS_DEV && (
+        <View style={styles.devBar}>
+          <Pressable style={styles.devBtn} onPress={addTestCard}>
+            <Text style={styles.devBtnText}>+ 테스트 카드</Text>
+          </Pressable>
+        </View>
+      )}
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.sectionHeaderRow}>
@@ -242,7 +257,6 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
                 style={[styles.tile, { borderColor: JOB_COLOR[slot.jobClass] }, inDeck && styles.tileInDeck]}
                 onPress={() => openSlot(slot)}
               >
-                <CardArt uri={sample.illustrationUrl} variant="tile" />
                 {inDeck && <Text style={styles.checkMark}>✓</Text>}
                 {slot.owned.length > 1 && <Text style={styles.ownedCount}>×{slot.owned.length}</Text>}
                 <Text style={styles.tileStars}>{'★'.repeat(slot.grade)}</Text>
@@ -362,6 +376,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingTop: 12,
+  },
+  devBar: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    alignItems: 'flex-start',
+  },
+  devBtn: {
+    borderWidth: 1,
+    borderColor: colors.borderMedium,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  devBtnText: {
+    color: colors.textTertiary,
+    fontSize: typography.meta.fontSize,
+    fontWeight: '700',
   },
   title: {
     color: colors.textPrimary,

@@ -11,7 +11,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { colors, radius, typography } from '@/shared/theme';
-import { JOB_COLOR, SYNERGY_INFO } from '@/features/game/constants';
+import { JOB_COLOR, PASSIVE_INFO, SYNERGY_INFO } from '@/features/game/constants';
 import { CardArt } from '@/features/game/components/CardArt';
 import { CardDetailPanel } from '@/features/game/components/CardDetailPanel';
 import { StatRow } from '@/features/game/components/StatRow';
@@ -176,6 +176,9 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
   const [state, setState] = useState<BattleState | null>(() => (initialDeck ? initBattle(initialDeck) : null));
   const [selectedHandIdx, setSelectedHandIdx] = useState<number | null>(null);
   const [selectedAttackerIdx, setSelectedAttackerIdx] = useState<number | null>(null);
+  // A card tapped only to read its skill/passive in the action bar — an enemy
+  // card, or one of mine that can't act yet ("출근 중"). Not an attacker.
+  const [inspect, setInspect] = useState<{ side: 'me' | 'enemy'; idx: number } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [viewingCard, setViewingCard] = useState<{ card: BattleCard; mine: boolean } | null>(null);
 
@@ -264,6 +267,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
     setState(initBattle(initialDeck ?? createStarterDeck()));
     setSelectedHandIdx(null);
     setSelectedAttackerIdx(null);
+    setInspect(null);
     setErrorMsg(null);
     setViewingCard(null);
     setFlying(null);
@@ -283,6 +287,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
       setState(fn(state));
       setSelectedHandIdx(null);
       setSelectedAttackerIdx(null);
+      setInspect(null);
       setErrorMsg(null);
       setSynergyTip(null);
     } catch (e) {
@@ -293,14 +298,21 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
   function tapHand(idx: number) {
     setErrorMsg(null);
     setSelectedAttackerIdx(null);
+    setInspect(null);
     setSelectedHandIdx((prev) => (prev === idx ? null : idx));
   }
 
   function tapMySlot(idx: number, card: BattleCard | null) {
     if (card) {
-      if (!isReady(card)) return;
       setErrorMsg(null);
       setSelectedHandIdx(null);
+      if (!isReady(card)) {
+        // Can't act yet ("출근 중") or already acted — inspect its skill/passive only.
+        setSelectedAttackerIdx(null);
+        setInspect((prev) => (prev?.side === 'me' && prev.idx === idx ? null : { side: 'me', idx }));
+        return;
+      }
+      setInspect(null);
       setSelectedAttackerIdx((prev) => (prev === idx ? null : idx));
       return;
     }
@@ -347,8 +359,15 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
     run((s) => playCard(s, handIdx, slotIdx));
   }
 
-  function tapEnemySlot(idx: number) {
-    if (selectedAttackerIdx !== null) attackWithBump(selectedAttackerIdx, idx);
+  function tapEnemySlot(idx: number, card: BattleCard | null) {
+    if (selectedAttackerIdx !== null) {
+      attackWithBump(selectedAttackerIdx, idx);
+      return;
+    }
+    // No attacker selected — tap an enemy card to read its skill/passive.
+    if (card) {
+      setInspect((prev) => (prev?.side === 'enemy' && prev.idx === idx ? null : { side: 'enemy', idx }));
+    }
   }
 
   function tapEnemyHero() {
@@ -435,6 +454,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
     setErrorMsg(null);
     setSelectedHandIdx(null);
     setSelectedAttackerIdx(null);
+    setInspect(null);
     setSynergyTip(null);
     turnStoppedRef.current = false;
     playEventQueue(next.turnEvents ?? [], 0, next);
@@ -649,8 +669,19 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
 
   const mySynergies = checkSynergies(state.field.filter((c): c is BattleCard => c !== null));
   const eSynergies = checkSynergies(state.eField.filter((c): c is BattleCard => c !== null));
-  const selectedCard = selectedAttackerIdx !== null ? state.field[selectedAttackerIdx] : null;
-  const canUseSkill = !!selectedCard && !selectedCard.hasActed && state.cost >= selectedCard.skill.cost;
+  // The action bar shows for a selected field OR hand card; the skill is only
+  // actually usable from a card already on the field.
+  const selectedFieldCard = selectedAttackerIdx !== null ? state.field[selectedAttackerIdx] : null;
+  const selectedHandCard = selectedHandIdx !== null ? state.hand[selectedHandIdx] : null;
+  const inspectedCard =
+    inspect?.side === 'me'
+      ? state.field[inspect.idx]
+      : inspect?.side === 'enemy'
+        ? state.eField[inspect.idx]
+        : null;
+  const selectedCard = selectedFieldCard ?? selectedHandCard ?? inspectedCard ?? null;
+  const canUseSkill =
+    !!selectedFieldCard && !selectedFieldCard.hasActed && state.cost >= selectedFieldCard.skill.cost;
 
   return (
     <View style={styles.root} ref={rootRef}>
@@ -699,6 +730,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
           mine={false}
           synergies={eSynergies}
           canTarget={selectedAttackerIdx !== null}
+          inspectedIdx={inspect?.side === 'enemy' ? inspect.idx : null}
           onPressSlot={tapEnemySlot}
           onInfoPress={(card) => openDetail(card, false)}
           registerSlotRef={(idx, el) => {
@@ -727,6 +759,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
           mine
           synergies={mySynergies}
           selectedIdx={selectedAttackerIdx}
+          inspectedIdx={inspect?.side === 'me' ? inspect.idx : null}
           hiddenIdx={attacking?.myIdx ?? null}
           onPressSlot={tapMySlot}
           onInfoPress={(card) => openDetail(card, true)}
@@ -747,21 +780,30 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
           }}
         />
 
-        {/* Always rendered at a fixed minHeight (hidden via opacity when nothing's
-            selected) so the hand/end-turn button below never shifts. Later polish
-            pass: move this to a docked/floating action bar instead. */}
-        <Pressable
-          style={[styles.skillButton, !selectedCard ? styles.skillButtonHidden : !canUseSkill && styles.disabledButton]}
-          onPress={useSkillOnSelected}
-          disabled={!selectedCard || !canUseSkill}
-        >
-          <Text style={styles.buttonText}>
-            {selectedCard ? `${selectedCard.skill.name} 사용 (cost ${selectedCard.skill.cost})` : ' '}
+        {/* Fixed-height action area (opacity-hidden when nothing's selected) so
+            the hand/end-turn button below never shifts. Skill button on top,
+            passive effect underneath. */}
+        <View style={[styles.actionBar, !selectedCard && styles.actionBarHidden]}>
+          <Pressable
+            style={[styles.skillButton, selectedCard && !canUseSkill && styles.disabledButton]}
+            onPress={useSkillOnSelected}
+            disabled={!canUseSkill}
+          >
+            <Text style={styles.buttonText}>
+              {selectedCard
+                ? `${selectedCard.skill.name}${canUseSkill ? ' 사용' : ''} (cost ${selectedCard.skill.cost})`
+                : ' '}
+            </Text>
+            <Text style={styles.skillDesc} numberOfLines={1}>
+              {selectedCard ? selectedCard.skill.description : ' '}
+            </Text>
+          </Pressable>
+          <Text style={styles.passiveLine} numberOfLines={2}>
+            {selectedCard
+              ? `패시브 · ${PASSIVE_INFO[selectedCard.jobClass].name} — ${PASSIVE_INFO[selectedCard.jobClass].effect}`
+              : ' '}
           </Text>
-          <Text style={styles.skillDesc} numberOfLines={2}>
-            {selectedCard ? selectedCard.skill.description : ' '}
-          </Text>
-        </Pressable>
+        </View>
 
         <View style={styles.handRow} ref={handRowRef}>
           {state.hand.map((card, i) => (
@@ -782,14 +824,11 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
               ]}
             >
               <CardArt uri={card.illustrationUrl} variant="tile" />
-              <View style={[styles.infoBadge, styles.noPointerEvents]}>
-                <Text style={styles.infoBadgeText}>i</Text>
-              </View>
               <Text style={styles.costBadge}>{card.cost}</Text>
               <Text style={styles.cardName}>
                 ★{card.grade} {card.name}
               </Text>
-              <StatRow stats={card.finalStats} />
+              <StatRow stats={card.finalStats} size="md" />
             </Pressable>
           ))}
         </View>
@@ -967,6 +1006,7 @@ function FieldRow({
   mine,
   synergies,
   selectedIdx,
+  inspectedIdx,
   canTarget,
   hiddenIdx,
   onPressSlot,
@@ -977,6 +1017,7 @@ function FieldRow({
   mine: boolean;
   synergies: Synergy[];
   selectedIdx?: number | null;
+  inspectedIdx?: number | null;
   canTarget?: boolean;
   hiddenIdx?: number | null;
   onPressSlot: (idx: number, card: BattleCard | null) => void;
@@ -1020,14 +1061,12 @@ function FieldRow({
               styles.slot,
               { borderColor: JOB_COLOR[card.jobClass] },
               selectedIdx === i && styles.selectedSlot,
+              inspectedIdx === i && styles.inspectedSlot,
               mine && !ready && styles.notReadySlot,
               mine && hiddenIdx === i && styles.hiddenCard,
             ]}
           >
             <CardArt uri={card.illustrationUrl} variant="tile" />
-            <View style={[styles.infoBadge, styles.noPointerEvents]}>
-              <Text style={styles.infoBadgeText}>i</Text>
-            </View>
             <Text style={styles.cardName}>
               ★{card.grade} {card.name}
             </Text>
@@ -1221,6 +1260,9 @@ const styles = StyleSheet.create({
   selectedSlot: {
     borderColor: colors.warning,
   },
+  inspectedSlot: {
+    borderColor: colors.primaryLight,
+  },
   notReadySlot: {
     opacity: 0.5,
   },
@@ -1250,25 +1292,6 @@ const styles = StyleSheet.create({
     gap: 2,
     justifyContent: 'center',
     position: 'relative',
-  },
-  infoBadge: {
-    position: 'absolute',
-    top: 2,
-    right: 2,
-    width: 15,
-    height: 15,
-    borderRadius: 8,
-    backgroundColor: colors.surface3,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  noPointerEvents: {
-    pointerEvents: 'none',
-  },
-  infoBadgeText: {
-    color: colors.textSecondary,
-    fontSize: 9,
-    fontWeight: '700',
   },
   enemyHandRow: {
     flexDirection: 'row',
@@ -1303,23 +1326,31 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
   },
+  actionBar: {
+    gap: 4,
+    minHeight: 78, // reserved so the hand row below never shifts on (de)select
+  },
+  actionBarHidden: {
+    opacity: 0,
+  },
   skillButton: {
     backgroundColor: colors.secondary,
     borderRadius: radius.pill,
-    paddingVertical: 10,
+    paddingVertical: 6,
     paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
-    minHeight: 66, // reserved for the 2-line worst case so nothing below shifts when a card is (de)selected
-  },
-  skillButtonHidden: {
-    opacity: 0,
+    gap: 1,
   },
   skillDesc: {
     color: colors.textPrimary,
     fontSize: typography.micro.fontSize,
     fontWeight: '500',
+    textAlign: 'center',
+  },
+  passiveLine: {
+    color: colors.textQuaternary,
+    fontSize: typography.micro.fontSize,
     textAlign: 'center',
   },
   disabledButton: {

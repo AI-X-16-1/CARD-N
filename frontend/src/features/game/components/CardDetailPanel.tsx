@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useState, type ReactNode } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius, typography } from '@/shared/theme';
 import { JOB_COLOR, PASSIVE_INFO } from '@/features/game/constants';
@@ -13,15 +13,17 @@ type Props = {
   actions?: ReactNode;
 };
 
-// Shared "card detail" content: stars/name/company, class badge, ATK/DEF/INT/HP
-// grid, skill + passive chips, flavor text. Reused by the in-battle long-press
+// Shared "card detail" content. When the card has generated art (with its stats
+// baked in) the image fills the popup and the text block is behind a checkbox;
+// otherwise the text block shows outright. Reused by the in-battle long-press
 // overlay and the Deck Builder's Card Detail Overlay (ui-spec §7).
 export function CardDetailPanel({ card, effStats, actions }: Props) {
   const curHp = card.currentHp ?? effStats.hp;
+  const hasArt = !!card.illustrationUrl;
+  const [showText, setShowText] = useState(false);
 
-  return (
+  const textBlock = (
     <>
-      <CardArt uri={card.illustrationUrl} variant="detail" />
       <Text style={styles.stars}>{'★'.repeat(card.grade)}</Text>
       <Text style={styles.name}>{card.name}</Text>
       <Text style={styles.company}>{card.company}</Text>
@@ -48,6 +50,31 @@ export function CardDetailPanel({ card, effStats, actions }: Props) {
       </View>
 
       {!!card.flavorText && <Text style={styles.flavor}>“{card.flavorText}”</Text>}
+    </>
+  );
+
+  return (
+    <>
+      {hasArt ? (
+        <>
+          <View>
+            <CardArt uri={card.illustrationUrl} variant="detail" />
+            {showText && (
+              <ScrollView style={styles.textOverlay} contentContainerStyle={styles.textOverlayContent}>
+                {textBlock}
+              </ScrollView>
+            )}
+          </View>
+          <Pressable style={styles.textToggle} onPress={() => setShowText((v) => !v)}>
+            <View style={[styles.checkbox, showText && styles.checkboxOn]}>
+              {showText && <Text style={styles.checkboxMark}>✓</Text>}
+            </View>
+            <Text style={styles.textToggleLabel}>카드 정보 텍스트로 보기</Text>
+          </Pressable>
+        </>
+      ) : (
+        textBlock
+      )}
 
       {actions}
     </>
@@ -64,6 +91,49 @@ function StatCell({ label, value, color }: { label: string; value: string | numb
 }
 
 const styles = StyleSheet.create({
+  textOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(10,10,15,0.82)',
+    borderRadius: radius.gameCard,
+  },
+  textOverlayContent: {
+    padding: 14,
+    gap: 6,
+  },
+  textToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  checkbox: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: colors.borderMedium,
+    backgroundColor: colors.surface1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxOn: {
+    backgroundColor: colors.gameAccent,
+    borderColor: colors.gameAccent,
+  },
+  checkboxMark: {
+    color: colors.canvas,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  textToggleLabel: {
+    color: colors.textSecondary,
+    fontSize: typography.meta.fontSize,
+    fontWeight: '600',
+  },
   stars: {
     color: colors.warning,
     fontSize: 14,

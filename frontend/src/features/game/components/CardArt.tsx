@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
-import { radius } from '@/shared/theme';
+import { colors, radius } from '@/shared/theme';
 
 type Props = {
   /** battle_cards.illustration_url — used as-is for <Image uri>. */
@@ -39,11 +39,13 @@ export function CardArt({ uri, variant }: Props) {
     );
   }
 
+  // The generated art has the card's stats baked in, so show the whole image
+  // (contain, not cover) filling the detail popup.
   return (
     <Image
       source={{ uri }}
       style={styles.detail}
-      resizeMode="cover"
+      resizeMode="contain"
       onError={() => setFailed(true)}
     />
   );
@@ -61,7 +63,8 @@ const styles = StyleSheet.create({
   },
   detail: {
     width: '100%',
-    aspectRatio: 16 / 10,
+    aspectRatio: 0.72, // portrait card; fills the detail popup
     borderRadius: radius.gameCard,
+    backgroundColor: colors.surface1,
   },
 });
