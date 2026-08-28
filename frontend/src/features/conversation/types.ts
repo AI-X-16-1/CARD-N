@@ -84,6 +84,7 @@ export type GuideMessage = {
 
 export type GuideAnswer = {
   reply: string;
-  model: string;
+  /** Topics to offer as chips. Sent only when the server could not match the question. */
+  suggestions: string[];
 };
 

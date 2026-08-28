@@ -16,8 +16,8 @@ import type {
 /** Whisper on a CPU runs at roughly real time, so a long recording needs a long leash. */
 const STT_TIMEOUT_MS = 15 * 60 * 1000;
 const LLM_TIMEOUT_MS = 3 * 60 * 1000;
-/** A chat turn is one short answer — if it hasn't landed by now, something is wrong. */
-const GUIDE_TIMEOUT_MS = 30 * 1000;
+/** The server looks the answer up rather than generating it, so this is all network. */
+const GUIDE_TIMEOUT_MS = 10 * 1000;
 
 function toFormPart(audio: PickedAudio): unknown {
   // On web DocumentPicker gives us a real File; FormData handles it directly and
@@ -108,8 +108,12 @@ export async function fetchPerson(personId: number): Promise<Person> {
  * Ask the in-app guide chatbot.
  *
  * The whole visible conversation goes over the wire each turn — the endpoint is
- * stateless and stores nothing. It answers about how the app works and is never given
- * the user's contacts or saved conversations, so there is nothing here to leak.
+ * stateless and stores nothing. It answers about how the app works from a rule table
+ * and is never given the user's contacts or saved conversations, so there is nothing
+ * here to leak and no model call to pay for.
+ *
+ * `suggestions` comes back non-empty when the question matched nothing; show them as
+ * chips so the user can pick a question the bot does know.
  */
 export async function askGuide(messages: GuideMessage[]): Promise<GuideAnswer> {
   const { data } = await apiClient.post<GuideAnswer>(

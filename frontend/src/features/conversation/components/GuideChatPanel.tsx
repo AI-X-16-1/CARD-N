@@ -13,7 +13,7 @@ import {
 
 import { colors, radius, typography } from '@/shared/theme';
 
-import { SUGGESTIONS, useGuideChat } from '../hooks/useGuideChat';
+import { useGuideChat } from '../hooks/useGuideChat';
 import type { GuideMessage } from '../types';
 
 function Bubble({ message }: { message: GuideMessage }) {
@@ -28,7 +28,7 @@ function Bubble({ message }: { message: GuideMessage }) {
 }
 
 export function GuideChatPanel({ onClose }: { onClose: () => void }) {
-  const { messages, pending, error, send, retry, showSuggestions } = useGuideChat();
+  const { messages, pending, error, send, retry, suggestions } = useGuideChat();
   const [draft, setDraft] = useState('');
   const listRef = useRef<FlatList<GuideMessage>>(null);
 
@@ -84,9 +84,9 @@ export function GuideChatPanel({ onClose }: { onClose: () => void }) {
               </View>
             ) : null}
 
-            {showSuggestions ? (
+            {suggestions.length > 0 ? (
               <View style={styles.suggestions}>
-                {SUGGESTIONS.map((question) => (
+                {suggestions.map((question) => (
                   <Pressable
                     key={question}
                     style={styles.chip}

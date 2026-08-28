@@ -149,17 +149,14 @@ async def guide_chat(data: GuideRequest) -> GuideResponse:
     """The in-app how-do-I-use-this chatbot.
 
     Stateless: the client owns the transcript and sends the whole visible conversation
-    back each turn. Nothing is written to the database, and the prompt is never given a
-    contact or a saved conversation — this endpoint answers about the app, not about
-    the user's people.
+    back each turn. Nothing is written to the database and nothing is read from it —
+    this endpoint answers about the app, not about the user's people.
+
+    Answers come from a rule table in guide.py, so there is no provider to fail and no
+    threadpool hop to make: the handler returns a dictionary lookup.
     """
     if data.messages[-1].role != "user":
         raise HTTPException(status_code=400, detail="마지막 메시지는 사용자 질문이어야 합니다.")
 
-    history = [m.model_dump() for m in data.messages]
-    try:
-        reply = await run_in_threadpool(answer_guide, history)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"답변 생성에 실패했습니다: {e}") from e
-
-    return GuideResponse(reply=reply, model=settings.gemini_model)
+    result = answer_guide([m.model_dump() for m in data.messages])
+    return GuideResponse(reply=result.reply, suggestions=list(result.suggestions))

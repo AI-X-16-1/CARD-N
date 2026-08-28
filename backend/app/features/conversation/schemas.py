@@ -137,4 +137,7 @@ class GuideRequest(BaseModel):
 
 class GuideResponse(BaseModel):
     reply: str
-    model: str
+    suggestions: list[str] = Field(
+        default_factory=list,
+        description="Topics to offer as chips. Filled only when nothing matched the question",
+    )

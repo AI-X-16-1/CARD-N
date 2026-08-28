@@ -3,18 +3,24 @@ import { useCallback, useState } from 'react';
 import { askGuide } from '../api';
 import type { GuideMessage } from '../types';
 
-/** What the bot says before it has been asked anything. Never goes to the model twice. */
+/** What the bot says before it has been asked anything. */
 export const GREETING: GuideMessage = {
   role: 'assistant',
   content: 'CARD:N 사용법을 안내해 드려요. 궁금한 걸 물어보세요.',
 };
 
-/** Shown as tappable chips while the conversation is still just the greeting. */
-export const SUGGESTIONS = [
+/**
+ * Chips for the opening screen, so the first question costs no typing.
+ *
+ * Written here rather than fetched because they are needed before there is anything to
+ * send. The server has its own list for when it cannot match a question — that one is
+ * longer, and it is the one that matters, so these three are only a starter.
+ */
+export const STARTERS = [
   '명함은 어떻게 등록해요?',
   '대화 녹음은 어디서 해요?',
   '관계도는 뭘 보여주나요?',
-] as const;
+];
 
 function messageOf(error: unknown, fallback: string): string {
   // Same shape as useConversationFlow's helper — FastAPI's {detail: "..."} is what the
@@ -33,6 +39,7 @@ function messageOf(error: unknown, fallback: string): string {
  */
 export function useGuideChat() {
   const [messages, setMessages] = useState<GuideMessage[]>([GREETING]);
+  const [suggestions, setSuggestions] = useState<string[]>(STARTERS);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,8 +47,11 @@ export function useGuideChat() {
     setPending(true);
     setError(null);
     try {
-      const { reply } = await askGuide(history);
+      const { reply, suggestions: offered } = await askGuide(history);
       setMessages([...history, { role: 'assistant', content: reply }]);
+      // Empty whenever the question was understood — an answer that stands on its own
+      // does not want a menu under it.
+      setSuggestions(offered);
     } catch (e) {
       // The question stays on screen so "다시 시도" has something to resend, and so the
       // user can see what they asked rather than having it vanish with the error.
@@ -69,6 +79,7 @@ export function useGuideChat() {
 
   const reset = useCallback(() => {
     setMessages([GREETING]);
+    setSuggestions(STARTERS);
     setError(null);
   }, []);
 
@@ -79,7 +90,7 @@ export function useGuideChat() {
     send,
     retry,
     reset,
-    /** Suggestions are only useful before the conversation has started. */
-    showSuggestions: messages.length === 1 && !pending,
+    /** Starters before the first question, then whatever the server offers on a miss. */
+    suggestions: pending ? [] : suggestions,
   };
 }
