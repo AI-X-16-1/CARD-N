@@ -1,8 +1,10 @@
 // Conversation history timeline for PersonDetailScreen (ui-spec.md §5).
+import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius, typography } from '@/shared/theme';
 
+import { ConfirmModal } from './ConfirmModal';
 import type { Conversation } from '../types';
 import { useConversations } from '../hooks/useConversations';
 import { deleteConversation } from '../api';
@@ -18,22 +20,16 @@ type RowProps = {
 };
 
 function ConversationRow({ conversation, onDeleted }: RowProps) {
-  const handleDelete = () => {
-    Alert.alert('대화 기록 삭제', '이 요약을 삭제할까요?', [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '삭제',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteConversation(conversation.id);
-            onDeleted();
-          } catch {
-            Alert.alert('오류', '삭제하지 못했어요. 다시 시도해주세요.');
-          }
-        },
-      },
-    ]);
+  const [confirmVisible, setConfirmVisible] = useState(false);
+
+  const performDelete = async () => {
+    setConfirmVisible(false);
+    try {
+      await deleteConversation(conversation.id);
+      onDeleted();
+    } catch {
+      Alert.alert('오류', '삭제하지 못했어요. 다시 시도해주세요.');
+    }
   };
 
   return (
@@ -55,10 +51,17 @@ function ConversationRow({ conversation, onDeleted }: RowProps) {
             · {point}
           </Text>
         ))}
-        <Pressable onPress={handleDelete} hitSlop={8}>
+        <Pressable onPress={() => setConfirmVisible(true)} hitSlop={8}>
           <Text style={styles.deleteLabel}>삭제</Text>
         </Pressable>
       </View>
+      <ConfirmModal
+        visible={confirmVisible}
+        title="대화 기록 삭제"
+        message="이 요약을 삭제할까요?"
+        onCancel={() => setConfirmVisible(false)}
+        onConfirm={performDelete}
+      />
     </View>
   );
 }

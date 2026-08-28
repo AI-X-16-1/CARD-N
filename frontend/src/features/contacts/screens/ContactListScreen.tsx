@@ -1,5 +1,5 @@
-import { useCallback } from 'react';
-import { Alert, FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -8,6 +8,7 @@ import { colors, radius, typography } from '@/shared/theme';
 import type { ListStackParamList } from '@/navigation/RootNavigator';
 
 import { CategoryChip } from '../components/CategoryChip';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { ContactRow } from '../components/ContactRow';
 import { deleteContact } from '../api';
 import { useContactList } from '../hooks/useContactList';
@@ -29,20 +30,16 @@ export default function ContactListScreen() {
     }, [refetch]),
   );
 
+  const [pendingDelete, setPendingDelete] = useState<Person | null>(null);
+
   const openPerson = (person: Person) => navigation.navigate('PersonDetail', { personId: person.id });
 
-  const confirmDeletePerson = (person: Person) => {
-    Alert.alert('연락처 삭제', `${person.name}님을 목록에서 삭제할까요?`, [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '삭제',
-        style: 'destructive',
-        onPress: async () => {
-          await deleteContact(person.id);
-          refetch();
-        },
-      },
-    ]);
+  const performDelete = async () => {
+    if (!pendingDelete) return;
+    const person = pendingDelete;
+    setPendingDelete(null);
+    await deleteContact(person.id);
+    refetch();
   };
 
   return (
@@ -81,7 +78,7 @@ export default function ContactListScreen() {
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={styles.listContent}
         renderItem={({ item }) => (
-          <ContactRow person={item} onPress={openPerson} onLongPress={confirmDeletePerson} />
+          <ContactRow person={item} onPress={openPerson} onLongPress={setPendingDelete} />
         )}
         ListEmptyComponent={
           !loading ? (
@@ -90,6 +87,13 @@ export default function ContactListScreen() {
             </View>
           ) : null
         }
+      />
+      <ConfirmModal
+        visible={pendingDelete !== null}
+        title="연락처 삭제"
+        message={`${pendingDelete?.name ?? ''}님을 목록에서 삭제할까요?`}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={performDelete}
       />
     </SafeAreaView>
   );
