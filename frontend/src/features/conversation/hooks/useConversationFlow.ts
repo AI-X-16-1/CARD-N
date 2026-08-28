@@ -53,6 +53,10 @@ export function useConversationFlow(personId: number | undefined) {
   const [sttElapsed, setSttElapsed] = useState(0);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Which run the estimate belongs to. Probing a file's length outlives the pick that
+  // started it, so a second pick has to be able to say that the first one's answer is
+  // no longer about the audio on screen.
+  const runRef = useRef(0);
 
   // Elapsed time only runs while something is actually in flight.
   useEffect(() => {
@@ -111,6 +115,7 @@ export function useConversationFlow(personId: number | undefined) {
   const transcribe = useCallback(
     async (file: PickedAudio) => {
       reset();
+      const run = ++runRef.current;
       setAudio(file);
       setPhase('uploading');
 
@@ -118,9 +123,12 @@ export function useConversationFlow(personId: number | undefined) {
         setAudioSeconds(file.durationSeconds);
       } else {
         // Deliberately not awaited. The estimate is a nicety; making the upload wait on
-        // it would trade something the user needs for something they merely like.
+        // it would trade something the user needs for something they merely like. The
+        // probe can still be running when the next pick starts, though, and its answer
+        // would then be a countdown measured against a file the user has moved on from.
         readAudioDuration(file.uri)
           .then((seconds) => {
+            if (run !== runRef.current) return;
             if (seconds != null && seconds > 0) setAudioSeconds(seconds);
           })
           .catch(() => {});
