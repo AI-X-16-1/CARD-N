@@ -142,23 +142,23 @@ describe('randomFillDeck', () => {
   });
 });
 
-describe('addTestCard', () => {
-  test('appends one card with a fresh unique id, keeping the existing collection', () => {
+describe('addTestCards', () => {
+  test('appends 10 cards with fresh unique ids, keeping the existing collection', () => {
     useGameStore.setState({ collection: [card(1), card(5)] });
 
-    useGameStore.getState().addTestCard();
+    useGameStore.getState().addTestCards();
 
     const ids = useGameStore.getState().collection.map((c) => c.id);
-    expect(ids).toHaveLength(3);
+    expect(ids).toHaveLength(12);
     expect(ids.slice(0, 2)).toEqual([1, 5]);
-    expect(ids[2]).toBeGreaterThan(5);
-    expect(new Set(ids).size).toBe(3);
+    expect(ids.slice(2).every((id) => id > 5)).toBe(true);
+    expect(new Set(ids).size).toBe(12);
   });
 
   test('works from an empty collection', () => {
-    useGameStore.getState().addTestCard();
+    useGameStore.getState().addTestCards();
 
-    expect(useGameStore.getState().collection).toHaveLength(1);
+    expect(useGameStore.getState().collection).toHaveLength(10);
   });
 });
 

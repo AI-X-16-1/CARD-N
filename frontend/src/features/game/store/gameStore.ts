@@ -2,11 +2,11 @@ import { create } from 'zustand';
 
 import { fetchCards, fetchDeck, saveDeck } from '@/features/game/api';
 import { buildCard, GRADES, JOB_CLASSES, JOB_LABEL } from '@/features/game/engine/cardData';
-import { createMockCollection } from '@/features/game/engine/mockCollection';
 import { createStarterDeck } from '@/features/game/engine/starterDeck';
 import type { BattleCard } from '@/features/game/engine/types';
 
 export const MAX_DECK_SIZE = 8;
+const TEST_CARD_BATCH = 10;
 
 type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -24,9 +24,9 @@ interface GameStore {
   randomFillDeck: () => void;
   /** Clear every deck slot. */
   clearDeck: () => void;
-  /** Append one random card to the collection — a dev/test affordance for
-   *  padding the collection before the backend can supply extra cards. */
-  addTestCard: () => void;
+  /** Append a batch of random cards to the collection — a dev/test affordance
+   *  for padding the collection before the backend can supply extra cards. */
+  addTestCards: () => void;
 }
 
 function shuffle<T>(items: T[]): T[] {
@@ -83,15 +83,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const [cards, deckIds] = await Promise.all([fetchCards(), fetchDeck()]);
       set({ ...hydrate(cards, deckIds), status: 'ready' });
     } catch {
-      // No backend during local UI work: fall back to the starter deck (seeded
-      // into the deck slots, like a new user) plus a fresh random mock
-      // collection to test with. Re-rolled on every load; dev builds only — a
-      // production build still surfaces the error state.
+      // No backend during local UI work: fall back to the starter deck, seeded
+      // into the deck slots like a new user. Use the "+ 테스트 카드" button to
+      // pad the collection. Dev builds only — a production build still surfaces
+      // the error state.
       if (typeof __DEV__ !== 'undefined' && __DEV__) {
-        console.log('[game] backend unavailable — starter deck + mock collection');
+        console.log('[game] backend unavailable — using the starter deck');
         const starter = createStarterDeck();
         set({
-          collection: [...starter, ...createMockCollection()],
+          collection: starter,
           deckSlots: idsToSlots(starter.map((c) => c.id)),
           status: 'ready',
         });
@@ -141,20 +141,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return { deckSlots: next };
     }),
 
-  addTestCard: () =>
+  addTestCards: () =>
     set((state) => {
-      const jobClass = JOB_CLASSES[Math.floor(Math.random() * JOB_CLASSES.length)];
-      const grade = GRADES[Math.floor(Math.random() * GRADES.length)];
-      const id = state.collection.reduce((max, c) => Math.max(max, c.id), 0) + 1;
-      const testCard = buildCard({
-        id,
-        personId: id,
-        jobClass,
-        grade,
-        name: `테스트 ${JOB_LABEL[jobClass]} ${id}`,
-        company: 'TEST',
-      });
-      testCard.illustrationUrl = `https://picsum.photos/seed/cardn-${id}/240/320`;
-      return { collection: [...state.collection, testCard] };
+      let nextId = state.collection.reduce((max, c) => Math.max(max, c.id), 0) + 1;
+      const batch: BattleCard[] = [];
+      for (let i = 0; i < TEST_CARD_BATCH; i++) {
+        const jobClass = JOB_CLASSES[Math.floor(Math.random() * JOB_CLASSES.length)];
+        const grade = GRADES[Math.floor(Math.random() * GRADES.length)];
+        const id = nextId++;
+        const testCard = buildCard({
+          id,
+          personId: id,
+          jobClass,
+          grade,
+          name: `테스트 ${JOB_LABEL[jobClass]} ${id}`,
+          company: 'TEST',
+        });
+        testCard.illustrationUrl = `https://picsum.photos/seed/cardn-${id}/240/320`;
+        batch.push(testCard);
+      }
+      return { collection: [...state.collection, ...batch] };
     }),
 }));

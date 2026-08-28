@@ -64,7 +64,7 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
   const toggleSelected = useGameStore((s) => s.toggleSelected);
   const randomFillDeck = useGameStore((s) => s.randomFillDeck);
   const clearDeck = useGameStore((s) => s.clearDeck);
-  const addTestCard = useGameStore((s) => s.addTestCard);
+  const addTestCards = useGameStore((s) => s.addTestCards);
   const status = useGameStore((s) => s.status);
   const reload = useGameStore((s) => s.load);
 
@@ -153,8 +153,8 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
 
       {IS_DEV && (
         <View style={styles.devBar}>
-          <Pressable style={styles.devBtn} onPress={addTestCard}>
-            <Text style={styles.devBtnText}>+ 테스트 카드</Text>
+          <Pressable style={styles.devBtn} onPress={addTestCards}>
+            <Text style={styles.devBtnText}>+ 테스트 카드 10장</Text>
           </Pressable>
         </View>
       )}
