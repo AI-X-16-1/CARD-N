@@ -704,6 +704,35 @@ There is no auth in this project, so the deck is a single global configuration.
 `illustration_url` is `null` until the asset pipeline (ComfyUI / Krea2)
 produces the card art and calls `PUT /game/cards/{id}/art` to attach it.
 
+#### POST /id-card/{card_id} — card-art generation (draft, `backend/cardcreate/`)
+
+> **Draft.** Not registered in `app/main.py` yet — `backend/cardcreate/` is
+> outside the `docs/features.md` ownership table, so wiring it in needs a
+> separate branch/PR with 2+ approvals (same process as a `shared/` change).
+
+Generates the battle-card image for `card_id`. No request body: the source
+photo is the contact's saved business card (`persons.image_path`, which must
+not be `NULL`), `name`/`company` come from that `persons` row, and
+`job_class`/`grade`/`cost`/`final_stats`/`skill`/`passive`/`flavor_text` come
+from the `battle_cards` snapshot. ComfyUI/Krea2 renders textless card art,
+then that text is drawn on top with PIL.
+
+```
+POST /id-card/{card_id}
+(no body)
+
+Response 200:
+  Content-Type: image/png   (the finished card image)
+
+Errors:
+  404  battle card {card_id} not found
+  422  the card's contact has no saved business-card image (image_path is NULL)
+```
+
+Side effect: the finished image is stored and its filename saved to
+`battle_cards.illustration_url`. (It writes the column directly for now; it
+should move to calling `PUT /game/cards/{id}/art` — see PR #64 review.)
+
 ### POST /game/cards
 
 Generates a battle card based on person info.
