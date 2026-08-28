@@ -128,9 +128,12 @@ function ActionGhost({
       {faceDown || !card ? (
         <Text style={styles.cardBackMark}>◆</Text>
       ) : (
-        <Text style={styles.cardName} numberOfLines={1}>
-          ★{card.grade} {card.name}
-        </Text>
+        <>
+          <CardArt uri={card.illustrationUrl} variant="tile" />
+          <Text style={styles.cardName} numberOfLines={1}>
+            ★{card.grade} {card.name}
+          </Text>
+        </>
       )}
     </Animated.View>
   );
@@ -881,6 +884,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
         pointerEvents="none"
         style={[styles.flyingCard, { borderColor: JOB_COLOR[flying.card.jobClass] }, flyingStyle]}
       >
+        <CardArt uri={flying.card.illustrationUrl} variant="tile" />
         <Text style={styles.cardName} numberOfLines={1}>
           ★{flying.card.grade} {flying.card.name}
         </Text>
@@ -892,6 +896,7 @@ export default function BattleScreen({ initialDeck, onExit }: Props) {
         pointerEvents="none"
         style={[styles.flyingCard, { borderColor: JOB_COLOR[attacking.card.jobClass] }, atkStyle]}
       >
+        <CardArt uri={attacking.card.illustrationUrl} variant="tile" />
         <Text style={styles.cardName} numberOfLines={1}>
           ★{attacking.card.grade} {attacking.card.name}
         </Text>
