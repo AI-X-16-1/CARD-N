@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     whisper_model: str = "large-v3-turbo"
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
+    # Load the model in the lifespan hook (app/main.py) instead of on the first
+    # /transcribe. This moves the cost rather than removing it — startup grows by
+    # what the first request used to pay. Set false when running with
+    # `uvicorn --reload`, where every save restarts the process and pays it again.
+    whisper_warmup: bool = True
     # Conversation summaries. Key: https://aistudio.google.com/apikey
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.5-flash-lite"
