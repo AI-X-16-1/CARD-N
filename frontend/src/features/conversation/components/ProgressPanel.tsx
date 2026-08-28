@@ -2,6 +2,8 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius, typography } from '@/shared/theme';
 
+import { formatDuration } from '../lib/format';
+import { transcribeProgress } from '../lib/progress';
 import type { FlowPhase } from '../types';
 
 const PHASE_LABELS: Partial<Record<FlowPhase, string>> = {
@@ -20,25 +22,48 @@ type Props = {
   phase: FlowPhase;
   uploadPercent: number;
   elapsed: number;
+  /** Seconds spent transcribing, which is what `expectedSttSeconds` is measured against. */
+  sttElapsed: number;
+  /** Roughly how long transcribing should take, or null when the audio length is unknown. */
+  expectedSttSeconds: number | null;
 };
 
-export function ProgressPanel({ phase, uploadPercent, elapsed }: Props) {
+export function ProgressPanel({
+  phase,
+  uploadPercent,
+  elapsed,
+  sttElapsed,
+  expectedSttSeconds,
+}: Props) {
   const label = PHASE_LABELS[phase];
   if (!label) return null;
 
-  const showBar = phase === 'uploading' && uploadPercent > 0;
+  // Whisper reports nothing until it is finished, so the only honest progress here is
+  // against how long the audio runs. Without that length there is nothing to divide by
+  // and the panel falls back to the elapsed clock alone.
+  const estimating = phase === 'transcribing' && expectedSttSeconds !== null;
+  const estimate = estimating ? transcribeProgress(sttElapsed, expectedSttSeconds) : null;
+
+  const percent = estimate ? estimate.percent : uploadPercent;
+  const showBar = estimate !== null || (phase === 'uploading' && uploadPercent > 0);
 
   return (
     <View style={styles.panel}>
       <View style={styles.row}>
         <ActivityIndicator color={colors.primaryLight} />
         <Text style={styles.label}>{label}</Text>
-        <Text style={styles.elapsed}>{elapsed.toFixed(1)}초</Text>
+        <Text style={styles.elapsed}>
+          {estimate
+            ? estimate.remainingSeconds > 0
+              ? `약 ${formatDuration(estimate.remainingSeconds)} 남음`
+              : '거의 다 됐어요'
+            : `${elapsed.toFixed(1)}초`}
+        </Text>
       </View>
 
       {showBar ? (
         <View style={styles.track}>
-          <View style={[styles.fill, { width: `${uploadPercent}%` }]} />
+          <View style={[styles.fill, { width: `${percent}%` }]} />
         </View>
       ) : null}
 

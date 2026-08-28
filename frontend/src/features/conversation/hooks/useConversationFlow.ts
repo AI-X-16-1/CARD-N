@@ -2,6 +2,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { saveConversation, summarizeTranscript, transcribeAudio } from '../api';
+import { readAudioDuration } from '../lib/audioDuration';
 import type {
   ConversationSummary,
   FlowPhase,
@@ -11,6 +12,14 @@ import type {
 } from '../types';
 
 const BUSY_PHASES: FlowPhase[] = ['uploading', 'transcribing', 'summarizing'];
+
+/**
+ * Whisper on a CPU transcribes at roughly the length of the audio, which is what the
+ * progress estimate is built on. It is a rough figure and deliberately treated as one:
+ * the panel keeps the bar short of full and stops naming a number once the estimate is
+ * spent, rather than counting down to a zero that the transcription then runs past.
+ */
+const SECONDS_OF_WORK_PER_SECOND_OF_AUDIO = 1;
 
 function messageOf(error: unknown, fallback: string): string {
   // FastAPI puts its message in {detail: "..."}; axios buries that under response.data.
@@ -39,8 +48,15 @@ export function useConversationFlow(personId: number | undefined) {
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [audioSeconds, setAudioSeconds] = useState<number | null>(null);
+  const [sttElapsed, setSttElapsed] = useState(0);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Which run the estimate belongs to. Probing a file's length outlives the pick that
+  // started it, so a second pick has to be able to say that the first one's answer is
+  // no longer about the audio on screen.
+  const runRef = useRef(0);
 
   // Elapsed time only runs while something is actually in flight.
   useEffect(() => {
@@ -62,6 +78,17 @@ export function useConversationFlow(personId: number | undefined) {
     [],
   );
 
+  // `elapsed` runs from the start of the upload, but the estimate is about Whisper
+  // alone — mixing the upload into it would report a job that is further along than it
+  // is, by however long the file took to reach the server.
+  useEffect(() => {
+    if (phase !== 'transcribing') return;
+    const start = Date.now();
+    setSttElapsed(0);
+    const id = setInterval(() => setSttElapsed((Date.now() - start) / 1000), 100);
+    return () => clearInterval(id);
+  }, [phase]);
+
   const reset = useCallback(() => {
     setPhase('idle');
     setAudio(null);
@@ -74,6 +101,9 @@ export function useConversationFlow(personId: number | undefined) {
     setElapsed(0);
     setError('');
     setSaved(false);
+    setSaving(false);
+    setAudioSeconds(null);
+    setSttElapsed(0);
   }, []);
 
   /**
@@ -85,8 +115,24 @@ export function useConversationFlow(personId: number | undefined) {
   const transcribe = useCallback(
     async (file: PickedAudio) => {
       reset();
+      const run = ++runRef.current;
       setAudio(file);
       setPhase('uploading');
+
+      if (file.durationSeconds != null && file.durationSeconds > 0) {
+        setAudioSeconds(file.durationSeconds);
+      } else {
+        // Deliberately not awaited. The estimate is a nicety; making the upload wait on
+        // it would trade something the user needs for something they merely like. The
+        // probe can still be running when the next pick starts, though, and its answer
+        // would then be a countdown measured against a file the user has moved on from.
+        readAudioDuration(file.uri)
+          .then((seconds) => {
+            if (run !== runRef.current) return;
+            if (seconds != null && seconds > 0) setAudioSeconds(seconds);
+          })
+          .catch(() => {});
+      }
 
       try {
         const result = await transcribeAudio(file, 'ko', (percent) => {
@@ -150,9 +196,16 @@ export function useConversationFlow(personId: number | undefined) {
     }
   }, [transcript, personId, sttMeta]);
 
-  /** Persist the summary to the contact's timeline. The audio is already gone. */
-  const save = useCallback(async () => {
-    if (personId === undefined || !summary) return;
+  /**
+   * Persist the summary to the contact's timeline. The audio is already gone.
+   *
+   * Reports whether it landed so the screen can leave for the contact's records only
+   * on success — a failure has to stay put, with the summary still on screen to retry.
+   */
+  const save = useCallback(async (): Promise<boolean> => {
+    if (personId === undefined || !summary) return false;
+    setSaving(true);
+    setError('');
     try {
       await saveConversation({
         personId,
@@ -161,8 +214,12 @@ export function useConversationFlow(personId: number | undefined) {
         durationSeconds: sttMeta ? Math.round(sttMeta.duration_seconds) : undefined,
       });
       setSaved(true);
+      return true;
     } catch (e) {
       setError(messageOf(e, '저장에 실패했어요.'));
+      return false;
+    } finally {
+      setSaving(false);
     }
   }, [personId, summary, transcript, sttMeta]);
 
@@ -181,6 +238,12 @@ export function useConversationFlow(personId: number | undefined) {
     elapsed,
     error,
     saved,
+    saving,
+    /** Time spent in Whisper alone, which is what the estimate below is measured against. */
+    sttElapsed,
+    /** How long the transcription should take, or null when the audio's length is unknown. */
+    expectedSttSeconds:
+      audioSeconds == null ? null : audioSeconds * SECONDS_OF_WORK_PER_SECOND_OF_AUDIO,
     transcribe,
     pickAndTranscribe,
     runSummary,
