@@ -36,16 +36,18 @@ export function createMockCollection(rng: () => number = Math.random): BattleCar
       for (let i = 0; i < count; i++) {
         const id = nextId++;
         const surname = MOCK_SURNAMES[id % MOCK_SURNAMES.length];
-        collection.push(
-          buildCard({
-            id,
-            personId: id,
-            jobClass,
-            grade,
-            name: `${surname}${JOB_LABEL[jobClass]}`,
-            company: MOCK_COMPANIES[id % MOCK_COMPANIES.length],
-          }),
-        );
+        const mockCard = buildCard({
+          id,
+          personId: id,
+          jobClass,
+          grade,
+          name: `${surname}${JOB_LABEL[jobClass]}`,
+          company: MOCK_COMPANIES[id % MOCK_COMPANIES.length],
+        });
+        // Dev placeholder art so CardArt is visibly exercised without a backend.
+        // Real cards get illustration_url from PUT /game/cards/{id}/art.
+        mockCard.illustrationUrl = `https://picsum.photos/seed/cardn-${id}/240/320`;
+        collection.push(mockCard);
       }
     }
   }

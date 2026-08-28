@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { colors } from '@/shared/theme';
 import DeckBuilderScreen from '@/features/game/screens/DeckBuilderScreen';
@@ -33,11 +33,12 @@ export default function GameHomeScreen() {
       />
     );
 
-  // The app is Android-first and always fills a real phone's portrait
-  // screen there. On web (used here only to preview this feature in a
-  // browser) the window can be any shape, so lock a phone-ratio frame
-  // to show the concept correctly.
-  if (Platform.OS !== 'web') return content;
+  // The app is Android-first and always fills a real phone's portrait screen.
+  // On web the window can be any shape: a wide desktop browser gets a locked
+  // phone-ratio frame so the concept reads right, but a phone-width viewport
+  // (a real phone's browser) just fills the screen like the native app.
+  const { width } = useWindowDimensions();
+  if (Platform.OS !== 'web' || width <= 500) return content;
 
   return (
     <View style={styles.webBackdrop}>

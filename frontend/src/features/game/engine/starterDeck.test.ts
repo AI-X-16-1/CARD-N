@@ -8,18 +8,33 @@ describe('createStarterDeck', () => {
     expect(createStarterDeck()).toHaveLength(15);
   });
 
-  test('every card is a cost-1, grade-1 basic card', () => {
+  test('has the intended grade spread: 8x star1, 4x star2, 3x star3, nothing above star3', () => {
     const deck = createStarterDeck();
+    const byGrade = (g: number) => deck.filter((c) => c.grade === g).length;
 
-    for (const card of deck) {
-      expect(card.grade).toBe(1);
-      expect(card.cost).toBe(1);
+    expect(byGrade(1)).toBe(8);
+    expect(byGrade(2)).toBe(4);
+    expect(byGrade(3)).toBe(3);
+    expect(deck.every((c) => c.grade <= 3)).toBe(true);
+  });
+
+  test('cost follows the grade table (1 / 2 / 3)', () => {
+    const expected: Record<number, number> = { 1: 1, 2: 2, 3: 3 };
+
+    for (const card of createStarterDeck()) {
+      expect(card.cost).toBe(expected[card.grade]);
     }
   });
 
-  test('covers all 8 job classes at least once', () => {
+  test('keeps a low curve — average cost under 2', () => {
     const deck = createStarterDeck();
-    const jobClasses = new Set(deck.map((card) => card.jobClass));
+    const avg = deck.reduce((sum, c) => sum + c.cost, 0) / deck.length;
+
+    expect(avg).toBeLessThan(2);
+  });
+
+  test('covers all 8 job classes at least once', () => {
+    const jobClasses = new Set(createStarterDeck().map((card) => card.jobClass));
 
     for (const jobClass of ALL_JOB_CLASSES) {
       expect(jobClasses.has(jobClass)).toBe(true);
@@ -27,16 +42,13 @@ describe('createStarterDeck', () => {
   });
 
   test('every card has a unique id', () => {
-    const deck = createStarterDeck();
-    const ids = new Set(deck.map((card) => card.id));
+    const ids = new Set(createStarterDeck().map((card) => card.id));
 
-    expect(ids.size).toBe(deck.length);
+    expect(ids.size).toBe(15);
   });
 
-  test('finalStats matches baseStats at grade 1 (x1.0 multiplier)', () => {
-    const deck = createStarterDeck();
-
-    for (const card of deck) {
+  test('star1 cards have finalStats equal to baseStats (x1.0 multiplier)', () => {
+    for (const card of createStarterDeck().filter((c) => c.grade === 1)) {
       expect(card.finalStats).toEqual(card.baseStats);
     }
   });

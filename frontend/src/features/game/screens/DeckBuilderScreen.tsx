@@ -6,10 +6,12 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { colors, radius, typography } from '@/shared/theme';
 import { JOB_COLOR } from '@/features/game/constants';
+import { DeckStrip } from '@/features/game/components/DeckStrip';
 import { StatRow } from '@/features/game/components/StatRow';
 import { averageCost, compendiumCompletion } from '@/features/game/engine/deckStats';
 import { JOB_CLASSES, JOB_LABEL, SKILL } from '@/features/game/engine/cardData';
 import { completeDeckTo15, groupCompendium, type CompendiumSlot } from '@/features/game/engine/mockCollection';
+import { createStarterDeck } from '@/features/game/engine/starterDeck';
 import type { BattleCard, JobClass } from '@/features/game/engine/types';
 import { MAX_DECK_SIZE, useGameStore } from '@/features/game/store/gameStore';
 import type { GameStackParamList } from '@/navigation/RootNavigator';
@@ -17,6 +19,10 @@ import type { GameStackParamList } from '@/navigation/RootNavigator';
 type Props = {
   onStartBattle: (deck: BattleCard[]) => void;
 };
+
+// Dev-only affordances (e.g. the "+ 테스트 카드" button) — a production build
+// never shows them.
+const IS_DEV = typeof __DEV__ !== 'undefined' && __DEV__;
 
 type FilterKey = 'all' | 'grade3minus' | 'grade4plus' | JobClass;
 
@@ -56,6 +62,9 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
   const collection = useGameStore((s) => s.collection);
   const deckSlots = useGameStore((s) => s.deckSlots);
   const toggleSelected = useGameStore((s) => s.toggleSelected);
+  const randomFillDeck = useGameStore((s) => s.randomFillDeck);
+  const clearDeck = useGameStore((s) => s.clearDeck);
+  const addTestCards = useGameStore((s) => s.addTestCards);
   const status = useGameStore((s) => s.status);
   const reload = useGameStore((s) => s.load);
 
@@ -103,7 +112,9 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
   }
 
   function startBattle() {
-    onStartBattle(completeDeckTo15(deckCards, collection));
+    // No cards picked (new user, or deck cleared) → the fixed starter deck.
+    // Otherwise round the picks out to a full 15-card battle deck.
+    onStartBattle(deckCards.length === 0 ? createStarterDeck() : completeDeckTo15(deckCards, collection));
   }
 
   function openSlot(slot: CompendiumSlot) {
@@ -140,6 +151,14 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
         </View>
       </View>
 
+      {IS_DEV && (
+        <View style={styles.devBar}>
+          <Pressable style={styles.devBtn} onPress={addTestCards}>
+            <Text style={styles.devBtnText}>+ 테스트 카드 10장</Text>
+          </Pressable>
+        </View>
+      )}
+
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionLabel}>내 덱</Text>
@@ -155,6 +174,20 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
           </Text>
           <Text style={styles.metaText}>평균 코스트 {avgCost.toFixed(1)}</Text>
         </View>
+        <View style={styles.deckActionsRow}>
+          <Pressable
+            style={[styles.deckActionBtn, styles.deckActionFill]}
+            onPress={randomFillDeck}
+          >
+            <Text style={styles.deckActionFillText}>랜덤 편성</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.deckActionBtn, styles.deckActionReset]}
+            onPress={clearDeck}
+          >
+            <Text style={styles.deckActionResetText}>초기화</Text>
+          </Pressable>
+        </View>
         {status === 'loading' && <Text style={styles.metaText}>카드 컬렉션 불러오는 중…</Text>}
         {status === 'error' && (
           <Pressable onPress={() => reload()}>
@@ -164,35 +197,12 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
           </Pressable>
         )}
 
-        <View style={styles.grid}>
-          {deckSlots.map((cardId, i) => {
-            const card = cardId !== null ? collection.find((c) => c.id === cardId) : undefined;
-            if (!card) {
-              return (
-                <View key={i} style={[styles.tile, styles.tileEmpty]}>
-                  <Text style={styles.tileEmptyText}>+</Text>
-                </View>
-              );
-            }
-            return (
-              <Pressable
-                key={i}
-                style={[styles.tile, { borderColor: JOB_COLOR[card.jobClass] }]}
-                onPress={() => toggleSelected(card.id)}
-                onLongPress={() => goToCardDetail(card.id)}
-              >
-                <Text style={styles.tileStars}>{'★'.repeat(card.grade)}</Text>
-                <Text style={styles.tileName} numberOfLines={1}>
-                  {card.name}
-                </Text>
-                <Text style={styles.tileSkill} numberOfLines={1}>
-                  {card.skill.name}
-                </Text>
-                <StatRow stats={card.finalStats} />
-              </Pressable>
-            );
-          })}
-        </View>
+        <DeckStrip
+          deckSlots={deckSlots}
+          collection={collection}
+          onRemove={toggleSelected}
+          onLongPressCard={goToCardDetail}
+        />
 
         <View style={styles.filterRow}>
           <Text style={styles.filterCaption}>필터</Text>
@@ -304,15 +314,24 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
             <Pressable style={styles.closeBadge} hitSlop={8} onPress={closeSlot}>
               <Text style={styles.closeText}>✕</Text>
             </Pressable>
+
+            <Text style={styles.instanceDeckLabel}>
+              내 덱 {selectedIds.length} / {MAX_DECK_SIZE}
+            </Text>
+            <DeckStrip deckSlots={deckSlots} collection={collection} onRemove={toggleSelected} />
+
             <Text style={styles.instanceTitle}>
               ★{viewingSlot.grade} {viewingSlot.owned[0]?.jobLabel} · 보유 {viewingSlot.owned.length}장
             </Text>
             <Text style={styles.instanceHint}>탭해서 덱에 추가/제외 · 길게 누르면 상세정보</Text>
-            {listError && (
-              <View style={styles.errorBanner}>
-                <Text style={styles.errorText}>{listError}</Text>
-              </View>
-            )}
+            {/* Fixed-height slot so showing/hiding the message never resizes the popup. */}
+            <View style={styles.errorSlot}>
+              {listError && (
+                <View style={styles.errorBanner}>
+                  <Text style={styles.errorText}>{listError}</Text>
+                </View>
+              )}
+            </View>
             <ScrollView style={styles.instanceList}>
               {viewingSlot.owned.map((card) => {
                 const inDeck = selectedIds.includes(card.id);
@@ -335,6 +354,10 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
                 );
               })}
             </ScrollView>
+
+            <Pressable style={styles.instanceConfirmBtn} onPress={closeSlot}>
+              <Text style={styles.instanceConfirmText}>확인</Text>
+            </Pressable>
           </Pressable>
         </Pressable>
       )}
@@ -353,6 +376,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingTop: 12,
+  },
+  devBar: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    alignItems: 'flex-start',
+  },
+  devBtn: {
+    borderWidth: 1,
+    borderColor: colors.borderMedium,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  devBtnText: {
+    color: colors.textTertiary,
+    fontSize: typography.meta.fontSize,
+    fontWeight: '700',
   },
   title: {
     color: colors.textPrimary,
@@ -426,6 +466,32 @@ const styles = StyleSheet.create({
     color: colors.primaryLight,
     fontWeight: '700',
   },
+  deckActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  deckActionBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: radius.pill,
+  },
+  deckActionFill: {
+    backgroundColor: colors.gameAccent,
+  },
+  deckActionFillText: {
+    color: colors.canvas,
+    fontSize: typography.meta.fontSize,
+    fontWeight: '800',
+  },
+  deckActionReset: {
+    borderWidth: 1,
+    borderColor: colors.borderMedium,
+  },
+  deckActionResetText: {
+    color: colors.textSecondary,
+    fontSize: typography.meta.fontSize,
+    fontWeight: '700',
+  },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -442,15 +508,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 2,
     position: 'relative',
-  },
-  tileEmpty: {
-    borderStyle: 'dashed',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tileEmptyText: {
-    color: colors.textMuted,
-    fontSize: 18,
   },
   tileDisabled: {
     borderStyle: 'dashed',
@@ -626,7 +683,7 @@ const styles = StyleSheet.create({
   instanceCard: {
     width: '100%',
     maxWidth: 320,
-    maxHeight: '70%',
+    maxHeight: '85%',
     backgroundColor: colors.surface3,
     borderRadius: radius.card,
     padding: 20,
@@ -648,6 +705,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
+  instanceDeckLabel: {
+    color: colors.textSecondary,
+    fontSize: typography.meta.fontSize,
+    fontWeight: '700',
+    paddingRight: 24,
+  },
   instanceTitle: {
     color: colors.textPrimary,
     fontSize: typography.body.fontSize,
@@ -657,6 +720,21 @@ const styles = StyleSheet.create({
   instanceHint: {
     color: colors.textTertiary,
     fontSize: typography.micro.fontSize,
+  },
+  instanceConfirmBtn: {
+    backgroundColor: colors.gameAccent,
+    borderRadius: radius.pill,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  instanceConfirmText: {
+    color: colors.canvas,
+    fontSize: typography.body.fontSize,
+    fontWeight: '800',
+  },
+  errorSlot: {
+    minHeight: 34,
+    justifyContent: 'center',
   },
   errorBanner: {
     backgroundColor: colors.surface2,
@@ -670,6 +748,10 @@ const styles = StyleSheet.create({
     fontSize: typography.meta.fontSize,
   },
   instanceList: {
+    // Keep at least ~3 owned rows visible before the list itself scrolls, so the
+    // deck strip above never squeezes it down to one.
+    minHeight: 168,
+    flexGrow: 0,
     gap: 8,
   },
   instanceRow: {
