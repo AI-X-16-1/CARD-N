@@ -45,6 +45,7 @@ export type UpdatePersonInput = {
   relation?: RelationCategory;
   context?: string | null;
   address?: string | null;
+  address_detail?: string | null;
   postal_code?: string | null;
 };
 

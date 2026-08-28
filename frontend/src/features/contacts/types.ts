@@ -13,6 +13,7 @@ export type Person = {
   relation: RelationCategory;
   context: string | null;
   address: string | null;
+  address_detail: string | null;
   postal_code: string | null;
   last_contact: string | null;
   conversation_count: number;

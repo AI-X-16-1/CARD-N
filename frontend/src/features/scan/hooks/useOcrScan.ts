@@ -25,6 +25,12 @@ type ScanState =
   | { status: 'done'; result: OcrResult }
   | { status: 'error'; message: string };
 
+// Mirrors ui-spec.md §3-2's >=90% split — the field-type accuracy figures backing it
+// live server-side (backend/app/features/scan/service.py's FIELD_CONFIDENCE), this is
+// just where the UI threshold lives. Shared so OcrFieldList (single mode) and
+// useBatchScan (batch mode) apply the exact same rule.
+export const CONFIDENCE_THRESHOLD = 0.9;
+
 // FastAPI's default validation error shape is { detail: string | { loc, msg, type }[] } —
 // on web in particular a malformed request (e.g. a bad multipart file part) surfaces the
 // array form, which must never be handed to <Text> as-is (React can't render an object).
@@ -62,38 +68,46 @@ async function postOcrWithRetry(form: FormData) {
   }
 }
 
+// The actual upload, shared by single-shot scan() below and useBatchScan (which tracks
+// per-shot status itself instead of a single ScanState) — kept out of the hook so batch
+// mode isn't forced to reuse a state machine built for exactly one in-flight scan.
+export async function uploadForOcr(photoUri: string): Promise<OcrResult> {
+  const form = new FormData();
+  if (Platform.OS === 'web') {
+    // Browsers don't understand RN's { uri, name, type } shorthand below, so build a
+    // real Blob from the camera's blob: URL instead.
+    const photoBlob = await (await fetch(photoUri)).blob();
+    form.append('image', photoBlob, 'card.jpg');
+  } else {
+    // RN's FormData/networking bridge expects this shape for a file part — it maps it
+    // to native blob storage internally. A W3C-style Blob (e.g. from expo-blob or
+    // fetch().blob()) isn't recognized the same way and silently fails to reach the
+    // server at all (surfaces as a bare axios "Network Error", no request in the logs).
+    form.append('image', {
+      uri: photoUri,
+      name: 'card.jpg',
+      type: 'image/jpeg',
+    } as unknown as Blob);
+  }
+
+  // No explicit Content-Type here: a multipart boundary must be generated per-request,
+  // and hardcoding 'multipart/form-data' without one produces a malformed body that
+  // fails before any HTTP response comes back (surfaces as a generic network error).
+  // Longer timeout than apiClient's default 10s: OCR inference on a full-size photo
+  // (plus PaddleOCR's one-time model warmup on a cold backend) can run past that.
+  const response = await postOcrWithRetry(form);
+  return response.data;
+}
+
 export function useOcrScan() {
   const [state, setState] = useState<ScanState>({ status: 'idle' });
 
   const scan = useCallback(async (photoUri: string) => {
     setState({ status: 'scanning' });
     try {
-      const form = new FormData();
-      if (Platform.OS === 'web') {
-        // Browsers don't understand RN's { uri, name, type } shorthand below, so build a
-        // real Blob from the camera's blob: URL instead.
-        const photoBlob = await (await fetch(photoUri)).blob();
-        form.append('image', photoBlob, 'card.jpg');
-      } else {
-        // RN's FormData/networking bridge expects this shape for a file part — it maps it
-        // to native blob storage internally. A W3C-style Blob (e.g. from expo-blob or
-        // fetch().blob()) isn't recognized the same way and silently fails to reach the
-        // server at all (surfaces as a bare axios "Network Error", no request in the logs).
-        form.append('image', {
-          uri: photoUri,
-          name: 'card.jpg',
-          type: 'image/jpeg',
-        } as unknown as Blob);
-      }
-
-      // No explicit Content-Type here: a multipart boundary must be generated per-request,
-      // and hardcoding 'multipart/form-data' without one produces a malformed body that
-      // fails before any HTTP response comes back (surfaces as a generic network error).
-      // Longer timeout than apiClient's default 10s: OCR inference on a full-size photo
-      // (plus PaddleOCR's one-time model warmup on a cold backend) can run past that.
-      const response = await postOcrWithRetry(form);
-      setState({ status: 'done', result: response.data });
-      return response.data;
+      const result = await uploadForOcr(photoUri);
+      setState({ status: 'done', result });
+      return result;
     } catch (error) {
       setState({ status: 'error', message: extractErrorMessage(error) });
       return null;

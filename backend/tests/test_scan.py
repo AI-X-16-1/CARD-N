@@ -43,6 +43,28 @@ def test_scan_ocr_happy_path(client: TestClient) -> None:
     assert body["raw_text"] == "line1\nline2"
 
 
+def test_scan_ocr_includes_unrecognized_fields_for_manual_entry(client: TestClient) -> None:
+    # ScanResultScreen needs every column present even when OCR found nothing for it,
+    # so the user can type a missing value in by hand instead of that column just
+    # being absent from the review list.
+    with patch(
+        "app.features.scan.service.extract_business_card",
+        return_value=_mock_result(name="Hong Gil-dong"),
+    ):
+        response = client.post(
+            "/api/v1/scan/ocr",
+            files={"image": ("card.jpg", b"fake-image-bytes", "image/jpeg")},
+        )
+
+    assert response.status_code == 200
+    fields = {f["label"]: f for f in response.json()["fields"]}
+    assert len(fields) == 9
+    assert fields["Company"]["value"] == ""
+    assert fields["Company"]["confidence"] == 0.0
+    assert fields["Name"]["value"] == "Hong Gil-dong"
+    assert fields["Name"]["confidence"] > 0.9
+
+
 def test_scan_ocr_batch_happy_path(client: TestClient) -> None:
     with patch(
         "app.features.scan.service.extract_business_card",

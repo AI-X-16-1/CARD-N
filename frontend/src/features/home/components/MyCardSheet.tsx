@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, radius, typography } from '@/shared/theme';
 import { CardFace } from './MyBusinessCard';
+import { formatPhoneNumber } from '../lib/formatPhone';
 import type { MyCard } from '../types';
 
 type Props = {
@@ -70,7 +71,13 @@ export function MyCardSheet({ visible, card, onClose, onSave }: Props) {
             placeholder={placeholder}
             placeholderTextColor={colors.textMuted}
             value={draft[field]}
-            onChangeText={(text) => setDraft((prev) => ({ ...prev, [field]: text }))}
+            onChangeText={(text) =>
+              setDraft((prev) => ({
+                ...prev,
+                [field]: field === 'phone' ? formatPhoneNumber(text) : text,
+              }))
+            }
+            keyboardType={field === 'phone' ? 'phone-pad' : undefined}
           />
         ))}
 

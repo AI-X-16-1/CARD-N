@@ -1,45 +1,46 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { colors, radius, typography } from '@/shared/theme';
 
 import { AddressSearchModal } from '@/shared/components/AddressSearchModal';
+
 import { OcrFieldList } from './OcrFieldList';
 import type { OcrField } from '../hooks/useOcrScan';
+import { extractFloorDetail } from '../lib/extractFloorDetail';
 
 type Props = {
   fields: OcrField[];
+  // The just-taken photo, still local (see ScanCameraScreen) — shown alongside the
+  // fields so the user can compare against the card itself while correcting a
+  // misread or filling in a column OCR found nothing for.
+  photoUri: string | null;
   onRetake: () => void;
   onClose: () => void;
-  onSave: (values: Record<string, string>, context: string, postalCode: string) => void;
+  onSave: (values: Record<string, string>, context: string, addressDetail: string) => void;
   saving: boolean;
 };
 
-export function ScanResultPanel({ fields, onRetake, onClose, onSave, saving }: Props) {
+export function ScanResultPanel({ fields, photoUri, onRetake, onClose, onSave, saving }: Props) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [context, setContext] = useState('');
-  // OCR's own "Address"/"Postal Code" guesses (if any) already live in `values` via
-  // OcrFieldList like every other field — this only tracks the postal code once the
-  // search widget below has actually resolved one, since OCR essentially never finds it
-  // (postal_code recognized on only 3/16 real cards — see scan/service.py's
-  // FIELD_CONFIDENCE comment).
-  const [postalCode, setPostalCode] = useState('');
+  // No OCR field label maps to this (a card never states "which floor/unit was this
+  // printed for" — see AddressSearchModal's own comment), so unlike Address/Postal Code
+  // it can't live in `values` — there's nothing in `fields` for it to fall back to.
+  const [addressDetail, setAddressDetail] = useState('');
   const [addressSearchOpen, setAddressSearchOpen] = useState(false);
 
   const handleFieldChange = (label: string, value: string) => {
     setValues((prev) => ({ ...prev, [label]: value }));
   };
 
-  // CreatePersonRequest.name is required server-side, but OCR won't always find a
-  // "Name" field (low-contrast text, an unusual card layout, ...) — without this, a
-  // card with no recognized name has no name input anywhere and save fails with a
-  // raw validation error the user can't act on. 0 confidence renders it in the same
-  // "needs review" styling as a low-confidence OCR read.
-  const displayFields = fields.some((f) => f.label === 'Name')
-    ? fields
-    : [{ label: 'Name', value: '', confidence: 0 }, ...fields];
-
-  const address = values['Address'] ?? displayFields.find((f) => f.label === 'Address')?.value ?? '';
+  // Address/Postal Code get their own dedicated row below (editable input + "주소 갱신"
+  // button) instead of OcrFieldList's generic one — a single place to see/edit each,
+  // not a duplicate of what the button already updates.
+  const ocrOnlyFields = fields.filter((f) => f.label !== 'Address' && f.label !== 'Postal Code');
+  const address = values['Address'] ?? fields.find((f) => f.label === 'Address')?.value ?? '';
+  const postalCode =
+    values['Postal Code'] ?? fields.find((f) => f.label === 'Postal Code')?.value ?? '';
 
   return (
     <View style={styles.container}>
@@ -53,20 +54,37 @@ export function ScanResultPanel({ fields, onRetake, onClose, onSave, saving }: P
       </View>
 
       <ScrollView style={styles.body}>
-        <OcrFieldList fields={displayFields} values={values} onChangeValue={handleFieldChange} />
+        {photoUri && <Image source={{ uri: photoUri }} style={styles.photo} resizeMode="contain" />}
+        <OcrFieldList fields={ocrOnlyFields} values={values} onChangeValue={handleFieldChange} />
 
         <Text style={styles.fieldLabel}>주소</Text>
         <View style={styles.addressRow}>
-          <View style={styles.addressText}>
-            <Text style={address ? styles.addressValue : styles.addressPlaceholder} numberOfLines={2}>
-              {address || '주소를 검색해주세요'}
-            </Text>
-            {postalCode ? <Text style={styles.postalCodeValue}>{postalCode}</Text> : null}
-          </View>
+          <TextInput
+            style={styles.addressInput}
+            value={address}
+            onChangeText={(text) => handleFieldChange('Address', text)}
+            placeholder="주소를 검색하거나 직접 입력해주세요"
+            placeholderTextColor={colors.textMuted}
+          />
           <Pressable style={styles.addressButton} onPress={() => setAddressSearchOpen(true)}>
             <Text style={styles.addressButtonLabel}>주소 갱신</Text>
           </Pressable>
         </View>
+        <TextInput
+          style={styles.addressDetailInput}
+          value={addressDetail}
+          onChangeText={setAddressDetail}
+          placeholder="상세 주소 (동/층/호수)"
+          placeholderTextColor={colors.textMuted}
+        />
+        <TextInput
+          style={styles.postalCodeInput}
+          value={postalCode}
+          onChangeText={(text) => handleFieldChange('Postal Code', text)}
+          placeholder="우편번호"
+          placeholderTextColor={colors.textMuted}
+          keyboardType="number-pad"
+        />
 
         <Text style={styles.fieldLabel}>만난 컨텍스트</Text>
         <TextInput
@@ -81,7 +99,7 @@ export function ScanResultPanel({ fields, onRetake, onClose, onSave, saving }: P
       <Pressable
         style={[styles.primaryButton, saving && styles.primaryButtonDisabled]}
         disabled={saving}
-        onPress={() => onSave(values, context, postalCode)}
+        onPress={() => onSave(values, context, addressDetail)}
       >
         <Text style={styles.primaryButtonLabel}>
           {saving ? '저장 중…' : '저장하고 카드 만들기'}
@@ -90,10 +108,14 @@ export function ScanResultPanel({ fields, onRetake, onClose, onSave, saving }: P
 
       <AddressSearchModal
         visible={addressSearchOpen}
+        initialQuery={address}
         onClose={() => setAddressSearchOpen(false)}
         onSelect={(result) => {
+          const floorDetail = extractFloorDetail(address);
           handleFieldChange('Address', result.address);
-          setPostalCode(result.postalCode);
+          handleFieldChange('Postal Code', result.postalCode);
+          const detail = [result.buildingName, floorDetail].filter(Boolean).join(' ');
+          if (detail) setAddressDetail(detail);
           setAddressSearchOpen(false);
         }}
       />
@@ -122,6 +144,13 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
   },
+  photo: {
+    width: '100%',
+    aspectRatio: 1.7,
+    borderRadius: radius.card,
+    backgroundColor: colors.surface1,
+    marginBottom: 16,
+  },
   fieldLabel: {
     color: colors.textTertiary,
     fontSize: typography.sectionLabel.fontSize,
@@ -143,27 +172,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    marginBottom: 8,
+  },
+  addressInput: {
+    flex: 1,
     backgroundColor: colors.surface1,
     borderRadius: radius.card,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    marginBottom: 16,
-  },
-  addressText: {
-    flex: 1,
-    gap: 2,
-  },
-  addressValue: {
     color: colors.textPrimary,
     fontSize: typography.body.fontSize,
   },
-  addressPlaceholder: {
-    color: colors.textMuted,
+  addressDetailInput: {
+    backgroundColor: colors.surface1,
+    borderRadius: radius.card,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: colors.textPrimary,
     fontSize: typography.body.fontSize,
+    marginBottom: 8,
   },
-  postalCodeValue: {
-    color: colors.textQuaternary,
-    fontSize: typography.meta.fontSize,
+  postalCodeInput: {
+    backgroundColor: colors.surface1,
+    borderRadius: radius.card,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: colors.textPrimary,
+    fontSize: typography.body.fontSize,
+    marginBottom: 16,
+    width: 140,
   },
   addressButton: {
     backgroundColor: colors.surface2,

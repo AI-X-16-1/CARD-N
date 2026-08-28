@@ -4,6 +4,9 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { colors, radius, typography } from '@/shared/theme';
 
 import { AddressSearchModal } from '@/shared/components/AddressSearchModal';
+
+import { formatPhoneNumber } from '../lib/formatPhone';
+import { extractFloorDetail } from '../lib/extractFloorDetail';
 import type { ParsedPerson } from '../types';
 
 type Props = {
@@ -46,9 +49,10 @@ export function ManualInputForm({ onBack, onSave, saving }: Props) {
           <TextInput
             style={styles.input}
             value={values[key] ?? ''}
-            onChangeText={(text) => setField(key, text)}
+            onChangeText={(text) => setField(key, key === 'phone' ? formatPhoneNumber(text) : text)}
             placeholder={placeholder}
             placeholderTextColor={colors.textMuted}
+            keyboardType={key === 'phone' ? 'phone-pad' : undefined}
           />
         </View>
       ))}
@@ -67,6 +71,13 @@ export function ManualInputForm({ onBack, onSave, saving }: Props) {
             <Text style={styles.addressButtonLabel}>주소 갱신</Text>
           </Pressable>
         </View>
+        <TextInput
+          style={styles.addressDetailInput}
+          value={values.address_detail ?? ''}
+          onChangeText={(text) => setField('address_detail', text)}
+          placeholder="상세 주소 (동/층/호수)"
+          placeholderTextColor={colors.textMuted}
+        />
         <TextInput
           style={styles.postalCodeInput}
           value={values.postal_code ?? ''}
@@ -100,10 +111,14 @@ export function ManualInputForm({ onBack, onSave, saving }: Props) {
 
       <AddressSearchModal
         visible={addressSearchOpen}
+        initialQuery={values.address ?? ''}
         onClose={() => setAddressSearchOpen(false)}
         onSelect={(result) => {
+          const floorDetail = extractFloorDetail(values.address ?? '');
           setField('address', result.address);
           setField('postal_code', result.postalCode);
+          const detail = [result.buildingName, floorDetail].filter(Boolean).join(' ');
+          if (detail) setField('address_detail', detail);
           setAddressSearchOpen(false);
         }}
       />
@@ -165,6 +180,15 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     color: colors.textPrimary,
     fontSize: typography.body.fontSize,
+  },
+  addressDetailInput: {
+    backgroundColor: colors.surface1,
+    borderRadius: radius.card,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: colors.textPrimary,
+    fontSize: typography.body.fontSize,
+    marginBottom: 8,
   },
   postalCodeInput: {
     backgroundColor: colors.surface1,
