@@ -23,6 +23,9 @@ type CallDetectorModuleType = {
   setContacts(contacts: CachedContact[]): number;
   getCachedCount(): number;
   clearCache(): void;
+  /** True once the consent screen has been answered, either way. Survives restarts. */
+  getConsentPromptSeen(): boolean;
+  markConsentPromptSeen(): void;
 };
 
 /**
@@ -35,6 +38,9 @@ const stub: CallDetectorModuleType = {
   setContacts: () => 0,
   getCachedCount: () => 0,
   clearCache: () => {},
+  // Reported as already seen so unsupported platforms never open the consent screen.
+  getConsentPromptSeen: () => true,
+  markConsentPromptSeen: () => {},
 };
 
 const CallDetector =

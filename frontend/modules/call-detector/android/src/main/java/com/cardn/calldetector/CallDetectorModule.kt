@@ -73,6 +73,22 @@ class CallDetectorModule : Module() {
       CallAlertStore.size(context)
     }
 
+    /**
+     * Whether the consent screen has already been answered. Synchronous on purpose: the
+     * navigator picks its initial route from this on the very first render, and an async
+     * read would mean a blank frame before the app decides where to start.
+     */
+    Function("getConsentPromptSeen") {
+      val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+      CallAlertStore.consentPromptSeen(context)
+    }
+
+    /** Called once the user has answered the consent screen, either way. */
+    Function("markConsentPromptSeen") {
+      val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+      CallAlertStore.markConsentPromptSeen(context)
+    }
+
     /** Used when the user withdraws consent — the local copy must not outlive it. */
     Function("clearCache") {
       val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()

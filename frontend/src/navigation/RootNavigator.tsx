@@ -4,6 +4,7 @@ import {
   createNativeStackNavigator,
   type NativeStackNavigationProp,
 } from '@react-navigation/native-stack';
+import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { colors, radius, size, typography } from '@/shared/theme';
@@ -13,6 +14,7 @@ import ContactListScreen from '@/features/contacts/screens/ContactListScreen';
 import PersonDetailScreen from '@/features/contacts/screens/PersonDetailScreen';
 import GraphScreen from '@/features/graph/screens/GraphScreen';
 import CallAlertConsentScreen from '@/features/call-alert/screens/CallAlertConsentScreen';
+import { shouldShowCallAlertConsent } from '@/features/call-alert/lib/consentPrompt';
 import ConversationRecordScreen from '@/features/conversation/screens/ConversationRecordScreen';
 import GameHomeScreen from '@/features/game/screens/GameHomeScreen';
 import CardDetailOverlay from '@/features/game/screens/CardDetailOverlay';
@@ -80,6 +82,11 @@ export type RootStackParamList = {
   // a screen inside the tabs — the call-alert notification targets 홈 > PersonDetail.
   Tabs: NavigatorScreenParams<TabParamList> | undefined;
   Scan: NavigatorScreenParams<ScanStackParamList> | undefined;
+  // Shown once, before the tabs, on a fresh install — it explains why the call alert
+  // needs three permissions before Android's own dialogs appear. It replaces itself with
+  // Tabs once answered, either way. The same screen is also reachable any time from the
+  // 관계도 header (GraphStack's CallAlert route).
+  CallAlertConsent: undefined;
 };
 
 const HomeStack = createNativeStackNavigator<HomeStackParamList>();
@@ -241,13 +248,28 @@ function TabNavigator() {
 }
 
 export function RootNavigator() {
+  // Read once per mount, not on every render: the consent screen marks the flag as it
+  // leaves, and re-reading would swap the initial route out from under the navigator.
+  // Deep links still win over this — NavigationContainer resolves the incoming URL ahead
+  // of initialRouteName, so a notification tap reaches the person, not this screen.
+  const [initialRouteName] = useState<keyof RootStackParamList>(() =>
+    shouldShowCallAlertConsent() ? 'CallAlertConsent' : 'Tabs'
+  );
+
   return (
-    <RootStack.Navigator screenOptions={{ headerShown: false }}>
+    <RootStack.Navigator initialRouteName={initialRouteName} screenOptions={{ headerShown: false }}>
       <RootStack.Screen name="Tabs" component={TabNavigator} />
       <RootStack.Screen
         name="Scan"
         component={ScanStackNavigator}
         options={{ presentation: 'fullScreenModal' }}
+      />
+      <RootStack.Screen
+        name="CallAlertConsent"
+        component={CallAlertConsentScreen}
+        // Nothing to go back to when this is the first route, and swiping past it without
+        // answering would leave the flag unset and re-open it on the next launch.
+        options={{ gestureEnabled: false }}
       />
     </RootStack.Navigator>
   );
