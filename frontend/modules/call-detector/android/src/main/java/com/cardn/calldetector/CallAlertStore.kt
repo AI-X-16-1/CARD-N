@@ -18,6 +18,7 @@ object CallAlertStore {
   private const val PREFS = "cardn_call_alert"
   private const val KEY_PREFIX = "phone:"
   private const val KEY_LAST_STATE = "last_call_state"
+  private const val KEY_CONSENT_PROMPT_SEEN = "consent_prompt_seen"
 
   data class Contact(val personId: Int, val name: String, val summary: String?)
 
@@ -40,8 +41,32 @@ object CallAlertStore {
     editor.apply()
   }
 
+  /**
+   * Drops everything the server owns, but deliberately not [KEY_CONSENT_PROMPT_SEEN]:
+   * having already been asked is a fact about the user, not cached data, and wiping it
+   * would put the consent screen back in front of them on the next launch.
+   *
+   * Written as "wipe, then restore the flag" rather than removing keys by name so it
+   * stays correct as the receiver's own bookkeeping keys come and go.
+   */
   fun clear(context: Context) {
+    val promptSeen = consentPromptSeen(context)
     prefs(context).edit().clear().apply()
+    if (promptSeen) markConsentPromptSeen(context)
+  }
+
+  /**
+   * Whether the consent screen has already been answered, either way.
+   *
+   * Kept next to the cache because the app has no other persistence layer, and this is
+   * the one thing that has to survive a cold start for the screen not to reappear on
+   * every launch.
+   */
+  fun consentPromptSeen(context: Context): Boolean =
+    prefs(context).getBoolean(KEY_CONSENT_PROMPT_SEEN, false)
+
+  fun markConsentPromptSeen(context: Context) {
+    prefs(context).edit().putBoolean(KEY_CONSENT_PROMPT_SEEN, true).apply()
   }
 
   fun size(context: Context): Int =

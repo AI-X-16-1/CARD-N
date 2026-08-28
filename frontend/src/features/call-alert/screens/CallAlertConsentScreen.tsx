@@ -1,11 +1,22 @@
+import { useCallback } from 'react';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/shared/components/Button';
 import { colors, radius, typography } from '@/shared/theme';
 
+import CallDetector from '../../../../modules/call-detector';
 import { useCallAlertPermissions } from '../hooks/useCallAlertPermissions';
 import { useCallAlertSync } from '../hooks/useCallAlertSync';
+
+// Kept local (rather than imported from navigation/RootNavigator) so this feature does
+// not depend on the shared navigator's types — same approach GraphScreen uses.
+type ConsentNavigation = NativeStackNavigationProp<{
+  Tabs: undefined;
+  CallAlertConsent: undefined;
+}>;
 
 const REASONS = [
   {
@@ -26,8 +37,19 @@ const REASONS = [
 ];
 
 export default function CallAlertConsentScreen() {
+  const navigation = useNavigation<ConsentNavigation>();
   const { granted, request, supported } = useCallAlertPermissions();
   const { cachedCount, syncing, error } = useCallAlertSync(granted);
+
+  // Answering the screen either way retires it: the navigator only opens on it while the
+  // flag is unset, so without marking it the app would start here every launch.
+  const dismiss = useCallback(() => {
+    CallDetector.markConsentPromptSeen();
+    // On a fresh install this is the app's first route, so there is nothing to go back
+    // to — replace. goBack covers the case where the 관계도 header pushed it.
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.replace('Tabs');
+  }, [navigation]);
 
   if (!supported) {
     return (
@@ -37,6 +59,7 @@ export default function CallAlertConsentScreen() {
           <Text style={styles.body}>
             iOS는 앱이 수신 전화 정보를 읽는 것을 허용하지 않아, 이 기능은 안드로이드에서만 동작합니다.
           </Text>
+          <Button label="앱으로 이동" onPress={dismiss} style={styles.action} />
         </View>
       </SafeAreaView>
     );
@@ -72,9 +95,14 @@ export default function CallAlertConsentScreen() {
             </Text>
             {error ? <Text style={styles.error}>{error}</Text> : null}
           </View>
+        ) : null}
+
+        {granted ? (
+          <Button label="시작하기" onPress={dismiss} style={styles.action} />
         ) : (
           <>
-            <Button label="알림 받기" onPress={request} />
+            <Button label="알림 받기" onPress={request} style={styles.action} />
+            <Button label="나중에 할게요" variant="text" onPress={dismiss} />
             <Text style={styles.footnote}>
               전화 상태·통화 기록·알림 권한이 필요합니다. 통화 기록 권한이 없으면 안드로이드가
               발신번호를 가려서 누구인지 확인할 수 없어요.
@@ -98,6 +126,7 @@ const styles = StyleSheet.create({
   reasonText: { flex: 1, gap: 3 },
   reasonTitle: { ...typography.body, fontWeight: '700', color: colors.textPrimary },
   body: { ...typography.meta, color: colors.textTertiary, lineHeight: 18 },
+  action: { marginTop: 4 },
   statusCard: {
     backgroundColor: colors.surface1,
     borderRadius: radius.card,
