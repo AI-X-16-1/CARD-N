@@ -1,10 +1,11 @@
 // Conversation history timeline for PersonDetailScreen (ui-spec.md §5).
 import { useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius, typography } from '@/shared/theme';
 
 import { ConfirmModal } from './ConfirmModal';
+import { NoticeModal } from './NoticeModal';
 import type { Conversation } from '../types';
 import { useConversations } from '../hooks/useConversations';
 import { deleteConversation } from '../api';
@@ -21,6 +22,7 @@ type RowProps = {
 
 function ConversationRow({ conversation, onDeleted }: RowProps) {
   const [confirmVisible, setConfirmVisible] = useState(false);
+  const [deleteFailed, setDeleteFailed] = useState(false);
 
   const performDelete = async () => {
     setConfirmVisible(false);
@@ -28,7 +30,7 @@ function ConversationRow({ conversation, onDeleted }: RowProps) {
       await deleteConversation(conversation.id);
       onDeleted();
     } catch {
-      Alert.alert('오류', '삭제하지 못했어요. 다시 시도해주세요.');
+      setDeleteFailed(true);
     }
   };
 
@@ -61,6 +63,12 @@ function ConversationRow({ conversation, onDeleted }: RowProps) {
         message="이 요약을 삭제할까요?"
         onCancel={() => setConfirmVisible(false)}
         onConfirm={performDelete}
+      />
+      <NoticeModal
+        visible={deleteFailed}
+        title="오류"
+        message="삭제하지 못했어요. 다시 시도해주세요."
+        onDismiss={() => setDeleteFailed(false)}
       />
     </View>
   );

@@ -1,7 +1,7 @@
 import { useFocusEffect, useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, radius, size, typography } from '@/shared/theme';
@@ -21,6 +21,7 @@ import { CategoryChip } from '../components/CategoryChip';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { ConversationTimeline } from '../components/ConversationTimeline';
 import { JobBadge } from '../components/JobBadge';
+import { NoticeModal } from '../components/NoticeModal';
 import { PersonCardFace } from '../components/PersonCardFace';
 import { RelationBadge } from '../components/RelationBadge';
 import { usePersonDetail } from '../hooks/usePersonDetail';
@@ -74,6 +75,9 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
   const [introStatus, setIntroStatus] = useState<IntroductionRequestStatus>(null);
   const [introSubmitting, setIntroSubmitting] = useState(false);
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+  // react-native-web's Alert.alert is a no-op — see ScanCameraScreen's NoticeModal for
+  // the same fix applied there.
+  const [notice, setNotice] = useState<{ title: string; message: string } | null>(null);
   const [addressSearchOpen, setAddressSearchOpen] = useState(false);
   // Which profile-header visual to show when both are available — the scanned card image
   // takes priority by default (ui-spec.md §5 already treats it as "the" profile visual
@@ -149,7 +153,7 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
 
   const handleSaveEdit = async () => {
     if (!form.name?.trim()) {
-      Alert.alert('이름을 입력해주세요', '이름은 비워둘 수 없어요.');
+      setNotice({ title: '이름을 입력해주세요', message: '이름은 비워둘 수 없어요.' });
       return;
     }
     setSaving(true);
@@ -158,7 +162,7 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
       await refetch();
       setEditing(false);
     } catch {
-      Alert.alert('오류', '저장하지 못했어요. 다시 시도해주세요.');
+      setNotice({ title: '오류', message: '저장하지 못했어요. 다시 시도해주세요.' });
     } finally {
       setSaving(false);
     }
@@ -181,12 +185,12 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
       // Retrying this action can never succeed here — the contact just isn't synced to
       // the graph yet. Point at the fix (re-save the contact) instead of "다시 시도해주세요".
       if (isNotFirstDegreeError(err)) {
-        Alert.alert(
-          '아직 요청할 수 없어요',
-          '이 연락처가 관계도에 아직 반영되지 않았어요. 연락처 정보를 한 번 수정해서 저장하면 다시 반영을 시도해요.',
-        );
+        setNotice({
+          title: '아직 요청할 수 없어요',
+          message: '이 연락처가 관계도에 아직 반영되지 않았어요. 연락처 정보를 한 번 수정해서 저장하면 다시 반영을 시도해요.',
+        });
       } else {
-        Alert.alert('오류', '소개 요청을 보내지 못했어요. 다시 시도해주세요.');
+        setNotice({ title: '오류', message: '소개 요청을 보내지 못했어요. 다시 시도해주세요.' });
       }
     } finally {
       setIntroSubmitting(false);
@@ -463,6 +467,12 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
         message={`${person.name}님을 삭제할까요?`}
         onCancel={() => setDeleteConfirmVisible(false)}
         onConfirm={performDelete}
+      />
+      <NoticeModal
+        visible={notice !== null}
+        title={notice?.title ?? ''}
+        message={notice?.message ?? ''}
+        onDismiss={() => setNotice(null)}
       />
 
       <AddressSearchModal

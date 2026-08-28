@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, radius, typography } from '@/shared/theme';
@@ -31,19 +31,27 @@ const EDIT_FIELDS: { field: keyof MyCard; placeholder: string }[] = [
 export function MyCardSheet({ visible, card, onClose, onSave }: Props) {
   const [draft, setDraft] = useState(card);
   const [saving, setSaving] = useState(false);
+  // react-native-web's Alert.alert is a no-op, and this sheet is already its own Modal —
+  // stacking a second one for the error is unnecessary, so it renders inline instead
+  // (see the errorText below the save button).
+  const [saveError, setSaveError] = useState(false);
 
   // Drop any stale edits from the last time this was open.
   useEffect(() => {
-    if (visible) setDraft(card);
+    if (visible) {
+      setDraft(card);
+      setSaveError(false);
+    }
   }, [visible, card]);
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveError(false);
     try {
       await onSave(draft);
       onClose();
     } catch {
-      Alert.alert('오류', '저장하지 못했어요. 다시 시도해주세요.');
+      setSaveError(true);
     } finally {
       setSaving(false);
     }
@@ -80,6 +88,8 @@ export function MyCardSheet({ visible, card, onClose, onSave }: Props) {
             keyboardType={field === 'phone' ? 'phone-pad' : undefined}
           />
         ))}
+
+        {saveError ? <Text style={styles.errorText}>저장하지 못했어요. 다시 시도해주세요.</Text> : null}
 
         <Pressable style={styles.saveButton} onPress={handleSave} disabled={saving}>
           <Text style={styles.saveButtonLabel}>{saving ? '저장 중…' : '저장'}</Text>
@@ -137,5 +147,10 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontSize: typography.body.fontSize,
     fontWeight: '700',
+  },
+  errorText: {
+    color: colors.gameAccent,
+    fontSize: typography.meta.fontSize,
+    marginBottom: 8,
   },
 });
