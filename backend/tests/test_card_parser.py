@@ -41,6 +41,25 @@ def test_name_that_looks_like_a_district_name_is_not_swallowed_by_address():
     assert "강승구" not in (fields["address"] or "")
 
 
+def test_name_next_to_role_line_recognized_even_without_a_full_address_elsewhere():
+    # Regression: the original "강승구" fix (test_name_that_looks_like_a_district_name_
+    # is_not_swallowed_by_address above) only defers to name when *another* line already
+    # has a complete unit+digit address. On a real scan, the street-number line can come
+    # back split across two OCR reads (e.g. a blurry/skewed photo), so no single line
+    # ever satisfies that check — and the name gets swallowed into address (and even
+    # `region`) again, with `name` ending up None. Reproduced directly from the same
+    # real card, with its address line split the way a genuine OCR read did.
+    fields, _etc = parse_fields([
+        "SANG SEUNG ARCHITECTURE GROUP",
+        "설계본부 대리",
+        "강승구",
+        "서울시 서초구",
+        "010.9415.0157",
+    ])
+    assert fields["name"] == "강승구"
+    assert "강승구" not in (fields["address"] or "")
+
+
 def test_real_district_only_line_is_still_recognized_as_address():
     # The fix above must not break the case it's carved out of: a bare region name with
     # no personal-name collision should still count as an address line (an OCR split
