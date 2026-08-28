@@ -1,6 +1,6 @@
-import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -73,6 +73,23 @@ export default function PersonDetailScreen({ personId: personIdProp, onBack }: P
   const [introStatus, setIntroStatus] = useState<IntroductionRequestStatus>(null);
   const [introSubmitting, setIntroSubmitting] = useState(false);
   const goBack = onBack ?? (() => navigation.goBack());
+
+  // ConversationRecordScreen returns here after saving a summary, and `navigate` lands
+  // back on this instance without remounting it — so the timeline has to be told to go
+  // and look again, or the record the user just saved is missing from the list they
+  // were sent to. `timelineRefreshKey` was already here for this; nothing bumped it.
+  const openedOnce = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      // The timeline fetches on mount, so the first focus is already covered — bumping
+      // the key there would only make every contact open cost two identical requests.
+      if (!openedOnce.current) {
+        openedOnce.current = true;
+        return;
+      }
+      setTimelineRefreshKey((key) => key + 1);
+    }, []),
+  );
 
   useEffect(() => {
     if (!person) return;

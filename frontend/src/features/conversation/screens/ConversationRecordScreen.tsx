@@ -24,6 +24,8 @@ import { useRecorder } from '../hooks/useRecorder';
  */
 type ConversationStackParamList = {
   ConversationRecord: { personId: number; mode?: 'record' | 'upload' };
+  /** Where a saved summary ends up. Registered next to this screen in all three stacks. */
+  PersonDetail: { personId: number };
 };
 
 export default function ConversationRecordScreen() {
@@ -39,6 +41,22 @@ export default function ConversationRecordScreen() {
   const handleStopRecording = async () => {
     const file = await recorder.stop();
     if (file) await flow.transcribe(file);
+  };
+
+  /**
+   * Saving finishes the job, so the screen hands the user back to where the result now
+   * lives — the contact's records — rather than leaving them on a spent form.
+   *
+   * `navigate` rather than `push`: PersonDetail is normally the screen this was opened
+   * from, and it is registered in every stack that reaches here, so this returns to the
+   * existing one instead of stacking a second copy. A failed save stays put; `flow.error`
+   * is already on screen and the summary is still there to retry with.
+   */
+  const handleSave = async () => {
+    const stored = await flow.save();
+    if (stored && personId !== undefined) {
+      navigation.navigate('PersonDetail', { personId });
+    }
   };
 
   useEffect(() => {
@@ -136,6 +154,8 @@ export default function ConversationRecordScreen() {
           phase={flow.phase}
           uploadPercent={flow.uploadPercent}
           elapsed={flow.elapsed}
+          sttElapsed={flow.sttElapsed}
+          expectedSttSeconds={flow.expectedSttSeconds}
         />
 
         {recorder.error ? (
@@ -182,17 +202,21 @@ export default function ConversationRecordScreen() {
               녹음 원본은 저장되지 않아요 — 요약본만 기록에 저장됩니다
             </Text>
 
-            {flow.saved ? (
-              <View style={styles.savedBox}>
-                <Text style={styles.savedText}>기록에 저장했어요</Text>
-                <Button label="새 녹음 올리기" variant="outline" onPress={flow.reset} />
-              </View>
-            ) : (
-              <View style={styles.actions}>
-                <Button label="삭제" variant="outline" onPress={flow.reset} style={styles.actionSecondary} />
-                <Button label="기록에 저장" onPress={flow.save} style={styles.actionPrimary} />
-              </View>
-            )}
+            <View style={styles.actions}>
+              <Button
+                label="삭제"
+                variant="outline"
+                onPress={flow.reset}
+                disabled={flow.saving}
+                style={styles.actionSecondary}
+              />
+              <Button
+                label="기록에 저장"
+                onPress={handleSave}
+                loading={flow.saving}
+                style={styles.actionPrimary}
+              />
+            </View>
           </>
         ) : null}
       </ScrollView>
@@ -280,14 +304,5 @@ const styles = StyleSheet.create({
   },
   actionPrimary: {
     flex: 2,
-  },
-  savedBox: {
-    gap: 10,
-  },
-  savedText: {
-    fontSize: typography.body.fontSize,
-    fontWeight: '600',
-    textAlign: 'center',
-    color: colors.secondary,
   },
 });

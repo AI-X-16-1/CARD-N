@@ -67,6 +67,8 @@ export function useRecorder() {
 
   /** Stop and return the recording, or null if nothing usable came out. */
   const stop = useCallback(async (): Promise<PickedAudio | null> => {
+    // Read before stopping: the polled state stops updating once the recorder does.
+    const durationSeconds = state.durationMillis / 1000;
     try {
       await recorder.stop();
       const uri = recorder.uri;
@@ -85,12 +87,13 @@ export function useRecorder() {
           name,
           mimeType,
           size: blob.size,
+          durationSeconds,
           file: new File([blob], name, { type: mimeType }),
         };
       }
 
       const { name, mimeType } = describeRecording(uri);
-      return { uri, name, mimeType, size: null };
+      return { uri, name, mimeType, size: null, durationSeconds };
     } catch (e) {
       setError(e instanceof Error ? e.message : '녹음을 저장하지 못했어요.');
       return null;
@@ -98,7 +101,7 @@ export function useRecorder() {
       // Release the mic so the browser tab indicator goes away.
       await setAudioModeAsync({ allowsRecording: false }).catch(() => {});
     }
-  }, [recorder]);
+  }, [recorder, state.durationMillis]);
 
   return {
     isRecording: state.isRecording,

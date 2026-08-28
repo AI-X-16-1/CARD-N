@@ -58,6 +58,11 @@ export type PickedAudio = {
   name: string;
   mimeType: string | null;
   size: number | null;
+  /**
+   * How long the audio runs, when the source knows. The recorder does; the file picker
+   * does not, and the flow probes for it instead. Only used to estimate STT progress.
+   */
+  durationSeconds?: number | null;
   /** Web only — DocumentPicker hands back a real File, which FormData prefers. */
   file?: unknown;
 };
