@@ -18,7 +18,9 @@ Because the field classifier does not produce a per-instance confidence score, `
 below is a fixed value per field *type*, taken from the accuracy figures above (this is what
 drives the >=90% "needs review" split in `ui-spec.md` §3-2 — a field type with historically
 lower accuracy, e.g. `department`, is more likely to land below the threshold even when this
-particular read is correct).
+particular read is correct). A field the pipeline found nothing for always gets `confidence: 0`
+regardless of that type's baseline — the baseline describes how reliable a *found* value of
+this type is, not "nothing was found here," which always needs review.
 
 `job_class`/`grade` (used by 이승환's card generation) are **not** produced by `/scan/parse` —
 classifying role/seniority from title/department text isn't part of the ported field
@@ -44,17 +46,22 @@ Response 200:
     { "label": "Name", "value": "Hong Gil-dong", "confidence": 0.98 },
     { "label": "Company", "value": "Kakao", "confidence": 0.955 },
     { "label": "Title", "value": "Manager", "confidence": 0.935 },
-    { "label": "Department", "value": "Marketing Team", "confidence": 0.865 },
+    { "label": "Department", "value": "Marketing Team", "confidence": 0.4 },
     { "label": "Mobile", "value": "010-1234-5678", "confidence": 0.965 },
-    { "label": "Email", "value": "hong@kakao.com", "confidence": 0.90 }
+    { "label": "Postal Code", "value": "", "confidence": 0.0 },
+    { "label": "Region", "value": "", "confidence": 0.0 },
+    { "label": "Address", "value": "", "confidence": 0.0 },
+    { "label": "Email", "value": "hong@kakao.com", "confidence": 0.70 }
   ],
   "raw_text": "Kakao\nMarketing Team Manager\nHong Gil-dong\n...",
   "image_token": "3f9c1e2a8b7d4f0e9a1c2b3d4e5f6a7b"
 }
 ```
 
-Only fields the pipeline actually found a value for are included (no null entries).
-`address`/`postal_code`/`region` appear the same way when present on the card.
+Every known column is always present, in this fixed order, even ones the pipeline found
+nothing for — a missing one comes back as `value: ""`, `confidence: 0` (as `Postal Code`/
+`Region`/`Address` do above) rather than being left out, so the review screen always has a
+place to type it in by hand instead of that column just being absent.
 
 `image_token` references the corrected (contour-detected + perspective-warped) card
 image, staged server-side (`app/core/image_store.py`) — `null` if the pipeline couldn't
