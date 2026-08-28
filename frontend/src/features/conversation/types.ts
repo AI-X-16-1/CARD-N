@@ -71,3 +71,20 @@ export type FlowPhase =
   | 'summarizing'
   | 'done'
   | 'error';
+
+// ─────────────────────────────────────────────────────────────
+// Guide chatbot
+// ─────────────────────────────────────────────────────────────
+
+/** One visible turn. The client owns the transcript — the server keeps no session. */
+export type GuideMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+export type GuideAnswer = {
+  reply: string;
+  /** Topics to offer as chips. Sent only when the server could not match the question. */
+  suggestions: string[];
+};
+

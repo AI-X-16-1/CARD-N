@@ -422,6 +422,7 @@ implement against, not something end-to-end testable with two live accounts in t
 | `POST` | `/conversations` | Save a summary to a contact's timeline |
 | `GET` | `/conversations?person_id=` | Read a contact's conversation history |
 | `DELETE` | `/conversations/{conversation_id}` | Delete one saved conversation |
+| `POST` | `/conversations/guide` | In-app guide chatbot (app usage Q&A) |
 
 ### GET /conversations?person_id=
 
@@ -564,6 +565,69 @@ Saving also sets the contact's `last_contact`.
 **Note**: this replaces the originally specced `/contacts/{id}/conversations`. Conversation
 history is owned by the conversation feature, and `features/*` may not add routes to
 another feature's router (backend/CLAUDE.md).
+
+### POST /conversations/guide
+
+The in-app guide chatbot — answers "how do I use CARD:N" in Korean.
+
+**No LLM.** Answers come from a rule table (`guide.py`'s `TOPICS`), not from a model.
+The set of things this bot can say is closed — five tabs and a handful of flows — so
+generating the text each time spent free-tier Gemini quota re-deriving a paragraph we
+already had, and risked describing a screen that does not exist. Matching is keyword
+scoring over the last user turn; a question that clears the threshold gets its topic's
+answer verbatim.
+
+A topic may also declare `requires`: groups of words the question must hit one of
+*each* of, or the topic is not a candidate at all. Scoring alone cannot express "a verb
+AND the thing it acts on", which is what separates 대화 기록 삭제 (a summary in the
+timeline) from 사람 삭제 (a row in 목록) — both are 삭제. Because a gated topic cannot be
+reached by a question that never asked to delete anything, the delete topics sit early
+in the table and win the ties against the topic that owns the noun: 명함 삭제 is a
+deletion, not a scan.
+
+```
+Request:
+{
+  "messages": [
+    { "role": "assistant", "content": "CARD:N 사용법을 안내해 드려요. 궁금한 걸 물어보세요." },
+    { "role": "user", "content": "명함 어떻게 등록해?" }
+  ]
+}
+
+Response 200 — question matched:
+{
+  "reply": "1. 하단 가운데 보라색 동그란 버튼을 누르면 카메라가 열립니다.
+2. ...",
+  "suggestions": []
+}
+
+Response 200 — nothing matched:
+{
+  "reply": "그건 아직 안내해 드릴 수 없습니다.
+아래 주제는 안내해 드릴 수 있습니다.",
+  "suggestions": ["명함은 어떻게 등록하나요?", "대화 녹음은 어디서 하나요?", "..."]
+}
+```
+
+An unmatched question is answered with a menu rather than a guess: `suggestions` holds
+the topic questions the client should render as chips, and is empty on a match. The
+client is expected to show its own starter chips before the first question, since there
+is nothing to send yet.
+
+Stateless — nothing is written, and no session is kept server-side. The client owns the
+transcript and sends the whole visible conversation each turn, oldest first; the last
+message must be `role: "user"` or the call is a 400, and each message is capped at 500
+characters. Only that last turn decides the answer — a rule table has no way to use what
+came before it — but the whole conversation is accepted so the shape does not change if
+that stops being true.
+
+**No contact, conversation or graph data is read by this endpoint**, so the bot cannot
+answer "who in my network is a developer". That question has its own topic which says so
+and points at the 목록 tab. Keep `TOPICS` in sync with `docs/ui-spec.md` when a flow
+changes, and with what the code actually does when the two disagree.
+
+There is no upstream provider, so there is no 502: a failure here is a bug in the
+matcher and surfaces as a 500.
 
 ---
 

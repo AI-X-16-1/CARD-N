@@ -8,6 +8,7 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { colors, typography } from '@/shared/theme';
 import { Logo } from '@/shared/components/Logo';
 import type { HomeStackParamList, TabParamList } from '@/navigation/RootNavigator';
+import { GuideChatFab } from '@/features/conversation/components/GuideChatFab';
 
 import { MyBusinessCard } from '../components/MyBusinessCard';
 import { MyCardSheet } from '../components/MyCardSheet';
@@ -90,6 +91,8 @@ export default function HomeScreen() {
         onClose={() => setCardSheetOpen(false)}
         onSave={save}
       />
+
+      <GuideChatFab />
     </SafeAreaView>
   );
 }

@@ -1,8 +1,11 @@
 """Pydantic schemas for the conversation feature."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.features.conversation.guide import MAX_MESSAGE_CHARS
 
 # ─────────────────────────────────────────────────────────────
 # STT
@@ -110,3 +113,31 @@ class ConversationResponse(BaseModel):
 class ConversationListResponse(BaseModel):
     total: int
     items: list[ConversationResponse]
+
+
+# ─────────────────────────────────────────────────────────────
+# Guide chatbot
+# ─────────────────────────────────────────────────────────────
+
+
+class GuideMessage(BaseModel):
+    """One visible turn. 'assistant' is this bot; the client sends back what it drew."""
+
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, max_length=MAX_MESSAGE_CHARS)
+
+
+class GuideRequest(BaseModel):
+    messages: list[GuideMessage] = Field(
+        ...,
+        min_length=1,
+        description="Whole visible conversation, oldest first, ending with the new question",
+    )
+
+
+class GuideResponse(BaseModel):
+    reply: str
+    suggestions: list[str] = Field(
+        default_factory=list,
+        description="Topics to offer as chips. Filled only when nothing matched the question",
+    )
