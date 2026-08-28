@@ -1,6 +1,6 @@
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, LayoutChangeEvent, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -53,33 +53,44 @@ export default function GraphScreen() {
   const [isRequestsSheetOpen, setIsRequestsSheetOpen] = useState(false);
   const [mutualCounts, setMutualCounts] = useState<Record<number, number>>({});
 
-  useEffect(() => {
-    let cancelled = false;
+  // On focus, not on mount. Bottom tabs keep this screen mounted, so a mount-only
+  // fetch meant a card registered after the first visit to 관계도 never showed up —
+  // the graph kept whatever it loaded the first time. Every other way into the graph
+  // (saving a conversation, approving a request from another screen) has the same
+  // problem, and refetching on focus covers all of them.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
 
-    setLoadState('loading');
-    fetchGraph()
-      .then((data) => {
-        if (cancelled) return;
-        setGraphData(data);
-        setLoadState('ready');
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setLoadState('error');
-      });
+      // Blank the canvas only before there is anything to show. Coming back to an
+      // already-loaded graph refreshes in place instead of flashing a spinner, and a
+      // failed refresh keeps the stale graph rather than replacing it with an error.
+      setLoadState((current) => (current === 'ready' ? current : 'loading'));
 
-    fetchIncomingIntroductionRequests()
-      .then((requests) => {
-        if (!cancelled) setIncomingRequests(requests);
-      })
-      .catch(() => {
-        // Non-critical — the bell just stays hidden if this fails.
-      });
+      fetchGraph()
+        .then((data) => {
+          if (cancelled) return;
+          setGraphData(data);
+          setLoadState('ready');
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setLoadState((current) => (current === 'ready' ? current : 'error'));
+        });
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+      fetchIncomingIntroductionRequests()
+        .then((requests) => {
+          if (!cancelled) setIncomingRequests(requests);
+        })
+        .catch(() => {
+          // Non-critical — the bell just stays hidden if this fails.
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
 
   useEffect(() => {
     if (!selectedPerson || selectedPerson.type !== 'person') return;
