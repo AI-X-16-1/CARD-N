@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -9,6 +9,12 @@ import Animated, {
 
 import { colors, radius, typography } from '@/shared/theme';
 
+import {
+  addAcquaintance,
+  fetchAcquaintances,
+  recordAcquaintanceConsent,
+  type Acquaintance,
+} from '../api/graphApi';
 import type { GraphNode, IntroductionRequestStatus } from '../types';
 
 type Props = {
@@ -40,6 +46,51 @@ export function PersonBottomSheet({
   onRequestIntroduction,
 }: Props) {
   const [displayPerson, setDisplayPerson] = useState<GraphNode | null>(null);
+  const [acquaintances, setAcquaintances] = useState<Acquaintance[]>([]);
+  const [draftName, setDraftName] = useState('');
+
+  // Only 1st-degree contacts can vouch for someone, so this is the only case worth loading.
+  const personId = person?.degree === 1 ? person.id : null;
+  useEffect(() => {
+    if (personId === null) {
+      setAcquaintances([]);
+      return;
+    }
+    let cancelled = false;
+    fetchAcquaintances(personId)
+      .then((list) => {
+        if (!cancelled) setAcquaintances(list);
+      })
+      .catch(() => {
+        // Non-critical — the section just stays empty.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [personId]);
+
+  const add = useCallback(async () => {
+    const name = draftName.trim();
+    if (personId === null || !name) return;
+    try {
+      const created = await addAcquaintance(personId, name);
+      setAcquaintances((current) => [created, ...current]);
+      setDraftName('');
+    } catch {
+      // Leave the draft in place so it can be retried.
+    }
+  }, [personId, draftName]);
+
+  const consent = useCallback(async (acquaintanceId: number) => {
+    try {
+      const updated = await recordAcquaintanceConsent(acquaintanceId);
+      setAcquaintances((current) =>
+        current.map((a) => (a.id === updated.id ? updated : a))
+      );
+    } catch {
+      // Leave the row as-is — it can be tapped again.
+    }
+  }, []);
   const translateY = useSharedValue(SHEET_HIDDEN_OFFSET);
   const overlayOpacity = useSharedValue(0);
 
@@ -122,15 +173,57 @@ export function PersonBottomSheet({
         </View>
 
         {displayPerson.degree === 1 && (
-          <Pressable
-            disabled={introRow.disabled}
-            onPress={() => onRequestIntroduction(displayPerson)}
-            style={styles.introRow}
-          >
-            <Text style={[styles.introRowLabel, introRow.disabled && styles.introRowLabelDisabled]}>
-              {introRow.label}
-            </Text>
-          </Pressable>
+          <>
+            <Pressable
+              disabled={introRow.disabled}
+              onPress={() => onRequestIntroduction(displayPerson)}
+              style={styles.introRow}
+            >
+              <Text
+                style={[styles.introRowLabel, introRow.disabled && styles.introRowLabelDisabled]}
+              >
+                {introRow.label}
+              </Text>
+            </Pressable>
+
+            <View style={styles.acqSection}>
+              <Text style={styles.acqTitle}>이 사람이 아는 사람</Text>
+
+              {acquaintances.map((a) => (
+                <View key={a.id} style={styles.acqRow}>
+                  <Text style={styles.acqName}>{a.name}</Text>
+                  {a.status === 'approved' ? (
+                    <Text style={styles.acqApproved}>2촌으로 표시 중</Text>
+                  ) : (
+                    <Pressable style={styles.acqConsentButton} onPress={() => consent(a.id)}>
+                      <Text style={styles.acqConsentLabel}>본인 동의 기록</Text>
+                    </Pressable>
+                  )}
+                </View>
+              ))}
+
+              <View style={styles.acqAddRow}>
+                <TextInput
+                  style={styles.acqInput}
+                  value={draftName}
+                  onChangeText={setDraftName}
+                  placeholder="이름"
+                  placeholderTextColor={colors.textMuted}
+                />
+                <Pressable
+                  style={styles.acqAddButton}
+                  disabled={!draftName.trim()}
+                  onPress={add}
+                >
+                  <Text style={styles.acqAddLabel}>추가</Text>
+                </Pressable>
+              </View>
+
+              <Text style={styles.acqHint}>
+                추가해도 본인이 동의하기 전까지는 관계도에 나타나지 않아요.
+              </Text>
+            </View>
+          </>
         )}
       </Animated.View>
     </>
@@ -272,6 +365,74 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontSize: typography.body.fontSize,
     fontWeight: '700',
+  },
+  acqSection: {
+    marginTop: 16,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderLight,
+  },
+  acqTitle: {
+    color: colors.textSecondary,
+    fontSize: typography.meta.fontSize,
+    fontWeight: '700',
+    marginBottom: 10,
+  },
+  acqRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+  },
+  acqName: {
+    color: colors.textPrimary,
+    fontSize: typography.body.fontSize,
+  },
+  acqApproved: {
+    color: colors.secondary,
+    fontSize: typography.meta.fontSize,
+    fontWeight: '600',
+  },
+  acqConsentButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.card,
+    backgroundColor: colors.surface1,
+  },
+  acqConsentLabel: {
+    color: colors.textSecondary,
+    fontSize: typography.meta.fontSize,
+    fontWeight: '600',
+  },
+  acqAddRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  acqInput: {
+    flex: 1,
+    backgroundColor: colors.surface1,
+    borderRadius: radius.card,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: colors.textPrimary,
+    fontSize: typography.body.fontSize,
+  },
+  acqAddButton: {
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+    borderRadius: radius.card,
+    backgroundColor: colors.primary,
+  },
+  acqAddLabel: {
+    color: colors.textPrimary,
+    fontSize: typography.body.fontSize,
+    fontWeight: '700',
+  },
+  acqHint: {
+    color: colors.textMuted,
+    fontSize: typography.meta.fontSize,
+    marginTop: 10,
   },
   introRow: {
     paddingVertical: 12,

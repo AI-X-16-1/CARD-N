@@ -66,3 +66,26 @@ class IncomingIntroductionRequest(BaseModel):
 
 class IncomingIntroductionRequestsResponse(BaseModel):
     requests: list[IncomingIntroductionRequest]
+
+
+class AcquaintanceResponse(BaseModel):
+    """A person a contact knows who is not a contact of mine.
+
+    `status` is that person's own consent to being surfaced through the contact —
+    `pending` until it is recorded, and only `approved` puts them in `GET /graph`.
+    """
+
+    id: int
+    name: str
+    job_class: str | None = None
+    status: Literal["pending", "approved", "declined"]
+
+
+class AcquaintancesResponse(BaseModel):
+    person_id: int
+    acquaintances: list[AcquaintanceResponse]
+
+
+class AddAcquaintanceRequest(BaseModel):
+    name: str
+    job_class: str | None = None

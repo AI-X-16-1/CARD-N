@@ -134,3 +134,52 @@ export async function approveIntroductionRequest(personId: number): Promise<void
 export async function declineIntroductionRequest(personId: number): Promise<void> {
   await client.post(`/introduction-requests/${personId}/decline`);
 }
+
+// --- Acquaintances: people a contact knows who are not contacts of mine ---
+//
+// The only path that creates a contact-to-contact edge, and so the only way anyone
+// reaches the graph's 2nd-degree section. `status` is that person's own consent to
+// being surfaced through the contact; they stay invisible until it is 'approved'.
+
+export type Acquaintance = {
+  id: number;
+  name: string;
+  jobClass: JobClass | null;
+  status: 'pending' | 'approved' | 'declined';
+};
+
+type AcquaintanceApiResponse = {
+  id: number;
+  name: string;
+  job_class: JobClass | null;
+  status: Acquaintance['status'];
+};
+
+function toAcquaintance(a: AcquaintanceApiResponse): Acquaintance {
+  return { id: a.id, name: a.name, jobClass: a.job_class, status: a.status };
+}
+
+export async function fetchAcquaintances(personId: number): Promise<Acquaintance[]> {
+  const { data } = await client.get<{ acquaintances: AcquaintanceApiResponse[] }>(
+    `/${personId}/acquaintances`
+  );
+  return data.acquaintances.map(toAcquaintance);
+}
+
+export async function addAcquaintance(personId: number, name: string): Promise<Acquaintance> {
+  const { data } = await client.post<AcquaintanceApiResponse>(`/${personId}/acquaintances`, {
+    name,
+  });
+  return toAcquaintance(data);
+}
+
+/**
+ * Records that this person agreed to be surfaced through the contact who knows them.
+ * In a multi-user product they would do this in their own app; there is one user here.
+ */
+export async function recordAcquaintanceConsent(acquaintanceId: number): Promise<Acquaintance> {
+  const { data } = await client.post<AcquaintanceApiResponse>(
+    `/acquaintances/${acquaintanceId}/consent`
+  );
+  return toAcquaintance(data);
+}

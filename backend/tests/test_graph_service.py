@@ -219,3 +219,77 @@ async def test_get_stats_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert result.degree_1_count == 1
     assert result.degree_2_count == 2
+
+
+# ─────────────────────────────────────────────────────────────
+# Acquaintances — the only way a 2nd-degree person gets into the graph
+# ─────────────────────────────────────────────────────────────
+
+
+async def test_add_acquaintance_starts_out_pending(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Recording who a contact knows must not expose that person yet.
+
+    The 2nd-degree privacy rule (api-spec.md) is that they appear only once consent is
+    recorded, so the edge this creates has to start unapproved or the rule is bypassed
+    by the very feature that feeds it.
+    """
+    captured = {}
+
+    async def fake_is_first_degree(driver, me_id, target_id):
+        return True
+
+    async def fake_next_id(driver):
+        return -1
+
+    async def fake_create(driver, *, contact_id, person_id, name, job_class):
+        captured.update(contact_id=contact_id, person_id=person_id, name=name)
+        return {"id": person_id, "name": name, "job_class": job_class, "status": "pending"}
+
+    monkeypatch.setattr(queries, "is_first_degree", fake_is_first_degree)
+    monkeypatch.setattr(queries, "next_acquaintance_id", fake_next_id)
+    monkeypatch.setattr(queries, "create_acquaintance", fake_create)
+
+    result = await _service().add_acquaintance(3, name="정하늘", job_class="marketing")
+
+    assert result.status == "pending"
+    assert result.id == -1, (
+        "graph-only people take negative ids so they cannot collide with contacts"
+    )
+    assert captured["contact_id"] == 3
+
+
+async def test_add_acquaintance_rejects_a_non_contact(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only someone I actually know can vouch for a person I do not."""
+
+    async def fake_is_first_degree(driver, me_id, target_id):
+        return False
+
+    monkeypatch.setattr(queries, "is_first_degree", fake_is_first_degree)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await _service().add_acquaintance(99, name="정하늘", job_class=None)
+
+    assert exc_info.value.status_code == 404
+
+
+async def test_consent_flips_pending_to_approved(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_approve(driver, acquaintance_id):
+        return {"id": acquaintance_id, "name": "정하늘", "job_class": None, "status": "approved"}
+
+    monkeypatch.setattr(queries, "approve_acquaintance", fake_approve)
+
+    result = await _service().record_acquaintance_consent(-1)
+
+    assert result.status == "approved"
+
+
+async def test_consent_on_an_unknown_person_is_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_approve(driver, acquaintance_id):
+        return None
+
+    monkeypatch.setattr(queries, "approve_acquaintance", fake_approve)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await _service().record_acquaintance_consent(-999)
+
+    assert exc_info.value.status_code == 404

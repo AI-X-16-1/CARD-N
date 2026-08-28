@@ -7,6 +7,8 @@ from neo4j import AsyncDriver
 
 from app.features.graph import queries
 from app.features.graph.schemas import (
+    AcquaintanceResponse,
+    AcquaintancesResponse,
     GraphEdgeResponse,
     GraphNodeResponse,
     GraphResponse,
@@ -87,6 +89,56 @@ class GraphService:
             conversation_count=row.get("weight") or 0,
             last_conversation=row.get("last_interaction"),
             introduction_request_status=row.get("introduction_request_status"),
+        )
+
+    async def add_acquaintance(
+        self, contact_person_id: int, *, name: str, job_class: str | None
+    ) -> AcquaintanceResponse:
+        """Record that one of my contacts knows someone who is not a contact of mine.
+
+        This is the only thing that produces a contact-to-contact `MET_AT` edge, and so
+        the only way anyone reaches the 2nd-degree section of the graph at all.
+
+        The person starts unapproved. They are invisible until their consent is recorded
+        (see `record_acquaintance_consent`), which is the privacy rule in api-spec.md —
+        creating them already approved would have this endpoint hand out exactly the
+        exposure that rule withholds.
+        """
+        if not await queries.is_first_degree(self.driver, queries.ME_PERSON_ID, contact_person_id):
+            raise HTTPException(status_code=404, detail="NOT_FIRST_DEGREE")
+
+        person_id = await queries.next_acquaintance_id(self.driver)
+        row = await queries.create_acquaintance(
+            self.driver,
+            contact_id=contact_person_id,
+            person_id=person_id,
+            name=name,
+            job_class=job_class,
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="CONTACT_NOT_IN_GRAPH")
+
+        return AcquaintanceResponse(**row)
+
+    async def record_acquaintance_consent(self, acquaintance_id: int) -> AcquaintanceResponse:
+        """Record that this person agreed to be surfaced through the contact who knows them.
+
+        In a multi-user product this is their own action, taken in their own app. There is
+        one user here, so it is recorded on their behalf — see api-spec.md. The endpoint
+        stays named for what it records rather than for who taps it, so the distinction
+        survives into a multi-user version.
+        """
+        row = await queries.approve_acquaintance(self.driver, acquaintance_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="ACQUAINTANCE_NOT_FOUND")
+
+        return AcquaintanceResponse(**row)
+
+    async def list_acquaintances(self, contact_person_id: int) -> AcquaintancesResponse:
+        rows = await queries.fetch_acquaintances(self.driver, contact_person_id)
+        return AcquaintancesResponse(
+            person_id=contact_person_id,
+            acquaintances=[AcquaintanceResponse(**row) for row in rows],
         )
 
     async def request_introduction(self, target_person_id: int) -> IntroductionRequestResponse:
