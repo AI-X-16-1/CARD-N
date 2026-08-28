@@ -102,10 +102,18 @@ Response 200:
     "phone": "010-1234-5678",
     "email": "hong@kakao.com",
     "address": null,
+    "postal_code": null,
     "context": "Met at the 2024 AI Conference"
   }
 }
 ```
+
+`address`/`postal_code` here are whatever OCR itself guessed (rarely anything for
+`postal_code` — see the confidence note above); pass this straight through to
+`POST /contacts` and it lands on the `Person` row. The scan review screen's "주소 갱신"
+button (Daum/Kakao Postcode search) lets the user replace both with a verified,
+standardized address before saving — that result simply overwrites these two fields on
+the client before the request goes out, no separate endpoint involved.
 
 ---
 
@@ -143,6 +151,8 @@ Response 200:
       "title": "Manager",
       "job_class": "marketing",
       "relation": "client",
+      "address": null,
+      "postal_code": null,
       "last_contact": "2024-03-15T09:00:00Z",
       "conversation_count": 3,
       "created_at": "2024-01-10T14:30:00Z",

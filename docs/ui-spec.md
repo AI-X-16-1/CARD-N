@@ -96,6 +96,7 @@ Refer to `design-tokens.md` for color, typography, and spacing values.
   - ≥90%: green (#55E6C1)
   - <90%: yellow label "확인 필요" (Needs review) + yellow border
 - Toggle: "전화번호부에도 저장" (Also save to phone contacts)
+- 주소 블록: 인식된 주소(있으면)/우편번호 표시 + "주소 갱신" 버튼 → Daum(카카오) 우편번호 검색 위젯을 열어 표준 주소+우편번호로 교체
 - "만난 컨텍스트" (Context of meeting) free-text input
 - CTA "저장하고 카드 만들기" (Save and create card)
 
@@ -114,7 +115,8 @@ Refer to `design-tokens.md` for color, typography, and spacing values.
 ### 3-5. Manual Entry (ManualInputScreen)
 - "‹ 카메라로" (‹ Back to camera) back button
 - "직접 입력" (Manual entry) + "명함 없이도 인물을 등록할 수 있어요" (You can register a contact even without a business card)
-- 5 input fields: name/company/department & title/mobile phone/email
+- 6 input fields: name/company/department/title/mobile phone/email
+- 주소 블록: §3-2와 동일한 "주소 갱신" 버튼 (Daum/Kakao 우편번호 검색)
 - Context-of-meeting input
 - CTA "저장하고 카드 만들기" (Save and create card) → Card Reveal
 

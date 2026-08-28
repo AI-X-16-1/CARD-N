@@ -5,6 +5,8 @@ export type ParsedPerson = {
   title?: string;
   phone?: string;
   email?: string;
+  address?: string;
+  postal_code?: string;
   context?: string;
 };
 
