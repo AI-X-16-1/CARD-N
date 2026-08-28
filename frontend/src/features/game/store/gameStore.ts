@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import { fetchCards, fetchDeck, saveDeck } from '@/features/game/api';
+import { createMockCollection } from '@/features/game/engine/mockCollection';
 import type { BattleCard } from '@/features/game/engine/types';
 
 export const MAX_DECK_SIZE = 8;
@@ -45,6 +46,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
       });
       set({ collection: cards, deckSlots: slots, status: 'ready' });
     } catch {
+      // No backend during local UI work: fall back to a fresh random mock
+      // collection so the deck builder stays usable offline. Re-rolled on
+      // every load; dev builds only — a production build still surfaces the
+      // error state.
+      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.log('[game] backend unavailable — using mock collection');
+        set({
+          collection: createMockCollection(),
+          deckSlots: Array(MAX_DECK_SIZE).fill(null),
+          status: 'ready',
+        });
+        return;
+      }
       set({ status: 'error' });
     }
   },
