@@ -14,6 +14,9 @@ export default function CardDetailOverlay() {
   const collection = useGameStore((s) => s.collection);
   const deckSlots = useGameStore((s) => s.deckSlots);
   const toggleSelected = useGameStore((s) => s.toggleSelected);
+  const generateArt = useGameStore((s) => s.generateArt);
+  const artStatus = useGameStore((s) => s.artStatus);
+  const artCardId = useGameStore((s) => s.artCardId);
 
   const card = collection.find((c) => c.id === route.params.cardId);
 
@@ -32,6 +35,8 @@ export default function CardDetailOverlay() {
 
   const inDeck = deckSlots.includes(card.id);
   const deckFull = !inDeck && deckSlots.every((id) => id !== null);
+  // A real (scanned) card — starter cards have no backing battle_cards row.
+  const canGenerateArt = card.personId > 0;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -41,7 +46,13 @@ export default function CardDetailOverlay() {
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={[styles.card, { borderColor: JOB_COLOR[card.jobClass] }]}>
-          <CardDetailPanel card={card} effStats={card.finalStats} />
+          <CardDetailPanel
+            card={card}
+            effStats={card.finalStats}
+            onGenerateArt={canGenerateArt ? () => generateArt(card.id) : undefined}
+            artBusy={artStatus === 'running' && artCardId === card.id}
+            artError={artStatus === 'error' && artCardId === card.id}
+          />
         </View>
       </ScrollView>
 

@@ -11,7 +11,7 @@ import { StatRow } from '@/features/game/components/StatRow';
 import { averageCost, compendiumCompletion } from '@/features/game/engine/deckStats';
 import { JOB_CLASSES, JOB_LABEL, SKILL } from '@/features/game/engine/cardData';
 import { completeDeckTo15, groupCompendium, type CompendiumSlot } from '@/features/game/engine/mockCollection';
-import { createStarterDeck } from '@/features/game/engine/starterDeck';
+import { createStarterDeck, isStarterCard } from '@/features/game/engine/starterDeck';
 import type { BattleCard, JobClass } from '@/features/game/engine/types';
 import { MAX_DECK_SIZE, useGameStore } from '@/features/game/store/gameStore';
 import type { GameStackParamList } from '@/navigation/RootNavigator';
@@ -24,10 +24,11 @@ type Props = {
 // never shows them.
 const IS_DEV = typeof __DEV__ !== 'undefined' && __DEV__;
 
-type FilterKey = 'all' | 'grade3minus' | 'grade4plus' | JobClass;
+type FilterKey = 'all' | 'mine' | 'grade3minus' | 'grade4plus' | JobClass;
 
 const FILTER_OPTIONS: { key: FilterKey; label: string }[] = [
   { key: 'all', label: '전체' },
+  { key: 'mine', label: '내 명함 카드' },
   { key: 'grade3minus', label: '★3 이하' },
   { key: 'grade4plus', label: '★4 이상' },
   ...JOB_CLASSES.map((jc) => ({ key: jc as FilterKey, label: JOB_LABEL[jc] })),
@@ -42,6 +43,8 @@ function matchesFilter(slot: CompendiumSlot, filter: FilterKey): boolean {
   switch (filter) {
     case 'all':
       return true;
+    case 'mine':
+      return slot.owned.some((c) => !isStarterCard(c));
     case 'grade3minus':
       return slot.grade <= 3;
     case 'grade4plus':
@@ -259,6 +262,9 @@ export default function DeckBuilderScreen({ onStartBattle }: Props) {
               >
                 {inDeck && <Text style={styles.checkMark}>✓</Text>}
                 {slot.owned.length > 1 && <Text style={styles.ownedCount}>×{slot.owned.length}</Text>}
+                {slot.owned.some((c) => !isStarterCard(c)) && (
+                  <Text style={styles.myCardTag}>내 명함</Text>
+                )}
                 <Text style={styles.tileStars}>{'★'.repeat(slot.grade)}</Text>
                 <Text style={styles.tileName} numberOfLines={1}>
                   {sample.jobLabel}
@@ -535,6 +541,19 @@ const styles = StyleSheet.create({
     color: colors.textQuaternary,
     fontSize: 9,
     fontWeight: '700',
+  },
+  myCardTag: {
+    position: 'absolute',
+    bottom: 3,
+    left: 3,
+    backgroundColor: colors.primary,
+    color: colors.textPrimary,
+    fontSize: 7,
+    fontWeight: '800',
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    borderRadius: 3,
+    overflow: 'hidden',
   },
   tileStars: {
     color: colors.warning,

@@ -60,20 +60,34 @@ describe('load', () => {
     const state = useGameStore.getState();
     expect(state.status).toBe('ready');
     expect(state.collection).toHaveLength(15);
-    // First 8 starter cards fill the editable deck slots.
     expect(state.deckSlots.filter((id) => id !== null)).toHaveLength(8);
     expect(state.deckSlots).toEqual(state.collection.slice(0, 8).map((c) => c.id));
   });
 
-  test('an existing user with cards but no saved deck keeps empty deck slots', async () => {
+  test('a user with real cards but no saved deck still gets the starter deck', async () => {
     mockedApi.fetchCards.mockResolvedValue([card(10), card(20)]);
     mockedApi.fetchDeck.mockResolvedValue([]);
 
     await useGameStore.getState().load();
 
     const state = useGameStore.getState();
-    expect(state.collection.map((c) => c.id)).toEqual([10, 20]);
-    expect(state.deckSlots).toEqual(Array(8).fill(null));
+    // Real cards kept, starter cards added on top.
+    expect(state.collection.slice(0, 2).map((c) => c.id)).toEqual([10, 20]);
+    expect(state.collection).toHaveLength(2 + 15);
+    // Deck slots filled with the 8 starter cards.
+    expect(state.deckSlots.filter((id) => id !== null)).toHaveLength(8);
+    expect(state.deckSlots.every((id) => id !== null && id < 0)).toBe(true);
+  });
+
+  test('a saved deck is used as-is, no starter deck', async () => {
+    mockedApi.fetchCards.mockResolvedValue([card(10), card(20), card(30)]);
+    mockedApi.fetchDeck.mockResolvedValue([30, 10]);
+
+    await useGameStore.getState().load();
+
+    const state = useGameStore.getState();
+    expect(state.collection.map((c) => c.id)).toEqual([10, 20, 30]);
+    expect(state.deckSlots).toEqual([30, 10, null, null, null, null, null, null]);
   });
 
   test('sets status "error" and leaves the collection empty when the request fails', async () => {
@@ -139,6 +153,48 @@ describe('randomFillDeck', () => {
 
     const lastArg = mockedApi.saveDeck.mock.calls.at(-1)?.[0] ?? [];
     expect([...lastArg].sort((a, b) => a - b)).toEqual([1, 2]);
+  });
+});
+
+describe('generateArt', () => {
+  test('generates art for the given card, tracks which one, then reloads', async () => {
+    mockedApi.generateCardArt.mockResolvedValue(undefined);
+    mockedApi.fetchCards.mockResolvedValue([]);
+    mockedApi.fetchDeck.mockResolvedValue([]);
+
+    await useGameStore.getState().generateArt(7);
+
+    expect(mockedApi.generateCardArt).toHaveBeenCalledWith(7);
+    expect(mockedApi.fetchCards).toHaveBeenCalled(); // reloaded after
+    expect(useGameStore.getState().artStatus).toBe('idle');
+    expect(useGameStore.getState().artCardId).toBeNull();
+  });
+
+  test('ignores a second call while one is already running', async () => {
+    let resolveFirst: () => void = () => {};
+    mockedApi.generateCardArt.mockReturnValueOnce(
+      new Promise<void>((r) => {
+        resolveFirst = r;
+      }),
+    );
+    mockedApi.fetchCards.mockResolvedValue([]);
+    mockedApi.fetchDeck.mockResolvedValue([]);
+
+    const first = useGameStore.getState().generateArt(1);
+    await useGameStore.getState().generateArt(2); // ignored — first still running
+
+    expect(mockedApi.generateCardArt).toHaveBeenCalledTimes(1);
+    resolveFirst();
+    await first;
+  });
+
+  test('sets artStatus "error" and keeps the failed card id', async () => {
+    mockedApi.generateCardArt.mockRejectedValue(new Error('comfyui down'));
+
+    await useGameStore.getState().generateArt(9);
+
+    expect(useGameStore.getState().artStatus).toBe('error');
+    expect(useGameStore.getState().artCardId).toBe(9);
   });
 });
 
