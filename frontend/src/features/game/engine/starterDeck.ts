@@ -30,6 +30,13 @@ const STARTER_CARDS: { jobClass: JobClass; grade: number }[] = [
   { jobClass: 'finance', grade: 3 },
 ];
 
+// Starter / filler cards carry a negative id (they aren't backed by a
+// battle_cards row); a card built from a scanned business card has a positive
+// one. Used to tell "handed to you" cards apart from "your contacts" in the UI.
+export function isStarterCard(card: Pick<BattleCard, 'id'>): boolean {
+  return card.id < 0;
+}
+
 export function createStarterDeck(): BattleCard[] {
   return STARTER_CARDS.map(({ jobClass, grade }, i) =>
     buildCard({

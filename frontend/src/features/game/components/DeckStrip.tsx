@@ -4,6 +4,7 @@ import { colors, radius, typography } from '@/shared/theme';
 import { JOB_COLOR } from '@/features/game/constants';
 import { CardArt } from '@/features/game/components/CardArt';
 import { StatRow } from '@/features/game/components/StatRow';
+import { isStarterCard } from '@/features/game/engine/starterDeck';
 import type { BattleCard } from '@/features/game/engine/types';
 
 type Props = {
@@ -38,6 +39,9 @@ export function DeckStrip({ deckSlots, collection, onRemove, onLongPressCard }: 
             onLongPress={onLongPressCard ? () => onLongPressCard(card.id) : undefined}
           >
             <CardArt uri={card.illustrationUrl} variant="tile" />
+            <Text style={[styles.originBadge, isStarterCard(card) ? styles.originStarter : styles.originMine]}>
+              {isStarterCard(card) ? '기본' : '내 명함'}
+            </Text>
             <Text style={styles.tileStars}>{'★'.repeat(card.grade)}</Text>
             <Text style={styles.tileName} numberOfLines={1}>
               {card.name}
@@ -73,6 +77,26 @@ const styles = StyleSheet.create({
     padding: 6,
     justifyContent: 'center',
     gap: 2,
+    position: 'relative',
+  },
+  originBadge: {
+    position: 'absolute',
+    top: 3,
+    left: 3,
+    fontSize: 7,
+    fontWeight: '800',
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  originStarter: {
+    backgroundColor: colors.surface3,
+    color: colors.textTertiary,
+  },
+  originMine: {
+    backgroundColor: colors.primary,
+    color: colors.textPrimary,
   },
   tileEmpty: {
     borderStyle: 'dashed',

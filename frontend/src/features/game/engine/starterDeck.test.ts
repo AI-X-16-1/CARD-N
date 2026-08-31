@@ -1,4 +1,4 @@
-import { createStarterDeck } from './starterDeck';
+import { createStarterDeck, isStarterCard } from './starterDeck';
 import type { JobClass } from './types';
 
 const ALL_JOB_CLASSES: JobClass[] = ['dev', 'design', 'hr', 'finance', 'legal', 'marketing', 'sales', 'pm'];
@@ -51,5 +51,15 @@ describe('createStarterDeck', () => {
     for (const card of createStarterDeck().filter((c) => c.grade === 1)) {
       expect(card.finalStats).toEqual(card.baseStats);
     }
+  });
+});
+
+describe('isStarterCard', () => {
+  test('every card the starter deck hands out is a starter card', () => {
+    expect(createStarterDeck().every(isStarterCard)).toBe(true);
+  });
+
+  test('a card built from a scanned contact (positive id) is not a starter card', () => {
+    expect(isStarterCard({ id: 42 })).toBe(false);
   });
 });
