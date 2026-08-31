@@ -11,16 +11,35 @@ type Props = {
   card: BattleCard;
   effStats: Stats;
   actions?: ReactNode;
+  /** When set, shows a "generate / regenerate art" button (cardcreate, ~3 min). */
+  onGenerateArt?: () => void;
+  artBusy?: boolean;
+  artError?: boolean;
 };
 
 // Shared "card detail" content. When the card has generated art (with its stats
 // baked in) the image fills the popup and the text block is behind a checkbox;
 // otherwise the text block shows outright. Reused by the in-battle long-press
 // overlay and the Deck Builder's Card Detail Overlay (ui-spec §7).
-export function CardDetailPanel({ card, effStats, actions }: Props) {
+export function CardDetailPanel({ card, effStats, actions, onGenerateArt, artBusy, artError }: Props) {
   const curHp = card.currentHp ?? effStats.hp;
   const hasArt = !!card.illustrationUrl;
   const [showText, setShowText] = useState(false);
+
+  const artButton = onGenerateArt ? (
+    <>
+      <Pressable
+        style={[styles.artButton, artBusy && styles.artButtonBusy]}
+        onPress={onGenerateArt}
+        disabled={artBusy}
+      >
+        <Text style={styles.artButtonText}>
+          {artBusy ? '이미지 생성 중… (약 3분)' : hasArt ? '이미지 다시 생성' : '이미지 생성'}
+        </Text>
+      </Pressable>
+      {artError && <Text style={styles.artError}>이미지 생성에 실패했어요</Text>}
+    </>
+  ) : null;
 
   const textBlock = (
     <>
@@ -76,6 +95,7 @@ export function CardDetailPanel({ card, effStats, actions }: Props) {
         textBlock
       )}
 
+      {artButton}
       {actions}
     </>
   );
@@ -133,6 +153,25 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: typography.meta.fontSize,
     fontWeight: '600',
+  },
+  artButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.primary,
+    borderRadius: radius.pill,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  artButtonBusy: {
+    opacity: 0.5,
+  },
+  artButtonText: {
+    color: colors.textPrimary,
+    fontSize: typography.meta.fontSize,
+    fontWeight: '800',
+  },
+  artError: {
+    color: colors.gameAccent,
+    fontSize: typography.micro.fontSize,
   },
   stars: {
     color: colors.warning,

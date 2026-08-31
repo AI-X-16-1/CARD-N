@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
@@ -52,6 +53,22 @@ async def set_card_art(
     card_id: int, data: UpdateCardArtRequest, service: GameService = Depends(_service)
 ) -> BattleCardResponse:
     return await service.set_illustration(card_id, data.illustration_url)
+
+
+@router.post("/cards/{card_id}/illustration", response_model=BattleCardResponse)
+async def generate_illustration(
+    card_id: int, service: GameService = Depends(_service)
+) -> BattleCardResponse:
+    """Generate the card art (cardcreate module, ComfyUI) from the contact's
+    saved business-card photo and attach it to the card."""
+    return await service.generate_illustration(card_id)
+
+
+@router.get("/cards/{card_id}/illustration")
+async def get_card_illustration(
+    card_id: int, service: GameService = Depends(_service)
+) -> FileResponse:
+    return FileResponse(await service.illustration_path(card_id))
 
 
 @router.get("/deck", response_model=DeckResponse)

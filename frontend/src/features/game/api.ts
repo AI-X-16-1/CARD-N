@@ -30,6 +30,16 @@ interface ApiDeck {
   avg_cost: number;
 }
 
+// The backend stores illustration_url as a bare filename ("1.png") served by
+// GET /game/cards/{id}/illustration, but a value set via PUT /art can also be a
+// full URL (e.g. a dev picsum placeholder). Pass full URLs through; turn a bare
+// filename into the served endpoint.
+function resolveArtUrl(raw: string | null, cardId: number): string | null {
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:')) return raw;
+  return `${apiClient.defaults?.baseURL ?? ''}/game/cards/${cardId}/illustration`;
+}
+
 export function toBattleCard(c: ApiCard): BattleCard {
   return {
     id: c.id,
@@ -45,7 +55,7 @@ export function toBattleCard(c: ApiCard): BattleCard {
     skill: c.skill,
     passive: c.passive,
     flavorText: c.flavor_text,
-    illustrationUrl: c.illustration_url,
+    illustrationUrl: resolveArtUrl(c.illustration_url, c.id),
   };
 }
 
@@ -66,4 +76,13 @@ export async function saveDeck(cardIds: number[]): Promise<void> {
 export async function regenerateFlavor(cardId: number): Promise<BattleCard> {
   const { data } = await apiClient.post<ApiCard>(`/game/cards/${cardId}/flavor`);
   return toBattleCard(data);
+}
+
+// Card-art generation via the cardcreate module (ComfyUI). Renders the
+// illustration from the contact's saved business-card photo and attaches it to
+// the card server-side, so callers should re-fetch the collection afterwards.
+// The ComfyUI pipeline takes seconds-to-minutes, well past the client's default
+// timeout, so give this call its own generous one.
+export async function generateCardArt(cardId: number): Promise<void> {
+  await apiClient.post(`/game/cards/${cardId}/illustration`, undefined, { timeout: 300_000 });
 }

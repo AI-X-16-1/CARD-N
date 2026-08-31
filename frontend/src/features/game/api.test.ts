@@ -48,8 +48,14 @@ describe('toBattleCard', () => {
     expect(toBattleCard({ ...apiCard, company: null }).company).toBe('');
   });
 
-  test('carries the illustration url through when the card has art', () => {
+  test('carries a full illustration url through unchanged', () => {
     const url = 'http://localhost:8188/view?filename=card_10.png';
     expect(toBattleCard({ ...apiCard, illustration_url: url }).illustrationUrl).toBe(url);
+  });
+
+  test('resolves a bare-filename illustration to the served endpoint', () => {
+    expect(toBattleCard({ ...apiCard, illustration_url: '10.png' }).illustrationUrl).toBe(
+      '/game/cards/10/illustration',
+    );
   });
 });

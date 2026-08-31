@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import { fetchCards, fetchDeck, saveDeck } from '@/features/game/api';
+import { fetchCards, fetchDeck, generateCardArt, saveDeck } from '@/features/game/api';
 import { buildCard, GRADES, JOB_CLASSES, JOB_LABEL } from '@/features/game/engine/cardData';
 import { createStarterDeck } from '@/features/game/engine/starterDeck';
 import type { BattleCard } from '@/features/game/engine/types';
@@ -9,6 +9,7 @@ export const MAX_DECK_SIZE = 8;
 const TEST_CARD_BATCH = 10;
 
 type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
+type ArtStatus = 'idle' | 'running' | 'error';
 
 interface GameStore {
   collection: BattleCard[];
@@ -27,6 +28,12 @@ interface GameStore {
   /** Append a batch of random cards to the collection — a dev/test affordance
    *  for padding the collection before the backend can supply extra cards. */
   addTestCards: () => void;
+  artStatus: ArtStatus;
+  /** The card id currently having its art generated, or null. */
+  artCardId: number | null;
+  /** Generate the card illustration (cardcreate module, ComfyUI) for one card,
+   *  then reload so its illustration_url shows. Runs one at a time. */
+  generateArt: (cardId: number) => Promise<void>;
 }
 
 function shuffle<T>(items: T[]): T[] {
@@ -58,9 +65,16 @@ function hydrate(cards: BattleCard[], deckIds: number[]): {
   collection: BattleCard[];
   deckSlots: (number | null)[];
 } {
-  if (cards.length === 0 && deckIds.length === 0) {
+  if (deckIds.length === 0) {
+    // No saved deck yet → hand out the fixed starter deck. Its cards live in
+    // the collection alongside any real (scanned) cards; its first
+    // MAX_DECK_SIZE fill the editable slots (completeDeckTo15 rounds the rest
+    // back out at battle time).
     const starter = createStarterDeck();
-    return { collection: starter, deckSlots: idsToSlots(starter.map((c) => c.id)) };
+    return {
+      collection: [...cards, ...starter],
+      deckSlots: idsToSlots(starter.map((c) => c.id)),
+    };
   }
   return { collection: cards, deckSlots: idsToSlots(deckIds) };
 }
@@ -75,6 +89,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   collection: [],
   deckSlots: Array(MAX_DECK_SIZE).fill(null),
   status: 'idle',
+  artStatus: 'idle',
+  artCardId: null,
 
   load: async () => {
     if (get().status === 'loading') return;
@@ -162,4 +178,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
       return { collection: [...state.collection, ...batch] };
     }),
+
+  generateArt: async (cardId) => {
+    if (get().artStatus === 'running') return;
+    set({ artStatus: 'running', artCardId: cardId });
+    try {
+      await generateCardArt(cardId);
+      await get().load(); // pick up the new illustration_url
+      set({ artStatus: 'idle', artCardId: null });
+    } catch {
+      set({ artStatus: 'error' }); // keep artCardId so the UI shows the error on that card
+    }
+  },
 }));

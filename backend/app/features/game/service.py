@@ -52,6 +52,37 @@ class GameService:
         await self.db.refresh(card)
         return self._to_response(card, person)
 
+    async def generate_illustration(self, card_id: int) -> BattleCardResponse:
+        """Run the cardcreate pipeline (ComfyUI) to render this card's art from
+        the contact's saved business-card photo, then return the updated card."""
+        from cardcreate.repository import CardDataNotFoundError, SourceImageMissingError
+        from cardcreate.service import IdCardService
+
+        try:
+            await IdCardService(self.db).generate(card_id)
+        except CardDataNotFoundError:
+            raise HTTPException(status_code=404, detail="Battle card not found") from None
+        except SourceImageMissingError:
+            raise HTTPException(
+                status_code=422,
+                detail="The card's contact has no saved business-card image",
+            ) from None
+
+        card, person = await self._card_row_or_404(card_id)
+        await self.db.refresh(card)
+        return self._to_response(card, person)
+
+    async def illustration_path(self, card_id: int) -> str:
+        from cardcreate.storage import card_illustration_path
+
+        card, _ = await self._card_row_or_404(card_id)
+        if not card.illustration_url:
+            raise HTTPException(status_code=404, detail="This card has no illustration yet")
+        path = card_illustration_path(card.illustration_url)
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="Illustration file is missing")
+        return str(path)
+
     async def list_cards(self) -> list[BattleCardResponse]:
         """Collection == my contacts: make sure every person has a card, then return all."""
         persons = list((await self.db.execute(select(Person))).scalars().all())
