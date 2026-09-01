@@ -16,7 +16,9 @@ Agent instructions for the FastAPI (Python 3.11+) backend.
 - MySQL 8+ (main DB), via the `asyncmy` async driver
 - Neo4j Community Edition (relationship graph, driven by the official `neo4j` async driver)
 - Pydantic v2 (schema validation)
-- httpx (external API calls: Google Vision, OpenAI)
+- google-genai (Gemini — conversation summaries, guide chatbot, game flavor text)
+- faster-whisper (STT, runs in-process), PaddleOCR + OpenCV (business card OCR, self-hosted)
+- httpx (outbound HTTP)
 - python-multipart (file upload)
 - Ruff (lint + format)
 
@@ -105,8 +107,8 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     database_url: str
-    google_vision_api_key: str
-    openai_api_key: str
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.5-flash-lite"
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"
     neo4j_password: str = ""

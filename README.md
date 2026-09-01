@@ -18,7 +18,7 @@ CARD:N은 명함을 스캔해 인물을 등록하고, 만남 이후의 대화를
 | Frontend | React Native (Android-first), TypeScript |
 | Backend | FastAPI (Python 3.11+), async |
 | Database | MySQL 8+ (메인) + Neo4j Community Edition (관계도 그래프) |
-| AI/ML | Google Vision OCR, Whisper STT, Claude/GPT LLM |
+| AI/ML | PaddleOCR (self-hosted, 명함 OCR), faster-whisper STT, Google Gemini (대화 요약) |
 | Asset | ComfyUI, Krea2 (게임 카드 일러스트, 아이콘) |
 | Infra | Docker Compose (로컬 개발 전용, 배포 없음) |
 
