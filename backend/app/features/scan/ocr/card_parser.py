@@ -44,11 +44,11 @@ at each part.
 import re
 
 # Some phone numbers use spaces or dots instead of dashes as separators (e.g.
-# "T032 553 0714", "02.597.0443") — all three are accepted. Without "." here, a
+# "T031 123 4567", "02.123.4567") — all three are accepted. Without "." here, a
 # dot-separated number is never extracted at all: it doesn't match this regex, so
 # take_matches() below leaves it untouched, and if it sits on the same line as an
 # address it gets swallowed whole into the address field instead (confirmed on a real
-# card: "...4,5층 Tel:02.597.0443~4 Fax:02.597.0445" ended up entirely inside address).
+# card: "...4,5층 Tel:02.123.4567~8 Fax:02.123.4569" ended up entirely inside address).
 PHONE_RE = re.compile(r"\d{2,3}[-. ]?\d{3,4}[-. ]?\d{4}")
 # Marks a line as carrying the mobile number specifically, so it's preferred over an
 # office/desk ("Tel"/전화) number when a card lists both — see take_matches's phone_order.
@@ -63,22 +63,24 @@ MOBILE_LABEL_RE = re.compile(r"\bmobile\b|\bm\b|휴대|핸드폰", re.IGNORECASE
 FAX_LABEL_RE = re.compile(r"\bfax\b|\bf\b|팩스", re.IGNORECASE)
 # Once a phone/fax number is cut out of a line by take_matches, its label is left
 # behind with nothing anchoring it anymore — along with OCR's "~4" extension-range
-# suffix (e.g. "02.597.0443~4"; the digits are already gone by this point, cut out with
+# suffix (e.g. "02.123.4567~8"; the digits are already gone by this point, cut out with
 # the rest of the number, so only "~4" remains next to the label). If that line is also
-# part of the address (a "...4,5층 Tel:02.597.0443~4 Fax:02.597.0445" footer, say), this
+# part of the address (a "...4,5층 Tel:02.123.4567~8 Fax:02.123.4569" footer, say), this
 # debris rides along into the address field (confirmed on a real card). The trailing
 # "~digits" is only matched glued to one of these labels, not standalone, so a real
 # floor range like "4~5층" is left untouched. Only the full words are stripped, not the
 # single-letter T/F/M abbreviations take_matches recognizes — those are too likely to
 # collide with real address content (a building name's initial, etc.) to remove blind.
 ADDRESS_DEBRIS_RE = re.compile(r"\b(?:Tel|Fax|Mobile)\b\.?:?~?\d*", re.IGNORECASE)
-# OCR sometimes inserts a spurious space around "@" (observed: "shwang51 @raonclinic.co.kr"),
+# OCR sometimes inserts a spurious space around "@" (observed on a real card, anonymized here:
+# "hgildong51 @example.co.kr"),
 # so the space is allowed here and then stripped back out of the matched value in
 # take_matches below to reconstruct a valid email.
 EMAIL_RE = re.compile(r"[\w.\-가-힣]+\s*@\s*[\w\-]+\.[\w.\-]+")
 LABEL_PREFIX_RE = re.compile(r"^[A-Za-z]\.")  # e.g. "E.이메일", where OCR ran a label into its value with just a period between them
 # Handles the case where a label is glued to its value with not even a period between
-# them (observed: "Eminjun.shin1201@kt.com"). A real email id conventionally almost
+# them (observed on a real card, anonymized here: "Egildong.hong1234@example.com").
+# A real email id conventionally almost
 # always starts lowercase, so this is only treated as a label when an uppercase letter
 # is immediately followed by a lowercase one (reduces the risk of wrongly truncating
 # the rare email id that does start uppercase).
@@ -288,7 +290,8 @@ def is_address_line(line, other_line_has_full_address=False, near_role_line=Fals
     if stripped.endswith(SIDO_SUFFIXES) or stripped in SIDO_ABBR:
         return True
     # A bare token ending in 시/군/구 is ambiguous with a Korean full name that happens
-    # to end the same way (e.g. "강승구" — a real card's actual name, confirmed to get
+    # to end the same way (e.g. "홍길구" — the shape of the real card name behind this
+    # regression, confirmed to get
     # swallowed into the address and lost entirely as a result, since address lines are
     # removed from `remaining` before name candidates are even collected). Deferring to
     # a name candidate is restricted to when either (a) another line already has a
@@ -333,7 +336,7 @@ def is_address_line(line, other_line_has_full_address=False, near_role_line=Fals
 # Contact-info label words that are pure Hangul and 2-4 characters — the exact same
 # shape is_name_candidate_token accepts. Normally these get consumed as part of a
 # phone/email match and disappear, but when a label sits on its own line or survives as
-# a take_matches() leftover (e.g. a line reading just "직통번호:070.4756.5296" once the
+# a take_matches() leftover (e.g. a line reading just "직통번호:070.1234.5678" once the
 # phone number is cut out), the bare label word is left behind and — with nothing else
 # to rule it out — can get wrongly picked as the name (confirmed on a real card: "직통
 # 번호" ended up as the saved contact's name). English labels ("Tel", "Mobile", ...)
@@ -443,7 +446,7 @@ def parse_fields(lines):
         # the phone number down with it.
         #
         # Loops per line (not just one search) so a line with two matches — e.g. a
-        # footer like "... Tel:02.597.0443 Fax:02.597.0445" — gets both cut out instead
+        # footer like "... Tel:02.123.4567 Fax:02.123.4569" — gets both cut out instead
         # of leaving the second one glued to whatever's left (confirmed on a real card:
         # the un-extracted fax number kept that whole line looking like an address,
         # dragging the fax digits into the address field alongside it).
