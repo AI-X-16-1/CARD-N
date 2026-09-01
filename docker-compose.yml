@@ -53,8 +53,13 @@ services:
       # Whisper downloads ~1.6GB to the HuggingFace cache on first use. Without a
       # volume, every container recreate pays for that download again.
       - hf_cache:/root/.cache/huggingface
+      # PaddleOCR keeps its detection/recognition models somewhere else again
+      # (~110MB under /root/.paddlex/official_models), so the HF cache above
+      # does not cover them.
+      - paddlex_cache:/root/.paddlex
 
 volumes:
   mysql_data:
   neo4j_data:
   hf_cache:
+  paddlex_cache:
