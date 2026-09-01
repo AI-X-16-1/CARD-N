@@ -1,0 +1,22 @@
+# Build context is ./backend, so these paths are relative to backend/.
+
+# uv sync creates /app/.venv inside the image. The host venv holds platform-specific
+# wheels (and on Windows, .exe entry points), so copying it over would replace the
+# image's Linux venv and break the uvicorn entrypoint.
+.venv/
+
+# Secrets and personal data must never be baked into an image layer.
+.env
+.env.local
+storage/
+
+# Caches and build noise — regenerated in the image, or host-only.
+.cache/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Not installed in the image: the Dockerfile syncs with --no-dev, so pytest is absent
+# and tests are run on the host.
+tests/

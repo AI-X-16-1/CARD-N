@@ -21,10 +21,26 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
     env_file:
       - path: ./backend/.env
         required: false
+    environment:
+      # backend/.env is written for running uvicorn on the host, where MySQL is
+      # reachable on localhost via the published port above. Inside the container
+      # localhost is the container itself, so the compose service name and its internal
+      # port are used instead. Compose gives `environment` precedence over `env_file`,
+      # so a host-shaped .env stays usable for both ways of running.
+      DATABASE_URL: mysql+asyncmy://cardn:cardn@mysql:3306/cardn_db
+    volumes:
+      # Saved business card images (app/core/image_store.py). Bind-mounted so they
+      # survive `docker compose down` and are the same files the host-run backend uses.
+      - ./backend/storage:/app/storage
+      # Whisper downloads ~1.6GB to the HuggingFace cache on first use. Without a
+      # volume, every container recreate pays for that download again.
+      - hf_cache:/root/.cache/huggingface
 
 volumes:
   mysql_data:
+  hf_cache:
