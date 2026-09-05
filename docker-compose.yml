@@ -31,12 +31,35 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - mysql
-      - neo4j
+      mysql:
+        condition: service_healthy
+      neo4j:
+        condition: service_started
     env_file:
       - path: ./backend/.env
         required: false
+    environment:
+      # backend/.env is written for running uvicorn on the host, where MySQL and Neo4j
+      # are reachable on localhost via the published ports above. Inside the container
+      # localhost is the container itself, so the compose service names and their
+      # internal ports are used instead. Compose gives `environment` precedence over
+      # `env_file`, so a host-shaped .env stays usable for both ways of running.
+      DATABASE_URL: mysql+asyncmy://cardn:cardn@mysql:3306/cardn_db
+      NEO4J_URI: bolt://neo4j:7687
+    volumes:
+      # Saved business card images (app/core/image_store.py). Bind-mounted so they
+      # survive `docker compose down` and are the same files the host-run backend uses.
+      - ./backend/storage:/app/storage
+      # Whisper downloads ~1.6GB to the HuggingFace cache on first use. Without a
+      # volume, every container recreate pays for that download again.
+      - hf_cache:/root/.cache/huggingface
+      # PaddleOCR keeps its detection/recognition models somewhere else again
+      # (~110MB under /root/.paddlex/official_models), so the HF cache above
+      # does not cover them.
+      - paddlex_cache:/root/.paddlex
 
 volumes:
   mysql_data:
   neo4j_data:
+  hf_cache:
+  paddlex_cache:
