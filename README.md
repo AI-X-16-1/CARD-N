@@ -18,7 +18,7 @@ CARD:N은 명함을 스캔해 인물을 등록하고, 만남 이후의 대화를
 | Frontend | React Native (Android-first), TypeScript |
 | Backend | FastAPI (Python 3.11+), async |
 | Database | MySQL 8+ (메인) + Neo4j Community Edition (관계도 그래프) |
-| AI/ML | Google Vision OCR, Whisper STT, Claude/GPT LLM |
+| AI/ML | PaddleOCR(명함 인식, 자체 파이프라인), Whisper STT(faster-whisper, 자체 서버 로컬 처리), Gemini LLM(대화 요약) |
 | Asset | ComfyUI, Krea2 (게임 카드 일러스트, 아이콘) |
 | Infra | Docker Compose (로컬 개발 전용, 배포 없음) |
 
@@ -76,6 +76,7 @@ npm run android
 | API 스펙 | [`docs/api-spec.md`](./docs/api-spec.md) | REST API 엔드포인트, 요청/응답 스키마 |
 | Feature 분담 | [`docs/features.md`](./docs/features.md) | 5인 역할 분담, feature 경계, 의존성 |
 | 게임 룰 | [`docs/game-rules.md`](./docs/game-rules.md) | 카드 배틀 상세 규칙, 스탯, 스킬, AI 로직 |
+| 개인정보 처리 | [`docs/conversation-privacy.md`](./docs/conversation-privacy.md) | 녹음·요약 기능의 데이터 흐름, 외부 LLM 전송 범위와 현재 한계, 실 서비스 전환 시 보완 계획 |
 
 ## 기여 규칙
 
