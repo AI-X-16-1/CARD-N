@@ -31,6 +31,7 @@ from app.features.conversation import (
 from app.features.conversation import service as service_module
 from app.features.conversation.schemas import ConversationSummary, SaveConversationRequest
 from app.features.conversation.service import ConversationService
+from app.features.graph import queries as graph_queries
 
 SUMMARY = {
     "one_line": "온보딩 개편 초안 공유 및 11월 배포 일정 논의",
@@ -177,15 +178,11 @@ def test_summarize_rejects_empty_transcript(client: TestClient) -> None:
 # ─────────────────────────────────────────────────────────────
 
 
-class _FakeDriver:
-    """Stands in for AsyncDriver — the sync functions are stubbed, so it is never used."""
-
-
 def _patch_sync(monkeypatch) -> dict[str, list]:
     """Record what ConversationService.save hands to the graph feature."""
     calls: dict[str, list] = {"bump": []}
 
-    async def fake_bump(driver, *, person_id):
+    async def fake_bump(db, *, person_id):
         calls["bump"].append(person_id)
 
     monkeypatch.setattr(service_module, "bump_conversation_weight", fake_bump)
@@ -193,7 +190,7 @@ def _patch_sync(monkeypatch) -> dict[str, list]:
 
 
 async def _save(person_id: int, transcript: str, summary: dict, db_session) -> None:
-    await ConversationService(db_session, _FakeDriver()).save(
+    await ConversationService(db_session).save(
         SaveConversationRequest(
             person_id=person_id,
             transcript=transcript,
@@ -229,18 +226,25 @@ async def test_mentioned_people_never_reach_the_graph(monkeypatch, db_session, p
     assert not hasattr(service_module, "sync_mentioned_people")
 
 
-async def test_graph_sync_is_skipped_without_a_driver(monkeypatch, db_session, person_id) -> None:
-    calls = _patch_sync(monkeypatch)
+async def test_a_saved_conversation_lands_on_the_graph_edge(db_session, person_id) -> None:
+    """The real bump, not a stub.
 
-    await ConversationService(db_session, None).save(
-        SaveConversationRequest(
-            person_id=person_id,
-            transcript="드라이버 없음",
-            summary=ConversationSummary.model_validate(SUMMARY),
-        )
+    There is no driver to leave out any more — the graph is in this same session since
+    docs/neo4j-to-mysql-migration.md, so the weight moves in the conversation's own
+    transaction rather than best-effort after it.
+    """
+    await graph_queries.ensure_me(db_session, graph_queries.ME_PERSON_ID)
+    await graph_queries.upsert_person(
+        db_session, person_id=person_id, name="김서연", company="토스", job_class=None
     )
+    await graph_queries.ensure_edge(db_session, graph_queries.ME_PERSON_ID, person_id)
+    await db_session.commit()
 
-    assert calls["bump"] == []
+    await _save(person_id, "첫 대화", SUMMARY, db_session)
+
+    [edge] = await graph_queries.fetch_first_degree(db_session, graph_queries.ME_PERSON_ID)
+    assert edge["weight"] == 2  # the edge starts at 1, this conversation makes it 2
+    assert edge["last_interaction"] is not None
 
 
 # ─────────────────────────────────────────────────────────────
