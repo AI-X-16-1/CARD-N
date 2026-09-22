@@ -16,7 +16,7 @@ import hashlib
 import json
 import logging
 import time
-from pathlib import Path
+from collections import OrderedDict
 
 from google import genai
 from google.genai import errors as genai_errors
@@ -45,7 +45,6 @@ class SummaryUnavailable(RuntimeError):
 
 # Prompt tuning burns through the free tier fast, so an identical prompt is answered
 # from disk instead of the API.
-CACHE_DIR = Path(__file__).resolve().parents[3] / ".cache" / "summaries"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -134,23 +133,48 @@ def build_prompt(transcript: str, person: dict | None, history: list[str] | None
 # ─────────────────────────────────────────────────────────────
 
 
+# In memory, not on disk, and that is the point.
+#
+# This used to write one JSON file per summary under backend/.cache/summaries/. Those
+# files hold the summary text and the names it mentions, and nothing ever deleted them:
+# the key is a hash of the whole prompt — transcript included — and the transcript is
+# deliberately never stored, so at deletion time there is no way to work out which file
+# belonged to the conversation being deleted. Card images had the same problem and could
+# be fixed by remembering the filename; this one could not be fixed that way at all.
+#
+# So it holds what it is for — not paying Gemini twice for the same prompt while the user
+# re-summarizes the same recording — and no longer outlives the process. A restart costs
+# one API call. Deleting a conversation now really does delete its summary.
+_CACHE_LIMIT = 64
+_cache: OrderedDict[str, dict] = OrderedDict()
+
+
 def _cache_key(prompt: str) -> str:
     raw = f"{settings.gemini_model}|{PROMPT_VERSION}|{prompt}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
 
 def _cache_load(key: str) -> dict | None:
-    path = CACHE_DIR / f"{key}.json"
-    if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
-    return None
+    if (hit := _cache.get(key)) is None:
+        return None
+    _cache.move_to_end(key)
+    # A copy: the caller owns what it gets back, and a caller that mutates its summary
+    # must not quietly rewrite what the next cache hit returns.
+    return json.loads(json.dumps(hit))
 
 
 def _cache_save(key: str, value: dict) -> None:
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    (CACHE_DIR / f"{key}.json").write_text(
-        json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    # Stores its own copy for the same reason _cache_load hands one back: the caller keeps
+    # using the dict it was given, and on a cache miss that is this very object.
+    _cache[key] = json.loads(json.dumps(value))
+    _cache.move_to_end(key)
+    while len(_cache) > _CACHE_LIMIT:
+        _cache.popitem(last=False)
+
+
+def clear_cache() -> None:
+    """Drop every cached summary. For tests, and for anyone who wants it gone now."""
+    _cache.clear()
 
 
 # ─────────────────────────────────────────────────────────────
