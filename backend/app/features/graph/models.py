@@ -75,8 +75,10 @@ class GraphEdge(Base):
     person_b_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("graph_persons.id", ondelete="CASCADE"), index=True
     )
-    # Number of recorded conversations, bumped by graph/conversation_sync.py.
-    weight: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    # Number of recorded conversations, bumped by graph/conversation_sync.py. Starts at
+    # 0: this is what the API returns as `conversation_count`, and a saved business card
+    # is not a conversation.
+    weight: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     last_interaction: Mapped[datetime | None] = mapped_column(DateTime)
     # "acquaintance" for an edge created by add_acquaintance, else NULL.
     origin: Mapped[str | None] = mapped_column(String(20))

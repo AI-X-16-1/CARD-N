@@ -83,6 +83,19 @@ async def test_edge_is_stored_once_whichever_way_round_it_is_written(db) -> None
     assert await _count(db, GraphEdge) == 1
 
 
+async def test_a_new_edge_starts_at_zero_conversations(db) -> None:
+    """`weight` is what the API returns as `conversation_count`. Saving someone's card is
+    not a conversation — the Neo4j version started at 1 and read one high forever.
+    """
+    await queries.ensure_me(db, ME)
+    await _add_person(db, 7, "홍길동")
+
+    await queries.ensure_edge(db, ME, 7)
+
+    edge = (await db.execute(select(GraphEdge))).scalar_one()
+    assert edge.weight == 0
+
+
 async def test_ensure_edge_does_not_reset_an_existing_weight(db) -> None:
     """Cypher's ON CREATE SET. Without it, editing a contact would throw away every
     conversation counted on that edge so far.
@@ -96,7 +109,7 @@ async def test_ensure_edge_does_not_reset_an_existing_weight(db) -> None:
     await queries.ensure_edge(db, ME, 7)
 
     edge = (await db.execute(select(GraphEdge))).scalar_one()
-    assert edge.weight == 3
+    assert edge.weight == 2
 
 
 async def test_bump_edge_weight_is_a_no_op_without_an_edge(db) -> None:

@@ -341,7 +341,7 @@ async def create_acquaintance(
         insert(GraphEdge).values(
             person_a_id=lo,
             person_b_id=hi,
-            weight=1,
+            weight=0,
             last_interaction=now,
             origin="acquaintance",
         )
@@ -436,6 +436,11 @@ async def ensure_edge(db: AsyncSession, first_id: int, second_id: int) -> None:
 
     The no-op update is Cypher's `ON CREATE SET`: resetting weight here would throw away
     everything conversation_sync.py has accumulated, on every contact edit.
+
+    A new edge starts at **0**, not 1. `weight` is what the API returns as
+    `conversation_count`, and having just saved someone's card is not a conversation. The
+    Neo4j version started at 1, so every contact read one high forever; see the migration
+    that corrects the stored values.
     """
     lo, hi = pair(first_id, second_id)
     await db.execute(
@@ -445,7 +450,7 @@ async def ensure_edge(db: AsyncSession, first_id: int, second_id: int) -> None:
             {
                 "person_a_id": lo,
                 "person_b_id": hi,
-                "weight": 1,
+                "weight": 0,
                 "last_interaction": _now(),
             },
             {"person_a_id": lo},
