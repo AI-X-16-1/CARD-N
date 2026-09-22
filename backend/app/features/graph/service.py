@@ -3,7 +3,8 @@
 from datetime import UTC, datetime
 
 from fastapi import HTTPException
-from neo4j import AsyncDriver
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.graph import queries
 from app.features.graph.schemas import (
@@ -21,22 +22,22 @@ from app.features.graph.schemas import (
 
 
 class GraphService:
-    def __init__(self, driver: AsyncDriver):
-        self.driver = driver
+    def __init__(self, db: AsyncSession):
+        self.db = db
 
     async def get_graph(self, depth: int = 1, job_filter: str = "all") -> GraphResponse:
         me_id = queries.ME_PERSON_ID
-        me = await queries.fetch_me(self.driver, me_id)
+        me = await queries.fetch_me(self.db, me_id)
 
         first_degree = self._filter_by_job(
-            await queries.fetch_first_degree(self.driver, me_id), job_filter
+            await queries.fetch_first_degree(self.db, me_id), job_filter
         )
 
         second_degree: list[dict] = []
         if depth >= 2 and first_degree:
             first_degree_ids = [row["id"] for row in first_degree]
             second_degree = self._filter_by_job(
-                await queries.fetch_second_degree(self.driver, me_id, first_degree_ids),
+                await queries.fetch_second_degree(self.db, me_id, first_degree_ids),
                 job_filter,
             )
 
@@ -104,21 +105,34 @@ class GraphService:
         creating them already approved would have this endpoint hand out exactly the
         exposure that rule withholds.
         """
-        if not await queries.is_first_degree(self.driver, queries.ME_PERSON_ID, contact_person_id):
+        if not await queries.is_first_degree(self.db, queries.ME_PERSON_ID, contact_person_id):
             raise HTTPException(status_code=404, detail="NOT_FIRST_DEGREE")
 
-        person_id = await queries.next_acquaintance_id(self.driver)
-        row = await queries.create_acquaintance(
-            self.driver,
-            contact_id=contact_person_id,
-            person_id=person_id,
-            name=name,
-            job_class=job_class,
-        )
-        if row is None:
-            raise HTTPException(status_code=404, detail="CONTACT_NOT_IN_GRAPH")
+        # The id comes from a MIN() over existing rows, so two concurrent creates can pick
+        # the same one. Against Neo4j that silently MERGEd two people into one node; here
+        # the primary key rejects it, so a collision costs a retry instead of a person.
+        for attempt in (1, 2):
+            person_id = await queries.next_acquaintance_id(self.db)
+            try:
+                row = await queries.create_acquaintance(
+                    self.db,
+                    contact_id=contact_person_id,
+                    person_id=person_id,
+                    name=name,
+                    job_class=job_class,
+                )
+                await self.db.commit()
+                return AcquaintanceResponse(**row)
+            except IntegrityError:
+                await self.db.rollback()
+                if not await queries.person_exists(self.db, contact_person_id):
+                    raise HTTPException(
+                        status_code=404, detail="CONTACT_NOT_IN_GRAPH"
+                    ) from None
+                if attempt == 2:
+                    raise
 
-        return AcquaintanceResponse(**row)
+        raise AssertionError("unreachable")
 
     async def record_acquaintance_consent(self, acquaintance_id: int) -> AcquaintanceResponse:
         """Record that this person agreed to be surfaced through the contact who knows them.
@@ -128,14 +142,16 @@ class GraphService:
         stays named for what it records rather than for who taps it, so the distinction
         survives into a multi-user version.
         """
-        row = await queries.approve_acquaintance(self.driver, acquaintance_id)
+        row = await queries.approve_acquaintance(self.db, acquaintance_id)
         if row is None:
+            await self.db.rollback()
             raise HTTPException(status_code=404, detail="ACQUAINTANCE_NOT_FOUND")
 
+        await self.db.commit()
         return AcquaintanceResponse(**row)
 
     async def list_acquaintances(self, contact_person_id: int) -> AcquaintancesResponse:
-        rows = await queries.fetch_acquaintances(self.driver, contact_person_id)
+        rows = await queries.fetch_acquaintances(self.db, contact_person_id)
         return AcquaintancesResponse(
             person_id=contact_person_id,
             acquaintances=[AcquaintanceResponse(**row) for row in rows],
@@ -144,16 +160,17 @@ class GraphService:
     async def request_introduction(self, target_person_id: int) -> IntroductionRequestResponse:
         me_id = queries.ME_PERSON_ID
 
-        if not await queries.is_first_degree(self.driver, me_id, target_person_id):
+        if not await queries.is_first_degree(self.db, me_id, target_person_id):
             raise HTTPException(status_code=404, detail="NOT_FIRST_DEGREE")
 
-        existing = await queries.get_intro_consent(self.driver, me_id, target_person_id)
+        existing = await queries.get_intro_consent(self.db, me_id, target_person_id)
         if existing is not None and existing["status"] in ("pending", "approved"):
             raise HTTPException(status_code=409, detail="ALREADY_REQUESTED")
 
         row = await queries.upsert_intro_request(
-            self.driver, me_id, target_person_id, datetime.now(UTC)
+            self.db, me_id, target_person_id, datetime.now(UTC)
         )
+        await self.db.commit()
         return IntroductionRequestResponse(
             person_id=target_person_id,
             status=row["status"],
@@ -174,7 +191,7 @@ class GraphService:
         comes back null — there is nothing to report, and saying more would leak whether
         that id exists at all.
         """
-        row = await queries.get_intro_consent(self.driver, queries.ME_PERSON_ID, target_person_id)
+        row = await queries.get_intro_consent(self.db, queries.ME_PERSON_ID, target_person_id)
         if row is None:
             return IntroductionRequestStatusResponse(person_id=target_person_id)
 
@@ -186,7 +203,7 @@ class GraphService:
         )
 
     async def list_incoming_requests(self) -> IncomingIntroductionRequestsResponse:
-        rows = await queries.fetch_incoming_intro_requests(self.driver, queries.ME_PERSON_ID)
+        rows = await queries.fetch_incoming_intro_requests(self.db, queries.ME_PERSON_ID)
         return IncomingIntroductionRequestsResponse(
             requests=[IncomingIntroductionRequest(**row) for row in rows]
         )
@@ -196,15 +213,17 @@ class GraphService:
     ) -> IntroductionRequestResponse:
         status = "approved" if approve else "declined"
         row = await queries.respond_to_intro_request(
-            self.driver,
+            self.db,
             requester_person_id,
             queries.ME_PERSON_ID,
             status,
             datetime.now(UTC),
         )
         if row is None:
+            await self.db.rollback()
             raise HTTPException(status_code=404, detail="REQUEST_NOT_FOUND")
 
+        await self.db.commit()
         return IntroductionRequestResponse(
             person_id=requester_person_id,
             status=row["status"],
@@ -214,12 +233,12 @@ class GraphService:
 
     async def get_stats(self) -> GraphStatsResponse:
         me_id = queries.ME_PERSON_ID
-        first_degree = await queries.fetch_first_degree(self.driver, me_id)
+        first_degree = await queries.fetch_first_degree(self.db, me_id)
 
         second_degree: list[dict] = []
         if first_degree:
             first_degree_ids = [row["id"] for row in first_degree]
-            second_degree = await queries.fetch_second_degree(self.driver, me_id, first_degree_ids)
+            second_degree = await queries.fetch_second_degree(self.db, me_id, first_degree_ids)
 
         return GraphStatsResponse(
             degree_1_count=len(first_degree),

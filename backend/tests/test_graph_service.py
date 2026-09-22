@@ -1,7 +1,9 @@
 """Happy-path tests for the graph feature service.
 
 GraphService only orchestrates app.features.graph.queries — so these tests monkeypatch the
-query functions instead of faking a Neo4j driver/session.
+query functions instead of going near a database. What the statements themselves do is
+tests/test_graph_queries.py's job; the session here exists only so the service has a
+transaction to commit.
 """
 
 from datetime import UTC, datetime
@@ -20,15 +22,29 @@ from app.features.graph.service import GraphService
 NOW = datetime(2024, 3, 20, 10, 0, tzinfo=UTC)
 
 
+class _FakeSession:
+    """Just the transaction boundary GraphService reaches for."""
+
+    def __init__(self) -> None:
+        self.commits = 0
+        self.rollbacks = 0
+
+    async def commit(self) -> None:
+        self.commits += 1
+
+    async def rollback(self) -> None:
+        self.rollbacks += 1
+
+
 def _service() -> GraphService:
-    return GraphService(driver=object())
+    return GraphService(db=_FakeSession())
 
 
 async def test_get_graph_returns_me_and_first_degree_nodes(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_fetch_me(driver, me_id):
+    async def fake_fetch_me(db, me_id):
         return {"id": 0, "name": "김민경"}
 
-    async def fake_fetch_first_degree(driver, me_id):
+    async def fake_fetch_first_degree(db, me_id):
         return [
             {
                 "id": 1,
@@ -56,10 +72,10 @@ async def test_get_graph_returns_me_and_first_degree_nodes(monkeypatch: pytest.M
 async def test_get_graph_surfaces_my_outgoing_introduction_request_status(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_fetch_me(driver, me_id):
+    async def fake_fetch_me(db, me_id):
         return {"id": 0, "name": "김민경"}
 
-    async def fake_fetch_first_degree(driver, me_id):
+    async def fake_fetch_first_degree(db, me_id):
         return [
             {
                 "id": 1,
@@ -83,10 +99,10 @@ async def test_get_graph_surfaces_my_outgoing_introduction_request_status(
 async def test_get_graph_includes_second_degree_when_depth_two(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_fetch_me(driver, me_id):
+    async def fake_fetch_me(db, me_id):
         return {"id": 0, "name": "김민경"}
 
-    async def fake_fetch_first_degree(driver, me_id):
+    async def fake_fetch_first_degree(db, me_id):
         return [
             {
                 "id": 1,
@@ -98,7 +114,7 @@ async def test_get_graph_includes_second_degree_when_depth_two(
             }
         ]
 
-    async def fake_fetch_second_degree(driver, me_id, first_degree_ids):
+    async def fake_fetch_second_degree(db, me_id, first_degree_ids):
         assert first_degree_ids == [1]
         return [
             {
@@ -126,13 +142,13 @@ async def test_get_graph_includes_second_degree_when_depth_two(
 
 
 async def test_request_introduction_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_is_first_degree(driver, me_id, target_id):
+    async def fake_is_first_degree(db, me_id, target_id):
         return True
 
-    async def fake_get_intro_consent(driver, from_id, to_id):
+    async def fake_get_intro_consent(db, from_id, to_id):
         return None
 
-    async def fake_upsert_intro_request(driver, from_id, to_id, requested_at):
+    async def fake_upsert_intro_request(db, from_id, to_id, requested_at):
         return {"status": "pending", "requested_at": requested_at, "responded_at": None}
 
     monkeypatch.setattr(queries, "is_first_degree", fake_is_first_degree)
@@ -149,7 +165,7 @@ async def test_request_introduction_happy_path(monkeypatch: pytest.MonkeyPatch) 
 async def test_request_introduction_rejects_non_first_degree(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_is_first_degree(driver, me_id, target_id):
+    async def fake_is_first_degree(db, me_id, target_id):
         return False
 
     monkeypatch.setattr(queries, "is_first_degree", fake_is_first_degree)
@@ -163,7 +179,7 @@ async def test_request_introduction_rejects_non_first_degree(
 async def test_get_introduction_request_returns_the_current_status(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_get_intro_consent(driver, from_id, to_id):
+    async def fake_get_intro_consent(db, from_id, to_id):
         assert (from_id, to_id) == (queries.ME_PERSON_ID, 1)
         return {"status": "pending", "requested_at": None, "responded_at": None}
 
@@ -180,7 +196,7 @@ async def test_get_introduction_request_is_null_when_never_asked(
 ) -> None:
     """Not having asked is a state the row renders, not an error to raise."""
 
-    async def fake_get_intro_consent(driver, from_id, to_id):
+    async def fake_get_intro_consent(db, from_id, to_id):
         return None
 
     monkeypatch.setattr(queries, "get_intro_consent", fake_get_intro_consent)
@@ -192,7 +208,7 @@ async def test_get_introduction_request_is_null_when_never_asked(
 
 
 async def test_respond_to_request_approve_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_respond(driver, from_id, to_id, status, responded_at):
+    async def fake_respond(db, from_id, to_id, status, responded_at):
         assert status == "approved"
         return {"status": "approved", "requested_at": NOW, "responded_at": responded_at}
 
@@ -205,10 +221,10 @@ async def test_respond_to_request_approve_happy_path(monkeypatch: pytest.MonkeyP
 
 
 async def test_get_stats_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_fetch_first_degree(driver, me_id):
+    async def fake_fetch_first_degree(db, me_id):
         return [{"id": 1}]
 
-    async def fake_fetch_second_degree(driver, me_id, first_degree_ids):
+    async def fake_fetch_second_degree(db, me_id, first_degree_ids):
         assert first_degree_ids == [1]
         return [{"id": 2}, {"id": 3}]
 
@@ -235,13 +251,13 @@ async def test_add_acquaintance_starts_out_pending(monkeypatch: pytest.MonkeyPat
     """
     captured = {}
 
-    async def fake_is_first_degree(driver, me_id, target_id):
+    async def fake_is_first_degree(db, me_id, target_id):
         return True
 
-    async def fake_next_id(driver):
+    async def fake_next_id(db):
         return -1
 
-    async def fake_create(driver, *, contact_id, person_id, name, job_class):
+    async def fake_create(db, *, contact_id, person_id, name, job_class):
         captured.update(contact_id=contact_id, person_id=person_id, name=name)
         return {"id": person_id, "name": name, "job_class": job_class, "status": "pending"}
 
@@ -261,7 +277,7 @@ async def test_add_acquaintance_starts_out_pending(monkeypatch: pytest.MonkeyPat
 async def test_add_acquaintance_rejects_a_non_contact(monkeypatch: pytest.MonkeyPatch) -> None:
     """Only someone I actually know can vouch for a person I do not."""
 
-    async def fake_is_first_degree(driver, me_id, target_id):
+    async def fake_is_first_degree(db, me_id, target_id):
         return False
 
     monkeypatch.setattr(queries, "is_first_degree", fake_is_first_degree)
@@ -273,7 +289,7 @@ async def test_add_acquaintance_rejects_a_non_contact(monkeypatch: pytest.Monkey
 
 
 async def test_consent_flips_pending_to_approved(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_approve(driver, acquaintance_id):
+    async def fake_approve(db, acquaintance_id):
         return {"id": acquaintance_id, "name": "정하늘", "job_class": None, "status": "approved"}
 
     monkeypatch.setattr(queries, "approve_acquaintance", fake_approve)
@@ -284,7 +300,7 @@ async def test_consent_flips_pending_to_approved(monkeypatch: pytest.MonkeyPatch
 
 
 async def test_consent_on_an_unknown_person_is_404(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_approve(driver, acquaintance_id):
+    async def fake_approve(db, acquaintance_id):
         return None
 
     monkeypatch.setattr(queries, "approve_acquaintance", fake_approve)

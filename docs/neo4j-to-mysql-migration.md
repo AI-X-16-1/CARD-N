@@ -319,9 +319,10 @@ the *2nd-degree person* consented to being surfaced *through the connecting cont
 other way round. Getting this backwards silently exposes people who never agreed, which is the
 privacy rule in `api-spec.md`. **Pin it with a test** (§9).
 
-The symmetric CTE also preserves a subtlety: when both endpoints of an edge are 1st-degree
-contacts, Cypher matched it twice (once per choice of `parent`), each match needing its own
-`INTRO_CONSENT`. `UNION ALL` reproduces exactly that.
+The symmetric CTE is what lets one stored edge be read from either end: the 2nd-degree
+person is `to_id` whichever way round `create_acquaintance` happened to write the pair. An
+edge whose *both* endpoints are 1st-degree contacts is excluded by the `NOT IN` filter, the
+same as in Cypher.
 
 If `first_degree_ids` is empty, `GraphService` already skips the call — keep that guard, since
 `IN ()` is a syntax error in MySQL.
