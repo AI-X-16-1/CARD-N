@@ -142,7 +142,7 @@ features/scan/
 features/graph/
 ├── router.py       ← FastAPI router (endpoint definitions only)
 ├── service.py      ← business logic
-├── queries.py      ← DB queries (Cypher / SQL)
+├── queries.py      ← DB queries (SQL)
 └── schemas.py      ← Pydantic schemas specific to this feature (optional)
 ```
 
@@ -180,7 +180,8 @@ Do not commit the `.env` file. Provide a `.env.example` instead.
 DATABASE_URL=mysql+asyncmy://cardn:cardn@localhost:3307/cardn_db
 GOOGLE_VISION_API_KEY=
 OPENAI_API_KEY=
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=cardncardn123
 ```
+
+If you are coming from a checkout that predates the Neo4j removal, delete the three
+`NEO4J_*` lines from your own `.env` too — `Settings` rejects keys it does not know, so a
+stale one stops the server from starting.

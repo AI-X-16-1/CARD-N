@@ -16,6 +16,7 @@ import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy import event, func, select
+from sqlalchemy.dialects import mysql
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -233,9 +234,7 @@ async def test_responding_to_a_request_that_was_never_made_returns_nothing(db) -
     await _add_person(db, 7, "홍길동")
     await db.commit()
 
-    answered = await queries.respond_to_intro_request(
-        db, 7, ME, "approved", datetime.now(UTC)
-    )
+    answered = await queries.respond_to_intro_request(db, 7, ME, "approved", datetime.now(UTC))
 
     assert answered is None
 
@@ -299,9 +298,7 @@ def test_the_api_still_serializes_timestamps_with_a_z() -> None:
             await conn.run_sync(Base.metadata.create_all)
         async with session_factory() as session:
             await queries.ensure_me(session, ME)
-            await session.execute(
-                GraphPerson.__table__.insert().values(id=7, name="홍길동")
-            )
+            await session.execute(GraphPerson.__table__.insert().values(id=7, name="홍길동"))
             await session.execute(
                 GraphEdge.__table__.insert().values(
                     person_a_id=ME,
@@ -329,3 +326,40 @@ def test_the_api_still_serializes_timestamps_with_a_z() -> None:
     assert response.status_code == 200
     [contact] = [node for node in response.json()["nodes"] if node["type"] == "person"]
     assert contact["last_conversation"] == "2024-03-15T14:00:00Z"
+
+
+# ─────────────────────────────────────────────────────────────
+# The dialect the app actually runs on
+# ─────────────────────────────────────────────────────────────
+
+
+class _MysqlBind:
+    dialect = mysql.dialect()
+
+
+class _MysqlSession:
+    """Enough of an AsyncSession for _upsert to pick its dialect branch."""
+
+    def get_bind(self):
+        return _MysqlBind()
+
+
+def test_the_upsert_helper_compiles_for_mysql() -> None:
+    """Everything above runs on SQLite, so the branch the app actually uses would
+    otherwise never be compiled until someone started the server.
+    """
+    statement = queries._upsert(
+        _MysqlSession(),
+        GraphEdge,
+        {"person_a_id": 0, "person_b_id": 7, "weight": 1, "last_interaction": None},
+        {"person_a_id": 0},
+    )
+
+    sql = str(statement.compile(dialect=mysql.dialect()))
+
+    assert "INSERT INTO graph_edges" in sql
+    assert "ON DUPLICATE KEY UPDATE" in sql
+    # The no-op that stands in for Cypher's ON CREATE SET: an existing edge keeps its
+    # weight. If this ever starts assigning something else, every contact edit would
+    # reset the conversation count.
+    assert "weight" not in sql.split("ON DUPLICATE KEY UPDATE")[1]

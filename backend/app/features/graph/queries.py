@@ -122,9 +122,7 @@ def _conflict_columns(table: Any) -> tuple[str, ...]:
 
 
 async def fetch_me(db: AsyncSession, me_id: int) -> dict:
-    row = await _one(
-        db, select(GraphPerson.id, GraphPerson.name).where(GraphPerson.id == me_id)
-    )
+    row = await _one(db, select(GraphPerson.id, GraphPerson.name).where(GraphPerson.id == me_id))
     return row if row is not None else {"id": me_id, "name": "Me"}
 
 
@@ -338,9 +336,7 @@ async def create_acquaintance(
     now = _now()
     lo, hi = pair(contact_id, person_id)
 
-    await db.execute(
-        insert(GraphPerson).values(id=person_id, name=name, job_class=job_class)
-    )
+    await db.execute(insert(GraphPerson).values(id=person_id, name=name, job_class=job_class))
     await db.execute(
         insert(GraphEdge).values(
             person_a_id=lo,
@@ -432,9 +428,7 @@ async def ensure_me(db: AsyncSession, me_id: int) -> None:
     The Cypher used `coalesce(me.name, 'Me')` so an existing name survived; name is NOT
     NULL here, so a no-op update says the same thing.
     """
-    await db.execute(
-        _upsert(db, GraphPerson, {"id": me_id, "name": "Me"}, {"id": me_id})
-    )
+    await db.execute(_upsert(db, GraphPerson, {"id": me_id, "name": "Me"}, {"id": me_id}))
 
 
 async def ensure_edge(db: AsyncSession, first_id: int, second_id: int) -> None:

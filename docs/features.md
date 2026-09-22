@@ -7,7 +7,7 @@
 | Team member | Role | Frontend folder | Backend folder | Core tech |
 |------|------|----------------|------------|----------|
 | **강민구** | Business card scan + contacts + home | `features/scan/` `features/contacts/` `features/home/` | `features/scan/` `features/contacts/` | PaddleOCR (self-hosted, replaces Google Vision — see api-spec.md §Scan), NLP parsing, CRUD |
-| **김민경** | Relationship graph + incoming call alert | `features/graph/` `features/call-alert/` `modules/call-detector/` | `features/graph/` | Neo4j, Cypher, SVG/Canvas graph visualization, Android native module |
+| **김민경** | Relationship graph + incoming call alert | `features/graph/` `features/call-alert/` `modules/call-detector/` | `features/graph/` | SQLAlchemy graph tables, SVG/Canvas graph visualization, Android native module |
 | **박재경** | Recording + summary | `features/conversation/` | `features/conversation/` | Whisper STT, LLM summary, audio recording |
 | **이승환** | Game client | `features/game/` | `features/game/` | Battle engine, card UI, deck management |
 | **문민재** | Graphic assets | — | — | ComfyUI, Krea2 (illustrations, icons) |
@@ -29,51 +29,52 @@
 
 **Touchpoints with other team members**:
 - → 이승환: On business card registration, calls `POST /api/v1/game/cards` to request battle card creation
-- → 김민경: When a person is created, the Neo4j node needs to be synced (calls 김민경's graph service)
+- → 김민경: When a person is created, the graph node is written in the same transaction (`features/contacts/graph_sync.py`, using 김민경's `features/graph/queries.py`)
 - ← 박재경: Provides the conversation summary save API (`POST /api/v1/contacts/{id}/conversations`)
 - Uses the card reveal illustrations made by 문민재 in CardRevealScreen
 
 ### 김민경 — Relationship graph
 
 **Screens**: GraphScreen (node graph + bottom sheet)
-**Backend**: Neo4j Cypher queries, N-degree relationship traversal, consented 2nd-degree exposure, edge weight management
+**Backend**: graph tables in MySQL, 1st/2nd-degree lookups, consented 2nd-degree exposure, edge weight management
 
 **Deliverables**:
-- Neo4j connection setup (`backend/app/neo4j_driver.py` — a shared module, so open a PR after initial setup)
+- The graph tables (`backend/app/features/graph/models.py`) and their Alembic migration
 - Interactive relationship graph visualization (react-native-svg or Canvas)
 - Node tap → bottom sheet (person summary, conversation stats)
 - Filtering by role, search, 1st-degree/2nd-degree display
 
 **Touchpoints with other team members**:
-- ← 강민구: Receives Neo4j node sync when a person is created/updated
+- ← 강민구: Receives the node write when a person is created/updated, on 강민구's own transaction
 - ← 박재경: Receives edge weight updates when a conversation is saved. Built as
-  `features/graph/conversation_sync.py` — `bump_conversation_weight(driver, person_id=...)`
-  strengthens the existing (me)-[:MET_AT]-(person) edge. It is a direct import (no
-  graph-owned HTTP endpoint yet, same trade-off as 강민구's `graph_sync.py`) —
-  `ConversationService.save` calls it best-effort (catch and log), after it commits,
-  **only on the branch that creates a new Conversation row**. `save` upserts on
+  `features/graph/conversation_sync.py` — `bump_conversation_weight(db, person_id=...)`
+  strengthens the existing (me)-(person) edge. It is a direct import (no graph-owned HTTP
+  endpoint yet, same trade-off as 강민구's `graph_sync.py`) — `ConversationService.save`
+  calls it on its own session, before it commits, so the weight and the conversation land
+  together, **only on the branch that creates a new Conversation row**. `save` upserts on
   `(person_id, transcript_hash)`, so calling it on a re-summarize (row overwrite) would
   double-count the same conversation into `weight`/`conversation_count`.
   **A conversation never creates a relationship.** `ConversationSummary.mentioned_people`
-  used to be resolved against contact names and turned into MET_AT edges; that was removed.
+  used to be resolved against contact names and turned into graph edges; that was removed.
   An LLM hearing a name is not evidence two people know each other, and a wrong guess became
   a permanent edge the user was never shown and could not undo. The field stays in
   `summary_json` as inert data — do not wire it back into the graph without a UI where the
   user confirms the relationship first.
 
 **Seeing past my own contacts requires consent — there is no other path**:
-`contacts/graph_sync.py` writes `(me)-[MET_AT]-(contact)` and nothing else, so no edge
-exists between two of my contacts, or between a contact and a non-contact.
+`contacts/graph_sync.py` writes the (me)-(contact) edge and nothing else, so no edge exists
+between two of my contacts, or between a contact and a non-contact.
 
-- **공통 인맥 / mutual connections — removed.** `GET /graph/{person_id}/mutual`, its Cypher,
+- **공통 인맥 / mutual connections — removed.** `GET /graph/{person_id}/mutual`, its query,
   the bottom sheet's tile and its "공통 인맥 보기" button are all gone. It named the people a
   contact knows without any of them agreeing to be shown to me, which is precisely what the
   2nd-degree rule gates — the gate just didn't cover this screen. Its only automatic supplier
   (the mention-inferred edges) had already been removed for the same reason.
-- **2촌 / 2nd-degree — consented, and fed by acquaintances.** `_SECOND_DEGREE_QUERY` requires
-  both a `MET_AT` edge *and* an approved `INTRO_CONSENT`, and excludes anyone already my own
-  contact. `POST /graph/{person_id}/acquaintances` is what produces that edge: it records who
-  one of my contacts knows, as a graph-only Person with a negative id. They start `pending` and
+- **2촌 / 2nd-degree — consented, and fed by acquaintances.** `fetch_second_degree` requires
+  both a `graph_edges` row *and* an approved `graph_intro_consents` row pointing from that
+  person to the contact, and excludes anyone already my own contact.
+  `POST /graph/{person_id}/acquaintances` is what produces that edge: it records who one of
+  my contacts knows, as a graph-only person with a negative id. They start `pending` and
   stay invisible until `POST /graph/acquaintances/{id}/consent` records their agreement — so
   the gate holds by construction rather than by convention.
 
@@ -81,7 +82,7 @@ exists between two of my contacts, or between a contact and a non-contact.
   nobody else to give it; in a multi-user product they would, from their own app. See
   `api-spec.md`'s note under Acquaintances before building on this.
 
-**Do not add a way to populate these that skips consent.** `INTRO_CONSENT` exists so a person
+**Do not add a way to populate these that skips consent.** `graph_intro_consents` exists so a person
 chooses who sees them through whom. Any future supplier of contact-to-contact edges needs that
 step in front of it, designed in a PR and reviewed before building — "I know both of them" is
 not permission to tell either one about the other, which is what both removed versions assumed.
@@ -101,11 +102,12 @@ needs. Full design in `docs/call-alert-spec.md`.
 - Blocked on `src/navigation/`: the consent screen and the notification's deep link both
   need routes, which is shared ground requiring its own branch and 2+ approvals.
 
-**Neo4j notes**:
-- Neo4j Community Edition 5.x, run locally via Docker
-- Python driver: `neo4j` package (supports async)
-- Keep Cypher queries centralized in `features/graph/queries.py`
-- Refer to the Graph data model in `architecture.md`
+**Graph storage notes**:
+- Three tables in the app's own MySQL instance; there is no second database
+- Keep the SQL centralized in `features/graph/queries.py`, as the Cypher was
+- Edges are undirected and stored once — write through `pair()`, read through `ADJACENCY`
+- Refer to the graph data model in `architecture.md`, and to
+  `neo4j-to-mysql-migration.md` for why it looks like this
 
 ### 박재경 — Recording + summary
 
@@ -120,8 +122,9 @@ needs. Full design in `docs/call-alert-spec.md`.
 **Touchpoints with other team members**:
 - → 강민구: Calls `POST /api/v1/contacts/{id}/conversations` when saving a summary
 - → 김민경: `ConversationService.save` calls `features/graph/conversation_sync.py`'s
-  `bump_conversation_weight` after committing (best-effort — catch and log, don't fail the
-  save), **only when `save` creates a new Conversation row**, not when it overwrites an
+  `bump_conversation_weight` on its own session, before committing, so the weight and the
+  conversation land together, **only when `save` creates a new Conversation row**, not when
+  it overwrites an
   existing one on re-summarize (same `person_id` + `transcript_hash`) — otherwise the same
   conversation gets double-counted. `summary.mentioned_people` is deliberately not passed to
   the graph; see 김민경's touchpoints above for why.
@@ -186,7 +189,7 @@ needs. Full design in `docs/call-alert-spec.md`.
              ▼                           ▼
      ┌────────────────┐         ┌────────────────┐
      │ 김민경: Graph  │◄────────│ 김민경: Graph   │
-     │ (Neo4j)        │         │                │
+     │ (MySQL)        │         │                │
      └────────────────┘         └────────────────┘
              ▲
       GET    │
@@ -232,7 +235,7 @@ After that, any changes are proposed by any team member via PR, and merged after
 | Owner | Task |
 |------|------|
 | 강민구 | Monorepo setup, Docker Compose, initial shared/ setup, navigation structure |
-| 김민경 | Neo4j Docker setup, driver connection (`neo4j_driver.py`), basic Cypher queries |
+| 김민경 | Graph tables + migration (`features/graph/models.py`), basic queries |
 | 박재경 | STT/LLM API key setup, summary prompt design |
 | 이승환 | Battle engine pure-function scaffolding (`features/game/engine/`) |
 | 문민재 | Draft 8 role-specific card illustrations, write asset guide |
@@ -242,7 +245,7 @@ After that, any changes are proposed by any team member via PR, and merged after
 | Owner | Task |
 |------|------|
 | 강민구 | Camera + OCR integration + result screen + person CRUD + home screen |
-| 김민경 | Relationship graph visualization + Neo4j queries (1st/2nd degree) + bottom sheet |
+| 김민경 | Relationship graph visualization + graph queries (1st/2nd degree) + bottom sheet |
 | 박재경 | Audio recording UI + STT integration + LLM summary pipeline |
 | 이승환 | Complete battle engine + collection screen + deck builder |
 | 문민재 | Card-tier frames, app icon, tab icons |
