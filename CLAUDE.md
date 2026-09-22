@@ -87,7 +87,8 @@ Always read the relevant document before starting work.
 | Feature Ownership | `docs/features.md` | 5-person role split, feature boundaries, dependencies |
 | Game Rules | `docs/game-rules.md` | Card battle rules, stats, skills, AI logic |
 | Neo4j → MySQL | `docs/neo4j-to-mysql-migration.md` | Why the graph left Neo4j, and how it maps onto MySQL |
-| Privacy Policy | `docs/privacy-policy.md` | Draft privacy policy (Korean — it is shown to users), and the deletion gaps that must be fixed before publishing it |
+| Privacy Policy | `docs/privacy-policy.md` | Draft privacy policy (Korean — it is shown to users) |
+| Play Data Safety | `docs/play-data-safety.md` | Draft answers for Play's Data safety form; must stay consistent with the privacy policy |
 
 ## Working Rules
 
