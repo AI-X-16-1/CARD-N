@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
-from neo4j import AsyncDriver
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
@@ -13,16 +12,12 @@ from app.features.contacts.schemas import (
     UpdatePersonRequest,
 )
 from app.features.contacts.service import ContactsService
-from app.neo4j_driver import get_neo4j_driver
 
 router = APIRouter()
 
 
-def _service(
-    db: AsyncSession = Depends(get_db),
-    neo4j_driver: AsyncDriver = Depends(get_neo4j_driver),
-) -> ContactsService:
-    return ContactsService(db, neo4j_driver)
+def _service(db: AsyncSession = Depends(get_db)) -> ContactsService:
+    return ContactsService(db)
 
 
 @router.get("/ping")
