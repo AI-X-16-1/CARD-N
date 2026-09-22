@@ -1,8 +1,6 @@
-import logging
 from pathlib import Path
 
 from fastapi import HTTPException
-from neo4j import AsyncDriver
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,39 +16,32 @@ from app.features.contacts.schemas import (
     UpdatePersonRequest,
 )
 
-logger = logging.getLogger(__name__)
-
 MY_CARD_ID = 1
 
 
 class ContactsService:
-    def __init__(self, db: AsyncSession, neo4j_driver: AsyncDriver | None = None):
+    def __init__(self, db: AsyncSession):
         self.db = db
-        self.neo4j_driver = neo4j_driver
 
     async def _sync_graph_node(self, person: Person) -> None:
-        if self.neo4j_driver is None:
-            return
-        # MySQL (via self.db) is the single source of truth for person data; the graph
-        # is a derived view. A Neo4j hiccup must not take down contact CRUD.
-        try:
-            await sync_person_node(
-                self.neo4j_driver,
-                person_id=person.id,
-                name=person.name,
-                company=person.company,
-                job_class=person.job_class,
-            )
-        except Exception:
-            logger.warning("Neo4j sync failed for person %s", person.id, exc_info=True)
+        """Keep the graph's view of this person current, inside the caller's transaction.
+
+        Not best-effort any more, and not catching: the graph lives in this same session
+        since docs/neo4j-to-mysql-migration.md, so there is no second database to be down,
+        and a swallowed error would leave the session unusable for the commit that
+        follows. `persons` is still the source of truth — the graph is a derived view that
+        now simply cannot fall behind it.
+        """
+        await sync_person_node(
+            self.db,
+            person_id=person.id,
+            name=person.name,
+            company=person.company,
+            job_class=person.job_class,
+        )
 
     async def _delete_graph_node(self, person_id: int) -> None:
-        if self.neo4j_driver is None:
-            return
-        try:
-            await delete_person_node(self.neo4j_driver, person_id=person_id)
-        except Exception:
-            logger.warning("Neo4j delete failed for person %s", person_id, exc_info=True)
+        await delete_person_node(self.db, person_id=person_id)
 
     def _to_person_response(self, person: Person) -> PersonResponse:
         return PersonResponse(
@@ -106,18 +97,20 @@ class ContactsService:
         image_token = payload.pop("image_token", None)
         person = Person(**payload)
         self.db.add(person)
+        # flush, not commit: person.id exists from here on, and the graph node goes in on
+        # the same transaction, so a contact can never come into being without one.
+        await self.db.flush()
+        await self._sync_graph_node(person)
         await self.db.commit()
         await self.db.refresh(person)
         if image_token:
-            # Needs person.id, so this can only happen after the first commit above —
-            # a second commit for just this one column beats holding the whole insert
-            # open across a filesystem move.
+            # Deliberately after that commit — a second commit for this one column beats
+            # holding the insert open across a filesystem move.
             filename = promote_staged_image(image_token, person.id)
             if filename:
                 person.image_path = filename
                 await self.db.commit()
                 await self.db.refresh(person)
-        await self._sync_graph_node(person)
         return self._to_person_response(person)
 
     async def _get_person_or_404(self, person_id: int) -> Person:
@@ -140,16 +133,16 @@ class ContactsService:
         person = await self._get_person_or_404(person_id)
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(person, field, value)
+        await self._sync_graph_node(person)
         await self.db.commit()
         await self.db.refresh(person)
-        await self._sync_graph_node(person)
         return self._to_person_response(person)
 
     async def delete_person(self, person_id: int) -> None:
         person = await self._get_person_or_404(person_id)
         await self.db.delete(person)
-        await self.db.commit()
         await self._delete_graph_node(person_id)
+        await self.db.commit()
 
     async def _get_or_create_my_card(self) -> MyCard:
         card = await self.db.get(MyCard, MY_CARD_ID)
