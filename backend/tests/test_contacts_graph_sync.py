@@ -46,6 +46,19 @@ def test_a_new_contact_is_in_the_graph_immediately(client: TestClient) -> None:
     assert contact["degree"] == 1
 
 
+def test_a_contact_with_no_conversations_reads_zero(client: TestClient) -> None:
+    """The number under the contact on the graph screen is the edge weight. It used to
+    start at 1, so a card you had just saved claimed one conversation.
+    """
+    _create_person(client)
+
+    body = client.get("/api/v1/graph").json()
+
+    [contact] = [node for node in body["nodes"] if node["type"] == "person"]
+    assert contact["conversation_count"] == 0
+    assert body["edges"][0]["weight"] == 0
+
+
 def test_the_me_node_always_has_a_name(client: TestClient) -> None:
     _create_person(client)
 

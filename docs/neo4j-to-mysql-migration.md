@@ -638,9 +638,13 @@ an existing contact reads one lower than an identical contact saved tomorrow.
 It also means `conversation_count` in the API is one higher than the number of conversations,
 for every contact. That is a pre-existing quirk of the Neo4j implementation, not something the
 move introduces — the live Neo4j store had `weight = 2` on an edge with exactly one
-conversation. **This migration preserves it on purpose**: changing what the graph screen
-shows is a separate decision from changing where the graph is stored. If it should be fixed,
-fix it in its own change, where the number moving is the point rather than a side effect.
+conversation. **This migration preserves it on purpose**, so that changing where the graph is
+stored and changing what the graph screen shows stay separate.
+
+It is fixed straight afterwards, in its own change: migration `d47a1f0c93be` plus
+`ensure_edge`/`create_acquaintance` starting an edge at 0 (§12). Both halves have to land
+together — the code alone leaves existing contacts one high forever, and the data fix alone is
+undone by the next contact edit.
 
 One deliberate difference: a contact with no conversations gets `last_interaction = NULL` here,
 where Neo4j set it to the moment the edge was created. `last_conversation` is already nullable
@@ -768,3 +772,33 @@ safe to carry onto a server unexamined, and each has an owner who should look at
   app is a different application, not a configuration change.
 
 Worth one agenda item at the next team sync before anything is exposed publicly.
+
+---
+
+## 12. Follow-up: `conversation_count` was one too high
+
+Found while verifying the migration against the live Neo4j store, which still had two Person
+nodes and one `MET_AT` edge: that edge carried `weight = 2` for a contact with exactly one
+recorded conversation.
+
+`weight` is what `GET /graph` returns as `conversation_count`, and the Neo4j write path set it
+to 1 when the contact's edge was created, then added one per conversation — so every contact
+read `1 + conversations`, and a card you had just saved claimed one conversation you never had.
+Nothing in the frontend compensated for it (`GraphCanvas` uses the edge weight only for stroke
+width, `layoutGraph` guards its divisor with `Math.max(1, …)`), so the wrong number went
+straight to the screen and into the bottom sheet's stat tile.
+
+Two halves, in one commit:
+
+- `features/graph/queries.py` — `ensure_edge` and `create_acquaintance` start an edge at `0`,
+  and `graph_edges.weight` defaults to `0`.
+- migration `d47a1f0c93be` — `UPDATE graph_edges SET weight = weight - 1 WHERE weight > 0`,
+  and the column's server default moves to `0`.
+
+The `WHERE weight > 0` guard means the data fix cannot drive a row negative if it meets an edge
+that was already created at 0.
+
+This is a **visible change**: every contact's conversation count on the graph screen drops by
+one, and contacts with no recorded conversation now correctly read 0. Edges stay drawn at
+weight 0 (`strokeWidth = 0.6 + weight * 0.35`), and a 0-conversation node sits at the outer
+radius, which is what "we have not talked" should look like.

@@ -243,7 +243,7 @@ async def test_a_saved_conversation_lands_on_the_graph_edge(db_session, person_i
     await _save(person_id, "첫 대화", SUMMARY, db_session)
 
     [edge] = await graph_queries.fetch_first_degree(db_session, graph_queries.ME_PERSON_ID)
-    assert edge["weight"] == 2  # the edge starts at 1, this conversation makes it 2
+    assert edge["weight"] == 1  # the edge starts at 0, this conversation makes it 1
     assert edge["last_interaction"] is not None
 
 
