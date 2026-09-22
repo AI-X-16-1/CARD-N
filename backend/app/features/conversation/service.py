@@ -8,7 +8,6 @@ import logging
 from datetime import datetime
 
 from fastapi import HTTPException
-from neo4j import AsyncDriver
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,9 +34,8 @@ def fingerprint(text: str) -> str:
 
 
 class ConversationService:
-    def __init__(self, db: AsyncSession, neo4j_driver: AsyncDriver | None = None):
+    def __init__(self, db: AsyncSession):
         self.db = db
-        self.neo4j_driver = neo4j_driver
 
     # ─────────────────────────────────────────────────────────
     # Prompt context — assembled server-side from the contact record
@@ -187,31 +185,27 @@ class ConversationService:
         # Timeline ordering elsewhere keys off last_contact on the contact record.
         person.last_contact = recorded_at
 
-        await self.db.commit()
-        await self.db.refresh(row)
-
         if is_new:
             await self._sync_graph(data.person_id)
+
+        await self.db.commit()
+        await self.db.refresh(row)
 
         return self._to_response(row)
 
     async def _sync_graph(self, person_id: int) -> None:
-        """Push a newly recorded conversation into the relationship graph.
+        """Count this conversation on the relationship graph's edge.
 
         Only ever called for a brand new row (docs/features.md). Re-summarizing an
         existing recording overwrites its row, and bumping the weight again would count
         one conversation twice.
 
-        MySQL is the source of truth, so a Neo4j outage must not fail the save that
-        already committed — same best-effort contract as contacts/graph_sync.py.
+        Runs before the commit, not after: the graph shares this session since
+        docs/neo4j-to-mysql-migration.md, so the bump belongs to the same transaction as
+        the conversation that caused it. A weight that drifts from the conversation count
+        is exactly what the old best-effort version could produce, silently.
         """
-        if self.neo4j_driver is None:
-            return
-
-        try:
-            await bump_conversation_weight(self.neo4j_driver, person_id=person_id)
-        except Exception:
-            logger.warning("Neo4j weight bump failed for person %s", person_id, exc_info=True)
+        await bump_conversation_weight(self.db, person_id=person_id)
 
     async def list_for_person(
         self, person_id: int, limit: int, offset: int
