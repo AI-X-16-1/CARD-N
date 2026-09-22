@@ -2,17 +2,23 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text, func
+from sqlalchemy import DateTime, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.base import Base
 from app.core.crypto import EncryptedString
+from app.device import DEVICE_ID_MAX_LENGTH
 
 
 class Person(Base):
     __tablename__ = "persons"
+    __table_args__ = (Index("ix_persons_device", "device_id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Which install this contact belongs to (app/device.py). Every read of this table
+    # filters on it — a query that forgets is a query that hands one user another user's
+    # business cards.
+    device_id: Mapped[str] = mapped_column(String(DEVICE_ID_MAX_LENGTH))
     name: Mapped[str] = mapped_column(String(100))
     company: Mapped[str | None] = mapped_column(String(150))
     department: Mapped[str | None] = mapped_column(String(100))
@@ -45,7 +51,9 @@ class Person(Base):
 class MyCard(Base):
     __tablename__ = "my_card"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # One row per install, keyed by the device itself. This used to be a single row with
+    # id=1 for the app's one and only user.
+    device_id: Mapped[str] = mapped_column(String(DEVICE_ID_MAX_LENGTH), primary_key=True)
     name: Mapped[str] = mapped_column(String(100))
     company: Mapped[str | None] = mapped_column(String(150))
     department: Mapped[str | None] = mapped_column(String(100))

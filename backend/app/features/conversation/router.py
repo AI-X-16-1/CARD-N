@@ -5,7 +5,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.dependencies import get_db
+from app.dependencies import get_db, get_device_id
 from app.features.conversation.guide import answer as answer_guide
 from app.features.conversation.schemas import (
     ConversationListResponse,
@@ -30,8 +30,11 @@ MAX_AUDIO_BYTES = 100 * 1024 * 1024
 MAX_TRANSCRIPT_CHARS = 100_000
 
 
-def _service(db: AsyncSession = Depends(get_db)) -> ConversationService:
-    return ConversationService(db)
+def _service(
+    db: AsyncSession = Depends(get_db),
+    device_id: str = Depends(get_device_id),
+) -> ConversationService:
+    return ConversationService(db, device_id)
 
 
 @router.get("/ping")

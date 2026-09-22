@@ -13,6 +13,11 @@ Two things carried over from Cypher need care here, and both have a test:
   the row reaches Pydantic. Dropping that turns every timestamp in the API from
   "...T14:00:00Z" into a naive string the client reads as local time.
 
+Every function takes the calling install's `device_id` (app/device.py) and every
+statement filters on it. That is not decoration: the graph's ids are only unique *within*
+a device — `0` is "me" on every install and acquaintances count down from `-1` on each —
+so a statement that forgets the filter does not merely leak, it matches the wrong person.
+
 Nothing here commits. Reads don't need to, and the writes are deliberately left joinable
 to the caller's transaction (contacts/graph_sync.py and graph/conversation_sync.py rely on
 exactly that); GraphService commits its own.
@@ -28,7 +33,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.graph.models import GraphEdge, GraphIntroConsent, GraphPerson
 
-# Single-user MVP: the signed-in person is always the graph_persons row with this id.
+# "Me" is always this id — per device. The graph's id space is scoped by device_id, so
+# every install has its own row 0, its own contacts and its own -1, -2, … acquaintances.
 ME_PERSON_ID = 0
 
 
@@ -41,12 +47,14 @@ def pair(x: int, y: int) -> tuple[int, int]:
 # if edges were directed. This is what `MATCH (a)-[:MET_AT]-(b)` did for free.
 ADJACENCY = union_all(
     select(
+        GraphEdge.device_id.label("device_id"),
         GraphEdge.person_a_id.label("from_id"),
         GraphEdge.person_b_id.label("to_id"),
         GraphEdge.weight.label("weight"),
         GraphEdge.last_interaction.label("last_interaction"),
     ),
     select(
+        GraphEdge.device_id.label("device_id"),
         GraphEdge.person_b_id.label("from_id"),
         GraphEdge.person_a_id.label("to_id"),
         GraphEdge.weight.label("weight"),
@@ -110,10 +118,10 @@ def _upsert(db: AsyncSession, table: Any, values: dict, update_values: dict) -> 
 
 def _conflict_columns(table: Any) -> tuple[str, ...]:
     if table is GraphIntroConsent:
-        return ("from_person_id", "to_person_id")
+        return ("device_id", "from_person_id", "to_person_id")
     if table is GraphEdge:
-        return ("person_a_id", "person_b_id")
-    return ("id",)
+        return ("device_id", "person_a_id", "person_b_id")
+    return ("device_id", "id")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -121,12 +129,17 @@ def _conflict_columns(table: Any) -> tuple[str, ...]:
 # ─────────────────────────────────────────────────────────────
 
 
-async def fetch_me(db: AsyncSession, me_id: int) -> dict:
-    row = await _one(db, select(GraphPerson.id, GraphPerson.name).where(GraphPerson.id == me_id))
+async def fetch_me(db: AsyncSession, device_id: str, me_id: int) -> dict:
+    row = await _one(
+        db,
+        select(GraphPerson.id, GraphPerson.name).where(
+            GraphPerson.device_id == device_id, GraphPerson.id == me_id
+        ),
+    )
     return row if row is not None else {"id": me_id, "name": "Me"}
 
 
-async def fetch_first_degree(db: AsyncSession, me_id: int) -> list[dict]:
+async def fetch_first_degree(db: AsyncSession, device_id: str, me_id: int) -> list[dict]:
     stmt = (
         select(
             GraphPerson.id,
@@ -138,21 +151,28 @@ async def fetch_first_degree(db: AsyncSession, me_id: int) -> list[dict]:
             GraphIntroConsent.status.label("introduction_request_status"),
         )
         .select_from(ADJACENCY)
-        .join(GraphPerson, GraphPerson.id == ADJACENCY.c.to_id)
+        .join(
+            GraphPerson,
+            and_(
+                GraphPerson.device_id == ADJACENCY.c.device_id,
+                GraphPerson.id == ADJACENCY.c.to_id,
+            ),
+        )
         .outerjoin(
             GraphIntroConsent,
             and_(
+                GraphIntroConsent.device_id == device_id,
                 GraphIntroConsent.from_person_id == me_id,
                 GraphIntroConsent.to_person_id == GraphPerson.id,
             ),
         )
-        .where(ADJACENCY.c.from_id == me_id)
+        .where(ADJACENCY.c.device_id == device_id, ADJACENCY.c.from_id == me_id)
     )
     return await _rows(db, stmt)
 
 
 async def fetch_second_degree(
-    db: AsyncSession, me_id: int, first_degree_ids: list[int]
+    db: AsyncSession, device_id: str, me_id: int, first_degree_ids: list[int]
 ) -> list[dict]:
     """Candidates one hop past my contacts, filtered to those who consented to be seen.
 
@@ -171,16 +191,24 @@ async def fetch_second_degree(
             ADJACENCY.c.last_interaction,
         )
         .select_from(ADJACENCY)
-        .join(GraphPerson, GraphPerson.id == ADJACENCY.c.to_id)
+        .join(
+            GraphPerson,
+            and_(
+                GraphPerson.device_id == ADJACENCY.c.device_id,
+                GraphPerson.id == ADJACENCY.c.to_id,
+            ),
+        )
         .join(
             GraphIntroConsent,
             and_(
+                GraphIntroConsent.device_id == ADJACENCY.c.device_id,
                 GraphIntroConsent.from_person_id == GraphPerson.id,
                 GraphIntroConsent.to_person_id == ADJACENCY.c.from_id,
                 GraphIntroConsent.status == "approved",
             ),
         )
         .where(
+            ADJACENCY.c.device_id == device_id,
             ADJACENCY.c.from_id.in_(first_degree_ids),
             GraphPerson.id != me_id,
             GraphPerson.id.not_in(first_degree_ids),
@@ -189,24 +217,32 @@ async def fetch_second_degree(
     return await _rows(db, stmt)
 
 
-async def is_first_degree(db: AsyncSession, me_id: int, target_id: int) -> bool:
+async def is_first_degree(db: AsyncSession, device_id: str, me_id: int, target_id: int) -> bool:
     lo, hi = pair(me_id, target_id)
     result = await db.execute(
         select(func.count())
         .select_from(GraphEdge)
-        .where(GraphEdge.person_a_id == lo, GraphEdge.person_b_id == hi)
+        .where(
+            GraphEdge.device_id == device_id,
+            GraphEdge.person_a_id == lo,
+            GraphEdge.person_b_id == hi,
+        )
     )
     return bool(result.scalar_one())
 
 
-async def person_exists(db: AsyncSession, person_id: int) -> bool:
+async def person_exists(db: AsyncSession, device_id: str, person_id: int) -> bool:
     result = await db.execute(
-        select(func.count()).select_from(GraphPerson).where(GraphPerson.id == person_id)
+        select(func.count())
+        .select_from(GraphPerson)
+        .where(GraphPerson.device_id == device_id, GraphPerson.id == person_id)
     )
     return bool(result.scalar_one())
 
 
-async def get_intro_consent(db: AsyncSession, from_id: int, to_id: int) -> dict | None:
+async def get_intro_consent(
+    db: AsyncSession, device_id: str, from_id: int, to_id: int
+) -> dict | None:
     return await _one(
         db,
         select(
@@ -214,13 +250,14 @@ async def get_intro_consent(db: AsyncSession, from_id: int, to_id: int) -> dict 
             GraphIntroConsent.requested_at,
             GraphIntroConsent.responded_at,
         ).where(
+            GraphIntroConsent.device_id == device_id,
             GraphIntroConsent.from_person_id == from_id,
             GraphIntroConsent.to_person_id == to_id,
         ),
     )
 
 
-async def fetch_incoming_intro_requests(db: AsyncSession, me_id: int) -> list[dict]:
+async def fetch_incoming_intro_requests(db: AsyncSession, device_id: str, me_id: int) -> list[dict]:
     stmt = (
         select(
             GraphPerson.id.label("person_id"),
@@ -230,8 +267,15 @@ async def fetch_incoming_intro_requests(db: AsyncSession, me_id: int) -> list[di
             GraphIntroConsent.requested_at,
         )
         .select_from(GraphIntroConsent)
-        .join(GraphPerson, GraphPerson.id == GraphIntroConsent.from_person_id)
+        .join(
+            GraphPerson,
+            and_(
+                GraphPerson.device_id == GraphIntroConsent.device_id,
+                GraphPerson.id == GraphIntroConsent.from_person_id,
+            ),
+        )
         .where(
+            GraphIntroConsent.device_id == device_id,
             GraphIntroConsent.to_person_id == me_id,
             GraphIntroConsent.status == "pending",
         )
@@ -246,7 +290,7 @@ async def fetch_incoming_intro_requests(db: AsyncSession, me_id: int) -> list[di
 
 
 async def upsert_intro_request(
-    db: AsyncSession, from_id: int, to_id: int, requested_at: datetime
+    db: AsyncSession, device_id: str, from_id: int, to_id: int, requested_at: datetime
 ) -> dict:
     """Ask, or ask again after a decline. Callers check is_first_degree first, so both
     endpoints exist; the foreign keys are a backstop, not the control flow.
@@ -256,6 +300,7 @@ async def upsert_intro_request(
             db,
             GraphIntroConsent,
             {
+                "device_id": device_id,
                 "from_person_id": from_id,
                 "to_person_id": to_id,
                 "status": "pending",
@@ -265,13 +310,18 @@ async def upsert_intro_request(
             {"status": "pending", "requested_at": _naive(requested_at), "responded_at": None},
         )
     )
-    row = await get_intro_consent(db, from_id, to_id)
+    row = await get_intro_consent(db, device_id, from_id, to_id)
     assert row is not None
     return row
 
 
 async def respond_to_intro_request(
-    db: AsyncSession, from_id: int, to_id: int, status: str, responded_at: datetime
+    db: AsyncSession,
+    device_id: str,
+    from_id: int,
+    to_id: int,
+    status: str,
+    responded_at: datetime,
 ) -> dict | None:
     """Approve or decline a pending request. None when there is no pending one to answer.
 
@@ -282,6 +332,7 @@ async def respond_to_intro_request(
     existing = await _one(
         db,
         select(GraphIntroConsent.id).where(
+            GraphIntroConsent.device_id == device_id,
             GraphIntroConsent.from_person_id == from_id,
             GraphIntroConsent.to_person_id == to_id,
             GraphIntroConsent.status == "pending",
@@ -295,7 +346,7 @@ async def respond_to_intro_request(
         .where(GraphIntroConsent.id == existing["id"])
         .values(status=status, responded_at=_naive(responded_at))
     )
-    return await get_intro_consent(db, from_id, to_id)
+    return await get_intro_consent(db, device_id, from_id, to_id)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -307,7 +358,7 @@ async def respond_to_intro_request(
 # with a contact created later, and the sign alone says "this person is not in my contacts".
 
 
-async def next_acquaintance_id(db: AsyncSession) -> int:
+async def next_acquaintance_id(db: AsyncSession, device_id: str) -> int:
     """The next free negative id.
 
     Racy on its own, as it was against Neo4j. The difference is that the caller runs this
@@ -315,13 +366,21 @@ async def next_acquaintance_id(db: AsyncSession) -> int:
     of two people quietly merging into one node — see GraphService.add_acquaintance.
     """
     result = await db.execute(
-        select(func.coalesce(func.min(GraphPerson.id), 0) - 1).where(GraphPerson.id < 0)
+        select(func.coalesce(func.min(GraphPerson.id), 0) - 1).where(
+            GraphPerson.device_id == device_id, GraphPerson.id < 0
+        )
     )
     return int(result.scalar_one())
 
 
 async def create_acquaintance(
-    db: AsyncSession, *, contact_id: int, person_id: int, name: str, job_class: str | None
+    db: AsyncSession,
+    device_id: str,
+    *,
+    contact_id: int,
+    person_id: int,
+    name: str,
+    job_class: str | None,
 ) -> dict:
     """Add the person, the edge to the contact who knows them, and their pending consent.
 
@@ -336,9 +395,14 @@ async def create_acquaintance(
     now = _now()
     lo, hi = pair(contact_id, person_id)
 
-    await db.execute(insert(GraphPerson).values(id=person_id, name=name, job_class=job_class))
+    await db.execute(
+        insert(GraphPerson).values(
+            device_id=device_id, id=person_id, name=name, job_class=job_class
+        )
+    )
     await db.execute(
         insert(GraphEdge).values(
+            device_id=device_id,
             person_a_id=lo,
             person_b_id=hi,
             weight=0,
@@ -348,6 +412,7 @@ async def create_acquaintance(
     )
     await db.execute(
         insert(GraphIntroConsent).values(
+            device_id=device_id,
             from_person_id=person_id,
             to_person_id=contact_id,
             status="pending",
@@ -357,10 +422,15 @@ async def create_acquaintance(
     return {"id": person_id, "name": name, "job_class": job_class, "status": "pending"}
 
 
-async def approve_acquaintance(db: AsyncSession, acquaintance_id: int) -> dict | None:
+async def approve_acquaintance(
+    db: AsyncSession, device_id: str, acquaintance_id: int
+) -> dict | None:
     await db.execute(
         update(GraphIntroConsent)
-        .where(GraphIntroConsent.from_person_id == acquaintance_id)
+        .where(
+            GraphIntroConsent.device_id == device_id,
+            GraphIntroConsent.from_person_id == acquaintance_id,
+        )
         .values(status="approved", responded_at=_now())
     )
     stmt = (
@@ -371,8 +441,14 @@ async def approve_acquaintance(db: AsyncSession, acquaintance_id: int) -> dict |
             GraphIntroConsent.status,
         )
         .select_from(GraphPerson)
-        .join(GraphIntroConsent, GraphIntroConsent.from_person_id == GraphPerson.id)
-        .where(GraphPerson.id == acquaintance_id)
+        .join(
+            GraphIntroConsent,
+            and_(
+                GraphIntroConsent.device_id == GraphPerson.device_id,
+                GraphIntroConsent.from_person_id == GraphPerson.id,
+            ),
+        )
+        .where(GraphPerson.device_id == device_id, GraphPerson.id == acquaintance_id)
     )
     result = await db.execute(stmt)
     records = result.all()
@@ -382,7 +458,7 @@ async def approve_acquaintance(db: AsyncSession, acquaintance_id: int) -> dict |
     return _row(records[0]) if records else None
 
 
-async def fetch_acquaintances(db: AsyncSession, contact_id: int) -> list[dict]:
+async def fetch_acquaintances(db: AsyncSession, device_id: str, contact_id: int) -> list[dict]:
     stmt = (
         select(
             GraphPerson.id,
@@ -391,8 +467,18 @@ async def fetch_acquaintances(db: AsyncSession, contact_id: int) -> list[dict]:
             GraphIntroConsent.status,
         )
         .select_from(GraphIntroConsent)
-        .join(GraphPerson, GraphPerson.id == GraphIntroConsent.from_person_id)
-        .where(GraphIntroConsent.to_person_id == contact_id, GraphPerson.id < 0)
+        .join(
+            GraphPerson,
+            and_(
+                GraphPerson.device_id == GraphIntroConsent.device_id,
+                GraphPerson.id == GraphIntroConsent.from_person_id,
+            ),
+        )
+        .where(
+            GraphIntroConsent.device_id == device_id,
+            GraphIntroConsent.to_person_id == contact_id,
+            GraphPerson.id < 0,
+        )
         .order_by(GraphPerson.id.desc())
     )
     return await _rows(db, stmt)
@@ -405,6 +491,7 @@ async def fetch_acquaintances(db: AsyncSession, contact_id: int) -> list[dict]:
 
 async def upsert_person(
     db: AsyncSession,
+    device_id: str,
     *,
     person_id: int,
     name: str,
@@ -416,22 +503,35 @@ async def upsert_person(
         _upsert(
             db,
             GraphPerson,
-            {"id": person_id, "name": name, "job_class": job_class, "company": company},
+            {
+                "device_id": device_id,
+                "id": person_id,
+                "name": name,
+                "job_class": job_class,
+                "company": company,
+            },
             {"name": name, "job_class": job_class, "company": company},
         )
     )
 
 
-async def ensure_me(db: AsyncSession, me_id: int) -> None:
+async def ensure_me(db: AsyncSession, device_id: str, me_id: int) -> None:
     """Create the "me" node if it isn't there, and never touch its name if it is.
 
     The Cypher used `coalesce(me.name, 'Me')` so an existing name survived; name is NOT
     NULL here, so a no-op update says the same thing.
     """
-    await db.execute(_upsert(db, GraphPerson, {"id": me_id, "name": "Me"}, {"id": me_id}))
+    await db.execute(
+        _upsert(
+            db,
+            GraphPerson,
+            {"device_id": device_id, "id": me_id, "name": "Me"},
+            {"id": me_id},
+        )
+    )
 
 
-async def ensure_edge(db: AsyncSession, first_id: int, second_id: int) -> None:
+async def ensure_edge(db: AsyncSession, device_id: str, first_id: int, second_id: int) -> None:
     """Create the edge if it isn't there, leaving an existing one alone.
 
     The no-op update is Cypher's `ON CREATE SET`: resetting weight here would throw away
@@ -448,6 +548,7 @@ async def ensure_edge(db: AsyncSession, first_id: int, second_id: int) -> None:
             db,
             GraphEdge,
             {
+                "device_id": device_id,
                 "person_a_id": lo,
                 "person_b_id": hi,
                 "weight": 0,
@@ -458,16 +559,22 @@ async def ensure_edge(db: AsyncSession, first_id: int, second_id: int) -> None:
     )
 
 
-async def delete_person(db: AsyncSession, person_id: int) -> None:
+async def delete_person(db: AsyncSession, device_id: str, person_id: int) -> None:
     """Drop a person and, by cascade, their edges and consent rows — `DETACH DELETE`."""
-    await db.execute(delete(GraphPerson).where(GraphPerson.id == person_id))
+    await db.execute(
+        delete(GraphPerson).where(GraphPerson.device_id == device_id, GraphPerson.id == person_id)
+    )
 
 
-async def bump_edge_weight(db: AsyncSession, first_id: int, second_id: int) -> None:
+async def bump_edge_weight(db: AsyncSession, device_id: str, first_id: int, second_id: int) -> None:
     """Count one more conversation on an existing edge. No-op when there is no edge."""
     lo, hi = pair(first_id, second_id)
     await db.execute(
         update(GraphEdge)
-        .where(GraphEdge.person_a_id == lo, GraphEdge.person_b_id == hi)
+        .where(
+            GraphEdge.device_id == device_id,
+            GraphEdge.person_a_id == lo,
+            GraphEdge.person_b_id == hi,
+        )
         .values(weight=GraphEdge.weight + 1, last_interaction=_now())
     )

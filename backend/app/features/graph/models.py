@@ -11,7 +11,7 @@ from sqlalchemy import (
     BigInteger,
     DateTime,
     Enum,
-    ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -21,6 +21,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.base import Base
+from app.device import DEVICE_ID_MAX_LENGTH
 
 # SQLite only autoincrements a column declared INTEGER PRIMARY KEY — a BIGINT one is an
 # ordinary column that insists on a value. The app runs on MySQL and the tests on SQLite,
@@ -31,11 +32,17 @@ _AutoId = BigInteger().with_variant(Integer, "sqlite")
 class GraphPerson(Base):
     """A node in the relationship graph. Was `(:Person)`.
 
-    The id space is shared, and unchanged from the Neo4j model:
+    The id space is per install, and unchanged from the Neo4j model:
 
     * ``0``   — me (see `queries.ME_PERSON_ID`; my details live in `my_card`, not `persons`)
     * ``> 0`` — a contact, mirrored from `persons.id` by contacts/graph_sync.py
     * ``< 0`` — an acquaintance, who exists only in the graph
+
+    The primary key is ``(device_id, id)``, which is what lets those three conventions
+    survive more than one install: every device gets its own ``0`` for "me" and its own
+    ``-1, -2, …`` for acquaintances, and the API keeps returning the same ids it always
+    did. A single global id space would have forced "me" to become an arbitrary number
+    and broken the sign convention that `fetch_acquaintances` reads.
 
     Deliberately *not* a foreign key to `persons.id`: two of those three cases have no row
     there. `company` is a plain column rather than the `(:Company)` node it used to be —
@@ -44,6 +51,7 @@ class GraphPerson(Base):
 
     __tablename__ = "graph_persons"
 
+    device_id: Mapped[str] = mapped_column(String(DEVICE_ID_MAX_LENGTH), primary_key=True)
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
     name: Mapped[str] = mapped_column(String(100))
     job_class: Mapped[str | None] = mapped_column(String(30))
@@ -66,15 +74,26 @@ class GraphEdge(Base):
     """
 
     __tablename__ = "graph_edges"
-    __table_args__ = (UniqueConstraint("person_a_id", "person_b_id", name="uq_graph_edge"),)
+    __table_args__ = (
+        UniqueConstraint("device_id", "person_a_id", "person_b_id", name="uq_graph_edge"),
+        ForeignKeyConstraint(
+            ["device_id", "person_a_id"],
+            ["graph_persons.device_id", "graph_persons.id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["device_id", "person_b_id"],
+            ["graph_persons.device_id", "graph_persons.id"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_graph_edges_device_a", "device_id", "person_a_id"),
+        Index("ix_graph_edges_device_b", "device_id", "person_b_id"),
+    )
 
     id: Mapped[int] = mapped_column(_AutoId, primary_key=True, autoincrement=True)
-    person_a_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("graph_persons.id", ondelete="CASCADE"), index=True
-    )
-    person_b_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("graph_persons.id", ondelete="CASCADE"), index=True
-    )
+    device_id: Mapped[str] = mapped_column(String(DEVICE_ID_MAX_LENGTH))
+    person_a_id: Mapped[int] = mapped_column(BigInteger)
+    person_b_id: Mapped[int] = mapped_column(BigInteger)
     # Number of recorded conversations, bumped by graph/conversation_sync.py. Starts at
     # 0: this is what the API returns as `conversation_count`, and a saved business card
     # is not a conversation.
@@ -97,17 +116,25 @@ class GraphIntroConsent(Base):
 
     __tablename__ = "graph_intro_consents"
     __table_args__ = (
-        UniqueConstraint("from_person_id", "to_person_id", name="uq_graph_consent"),
-        Index("ix_graph_consents_to", "to_person_id", "status"),
+        UniqueConstraint("device_id", "from_person_id", "to_person_id", name="uq_graph_consent"),
+        ForeignKeyConstraint(
+            ["device_id", "from_person_id"],
+            ["graph_persons.device_id", "graph_persons.id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["device_id", "to_person_id"],
+            ["graph_persons.device_id", "graph_persons.id"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_graph_consents_from", "device_id", "from_person_id"),
+        Index("ix_graph_consents_to", "device_id", "to_person_id", "status"),
     )
 
     id: Mapped[int] = mapped_column(_AutoId, primary_key=True, autoincrement=True)
-    from_person_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("graph_persons.id", ondelete="CASCADE"), index=True
-    )
-    to_person_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("graph_persons.id", ondelete="CASCADE")
-    )
+    device_id: Mapped[str] = mapped_column(String(DEVICE_ID_MAX_LENGTH))
+    from_person_id: Mapped[int] = mapped_column(BigInteger)
+    to_person_id: Mapped[int] = mapped_column(BigInteger)
     status: Mapped[str] = mapped_column(
         Enum("pending", "approved", "declined", name="consent_status")
     )

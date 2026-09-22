@@ -32,8 +32,12 @@ async def _session():
         await engine.dispose()
 
 
+DEVICE = "test-device-0001"
+
+
 async def _seed(session, *, image_path: str | None = "7.jpg") -> int:
     person = Person(
+        device_id=DEVICE,
         name="홍길동",
         company="주식회사 카드엔",
         # stale/edited after the card was snapshotted - must NOT leak onto the card
@@ -44,6 +48,7 @@ async def _seed(session, *, image_path: str | None = "7.jpg") -> int:
     session.add(person)
     await session.flush()
     card = BattleCard(
+        device_id=DEVICE,
         person_id=person.id,
         job_class="marketing",
         grade=4,

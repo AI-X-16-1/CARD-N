@@ -13,6 +13,9 @@ from app.features.game import models as game_models  # noqa: F401  same
 from app.features.graph import models as graph_models  # noqa: F401  same
 from app.main import app
 
+# The install every test speaks as, unless it is specifically testing isolation.
+TEST_DEVICE_ID = "test-device-0001"
+
 
 async def _create_tables(engine) -> None:
     async with engine.begin() as conn:
@@ -35,7 +38,10 @@ def client() -> Iterator[TestClient]:
     asyncio.run(_create_tables(engine))
     app.dependency_overrides[get_db] = _override_get_db
     try:
-        yield TestClient(app)
+        # Every route requires X-Device-Id (app/device.py). Setting it on the client
+        # rather than overriding the dependency keeps the real header parsing and
+        # validation in the path under test.
+        yield TestClient(app, headers={"X-Device-Id": TEST_DEVICE_ID})
     finally:
         app.dependency_overrides.pop(get_db, None)
         asyncio.run(engine.dispose())

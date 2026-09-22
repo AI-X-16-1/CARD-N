@@ -22,22 +22,25 @@ from app.features.graph.schemas import (
 
 
 class GraphService:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, device_id: str):
         self.db = db
+        # Which install is asking (app/device.py). Passed into every query below — the
+        # graph's ids only mean anything within one device.
+        self.device_id = device_id
 
     async def get_graph(self, depth: int = 1, job_filter: str = "all") -> GraphResponse:
         me_id = queries.ME_PERSON_ID
-        me = await queries.fetch_me(self.db, me_id)
+        me = await queries.fetch_me(self.db, self.device_id, me_id)
 
         first_degree = self._filter_by_job(
-            await queries.fetch_first_degree(self.db, me_id), job_filter
+            await queries.fetch_first_degree(self.db, self.device_id, me_id), job_filter
         )
 
         second_degree: list[dict] = []
         if depth >= 2 and first_degree:
             first_degree_ids = [row["id"] for row in first_degree]
             second_degree = self._filter_by_job(
-                await queries.fetch_second_degree(self.db, me_id, first_degree_ids),
+                await queries.fetch_second_degree(self.db, self.device_id, me_id, first_degree_ids),
                 job_filter,
             )
 
@@ -105,17 +108,20 @@ class GraphService:
         creating them already approved would have this endpoint hand out exactly the
         exposure that rule withholds.
         """
-        if not await queries.is_first_degree(self.db, queries.ME_PERSON_ID, contact_person_id):
+        if not await queries.is_first_degree(
+            self.db, self.device_id, queries.ME_PERSON_ID, contact_person_id
+        ):
             raise HTTPException(status_code=404, detail="NOT_FIRST_DEGREE")
 
         # The id comes from a MIN() over existing rows, so two concurrent creates can pick
         # the same one. Against Neo4j that silently MERGEd two people into one node; here
         # the primary key rejects it, so a collision costs a retry instead of a person.
         for attempt in (1, 2):
-            person_id = await queries.next_acquaintance_id(self.db)
+            person_id = await queries.next_acquaintance_id(self.db, self.device_id)
             try:
                 row = await queries.create_acquaintance(
                     self.db,
+                    self.device_id,
                     contact_id=contact_person_id,
                     person_id=person_id,
                     name=name,
@@ -125,7 +131,7 @@ class GraphService:
                 return AcquaintanceResponse(**row)
             except IntegrityError:
                 await self.db.rollback()
-                if not await queries.person_exists(self.db, contact_person_id):
+                if not await queries.person_exists(self.db, self.device_id, contact_person_id):
                     raise HTTPException(status_code=404, detail="CONTACT_NOT_IN_GRAPH") from None
                 if attempt == 2:
                     raise
@@ -140,7 +146,7 @@ class GraphService:
         stays named for what it records rather than for who taps it, so the distinction
         survives into a multi-user version.
         """
-        row = await queries.approve_acquaintance(self.db, acquaintance_id)
+        row = await queries.approve_acquaintance(self.db, self.device_id, acquaintance_id)
         if row is None:
             await self.db.rollback()
             raise HTTPException(status_code=404, detail="ACQUAINTANCE_NOT_FOUND")
@@ -149,7 +155,7 @@ class GraphService:
         return AcquaintanceResponse(**row)
 
     async def list_acquaintances(self, contact_person_id: int) -> AcquaintancesResponse:
-        rows = await queries.fetch_acquaintances(self.db, contact_person_id)
+        rows = await queries.fetch_acquaintances(self.db, self.device_id, contact_person_id)
         return AcquaintancesResponse(
             person_id=contact_person_id,
             acquaintances=[AcquaintanceResponse(**row) for row in rows],
@@ -158,15 +164,15 @@ class GraphService:
     async def request_introduction(self, target_person_id: int) -> IntroductionRequestResponse:
         me_id = queries.ME_PERSON_ID
 
-        if not await queries.is_first_degree(self.db, me_id, target_person_id):
+        if not await queries.is_first_degree(self.db, self.device_id, me_id, target_person_id):
             raise HTTPException(status_code=404, detail="NOT_FIRST_DEGREE")
 
-        existing = await queries.get_intro_consent(self.db, me_id, target_person_id)
+        existing = await queries.get_intro_consent(self.db, self.device_id, me_id, target_person_id)
         if existing is not None and existing["status"] in ("pending", "approved"):
             raise HTTPException(status_code=409, detail="ALREADY_REQUESTED")
 
         row = await queries.upsert_intro_request(
-            self.db, me_id, target_person_id, datetime.now(UTC)
+            self.db, self.device_id, me_id, target_person_id, datetime.now(UTC)
         )
         await self.db.commit()
         return IntroductionRequestResponse(
@@ -189,7 +195,9 @@ class GraphService:
         comes back null — there is nothing to report, and saying more would leak whether
         that id exists at all.
         """
-        row = await queries.get_intro_consent(self.db, queries.ME_PERSON_ID, target_person_id)
+        row = await queries.get_intro_consent(
+            self.db, self.device_id, queries.ME_PERSON_ID, target_person_id
+        )
         if row is None:
             return IntroductionRequestStatusResponse(person_id=target_person_id)
 
@@ -201,7 +209,9 @@ class GraphService:
         )
 
     async def list_incoming_requests(self) -> IncomingIntroductionRequestsResponse:
-        rows = await queries.fetch_incoming_intro_requests(self.db, queries.ME_PERSON_ID)
+        rows = await queries.fetch_incoming_intro_requests(
+            self.db, self.device_id, queries.ME_PERSON_ID
+        )
         return IncomingIntroductionRequestsResponse(
             requests=[IncomingIntroductionRequest(**row) for row in rows]
         )
@@ -212,6 +222,7 @@ class GraphService:
         status = "approved" if approve else "declined"
         row = await queries.respond_to_intro_request(
             self.db,
+            self.device_id,
             requester_person_id,
             queries.ME_PERSON_ID,
             status,
@@ -231,12 +242,14 @@ class GraphService:
 
     async def get_stats(self) -> GraphStatsResponse:
         me_id = queries.ME_PERSON_ID
-        first_degree = await queries.fetch_first_degree(self.db, me_id)
+        first_degree = await queries.fetch_first_degree(self.db, self.device_id, me_id)
 
         second_degree: list[dict] = []
         if first_degree:
             first_degree_ids = [row["id"] for row in first_degree]
-            second_degree = await queries.fetch_second_degree(self.db, me_id, first_degree_ids)
+            second_degree = await queries.fetch_second_degree(
+                self.db, self.device_id, me_id, first_degree_ids
+            )
 
         return GraphStatsResponse(
             degree_1_count=len(first_degree),

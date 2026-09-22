@@ -28,6 +28,8 @@ from app.features.graph.service import GraphService
 from app.main import app
 
 ME = queries.ME_PERSON_ID
+DEVICE = "test-device-0001"
+OTHER_DEVICE = "test-device-0002"
 LAST_MARCH = datetime(2024, 3, 15, 14, 0, tzinfo=UTC)
 
 
@@ -53,9 +55,10 @@ async def db():
     await engine.dispose()
 
 
-async def _add_person(db, person_id: int, name: str, **fields) -> None:
+async def _add_person(db, person_id: int, name: str, device_id: str = DEVICE, **fields) -> None:
     await queries.upsert_person(
         db,
+        device_id,
         person_id=person_id,
         name=name,
         company=fields.get("company"),
@@ -74,11 +77,11 @@ async def _count(db, model) -> int:
 
 
 async def test_edge_is_stored_once_whichever_way_round_it_is_written(db) -> None:
-    await queries.ensure_me(db, ME)
+    await queries.ensure_me(db, DEVICE, ME)
     await _add_person(db, 7, "홍길동")
 
-    await queries.ensure_edge(db, ME, 7)
-    await queries.ensure_edge(db, 7, ME)
+    await queries.ensure_edge(db, DEVICE, ME, 7)
+    await queries.ensure_edge(db, DEVICE, 7, ME)
 
     assert await _count(db, GraphEdge) == 1
 
@@ -87,10 +90,10 @@ async def test_a_new_edge_starts_at_zero_conversations(db) -> None:
     """`weight` is what the API returns as `conversation_count`. Saving someone's card is
     not a conversation — the Neo4j version started at 1 and read one high forever.
     """
-    await queries.ensure_me(db, ME)
+    await queries.ensure_me(db, DEVICE, ME)
     await _add_person(db, 7, "홍길동")
 
-    await queries.ensure_edge(db, ME, 7)
+    await queries.ensure_edge(db, DEVICE, ME, 7)
 
     edge = (await db.execute(select(GraphEdge))).scalar_one()
     assert edge.weight == 0
@@ -100,13 +103,13 @@ async def test_ensure_edge_does_not_reset_an_existing_weight(db) -> None:
     """Cypher's ON CREATE SET. Without it, editing a contact would throw away every
     conversation counted on that edge so far.
     """
-    await queries.ensure_me(db, ME)
+    await queries.ensure_me(db, DEVICE, ME)
     await _add_person(db, 7, "홍길동")
-    await queries.ensure_edge(db, ME, 7)
-    await queries.bump_edge_weight(db, ME, 7)
-    await queries.bump_edge_weight(db, ME, 7)
+    await queries.ensure_edge(db, DEVICE, ME, 7)
+    await queries.bump_edge_weight(db, DEVICE, ME, 7)
+    await queries.bump_edge_weight(db, DEVICE, ME, 7)
 
-    await queries.ensure_edge(db, ME, 7)
+    await queries.ensure_edge(db, DEVICE, ME, 7)
 
     edge = (await db.execute(select(GraphEdge))).scalar_one()
     assert edge.weight == 2
@@ -115,17 +118,19 @@ async def test_ensure_edge_does_not_reset_an_existing_weight(db) -> None:
 async def test_bump_edge_weight_is_a_no_op_without_an_edge(db) -> None:
     await _add_person(db, 7, "홍길동")
 
-    await queries.bump_edge_weight(db, ME, 7)
+    await queries.bump_edge_weight(db, DEVICE, ME, 7)
 
     assert await _count(db, GraphEdge) == 0
 
 
 async def test_ensure_me_keeps_a_name_that_is_already_there(db) -> None:
-    await queries.upsert_person(db, person_id=ME, name="김민경", company=None, job_class=None)
+    await queries.upsert_person(
+        db, DEVICE, person_id=ME, name="김민경", company=None, job_class=None
+    )
 
-    await queries.ensure_me(db, ME)
+    await queries.ensure_me(db, DEVICE, ME)
 
-    me = await queries.fetch_me(db, ME)
+    me = await queries.fetch_me(db, DEVICE, ME)
     assert me["name"] == "김민경"
 
 
@@ -135,13 +140,13 @@ async def test_ensure_me_keeps_a_name_that_is_already_there(db) -> None:
 
 
 async def test_deleting_a_person_takes_their_edges_and_consents_with_them(db) -> None:
-    await queries.ensure_me(db, ME)
+    await queries.ensure_me(db, DEVICE, ME)
     await _add_person(db, 7, "홍길동")
-    await queries.ensure_edge(db, ME, 7)
-    await queries.upsert_intro_request(db, ME, 7, datetime.now(UTC))
+    await queries.ensure_edge(db, DEVICE, ME, 7)
+    await queries.upsert_intro_request(db, DEVICE, ME, 7, datetime.now(UTC))
     await db.commit()
 
-    await queries.delete_person(db, 7)
+    await queries.delete_person(db, DEVICE, 7)
     await db.commit()
 
     assert await _count(db, GraphEdge) == 0
@@ -156,19 +161,21 @@ async def test_deleting_a_person_takes_their_edges_and_consents_with_them(db) ->
 
 async def _seed_contact_with_acquaintance(db) -> int:
     """Me → 홍길동 (contact), 홍길동 → someone I have never met. Returns their id."""
-    await queries.ensure_me(db, ME)
+    await queries.ensure_me(db, DEVICE, ME)
     await _add_person(db, 7, "홍길동", job_class="marketing", company="카카오")
-    await queries.ensure_edge(db, ME, 7)
+    await queries.ensure_edge(db, DEVICE, ME, 7)
     await db.commit()
 
-    acquaintance = await GraphService(db).add_acquaintance(7, name="정하늘", job_class="dev")
+    acquaintance = await GraphService(db, DEVICE).add_acquaintance(
+        7, name="정하늘", job_class="dev"
+    )
     return acquaintance.id
 
 
 async def test_an_acquaintance_is_invisible_until_their_consent_is_recorded(db) -> None:
     acquaintance_id = await _seed_contact_with_acquaintance(db)
 
-    graph = await GraphService(db).get_graph(depth=2, job_filter="all")
+    graph = await GraphService(db, DEVICE).get_graph(depth=2, job_filter="all")
 
     assert acquaintance_id not in [node.id for node in graph.nodes]
     assert graph.stats.degree_2_count == 0
@@ -177,8 +184,8 @@ async def test_an_acquaintance_is_invisible_until_their_consent_is_recorded(db) 
 async def test_an_acquaintance_appears_once_consent_is_recorded(db) -> None:
     acquaintance_id = await _seed_contact_with_acquaintance(db)
 
-    await GraphService(db).record_acquaintance_consent(acquaintance_id)
-    graph = await GraphService(db).get_graph(depth=2, job_filter="all")
+    await GraphService(db, DEVICE).record_acquaintance_consent(acquaintance_id)
+    graph = await GraphService(db, DEVICE).get_graph(depth=2, job_filter="all")
 
     second_degree = [node for node in graph.nodes if node.degree == 2]
     assert [node.id for node in second_degree] == [acquaintance_id]
@@ -198,28 +205,32 @@ async def test_consent_in_the_wrong_direction_does_not_expose_anyone(db) -> None
     acquaintance_id = await _seed_contact_with_acquaintance(db)
     await db.execute(
         GraphIntroConsent.__table__.delete().where(
-            GraphIntroConsent.from_person_id == acquaintance_id
+            GraphIntroConsent.device_id == DEVICE,
+            GraphIntroConsent.from_person_id == acquaintance_id,
         )
     )
     await db.execute(
         GraphIntroConsent.__table__.insert().values(
-            from_person_id=7, to_person_id=acquaintance_id, status="approved"
+            device_id=DEVICE,
+            from_person_id=7,
+            to_person_id=acquaintance_id,
+            status="approved",
         )
     )
     await db.commit()
 
-    graph = await GraphService(db).get_graph(depth=2, job_filter="all")
+    graph = await GraphService(db, DEVICE).get_graph(depth=2, job_filter="all")
 
     assert graph.stats.degree_2_count == 0
 
 
 async def test_acquaintance_ids_walk_downwards_from_minus_one(db) -> None:
-    await queries.ensure_me(db, ME)
+    await queries.ensure_me(db, DEVICE, ME)
     await _add_person(db, 7, "홍길동")
-    await queries.ensure_edge(db, ME, 7)
+    await queries.ensure_edge(db, DEVICE, ME, 7)
     await db.commit()
 
-    service = GraphService(db)
+    service = GraphService(db, DEVICE)
     first = await service.add_acquaintance(7, name="정하늘", job_class=None)
     second = await service.add_acquaintance(7, name="이서준", job_class=None)
 
@@ -227,12 +238,12 @@ async def test_acquaintance_ids_walk_downwards_from_minus_one(db) -> None:
 
 
 async def test_add_acquaintance_rejects_someone_who_is_not_my_contact(db) -> None:
-    await queries.ensure_me(db, ME)
+    await queries.ensure_me(db, DEVICE, ME)
     await _add_person(db, 7, "홍길동")  # no edge: known to the graph, not met by me
     await db.commit()
 
     with pytest.raises(Exception) as exc_info:
-        await GraphService(db).add_acquaintance(7, name="정하늘", job_class=None)
+        await GraphService(db, DEVICE).add_acquaintance(7, name="정하늘", job_class=None)
 
     assert exc_info.value.detail == "NOT_FIRST_DEGREE"
 
@@ -243,35 +254,39 @@ async def test_add_acquaintance_rejects_someone_who_is_not_my_contact(db) -> Non
 
 
 async def test_responding_to_a_request_that_was_never_made_returns_nothing(db) -> None:
-    await queries.ensure_me(db, ME)
+    await queries.ensure_me(db, DEVICE, ME)
     await _add_person(db, 7, "홍길동")
     await db.commit()
 
-    answered = await queries.respond_to_intro_request(db, 7, ME, "approved", datetime.now(UTC))
+    answered = await queries.respond_to_intro_request(
+        db, DEVICE, 7, ME, "approved", datetime.now(UTC)
+    )
 
     assert answered is None
 
 
 async def test_answering_an_already_answered_request_returns_nothing(db) -> None:
-    await queries.ensure_me(db, ME)
+    await queries.ensure_me(db, DEVICE, ME)
     await _add_person(db, 7, "홍길동")
-    await queries.upsert_intro_request(db, 7, ME, datetime.now(UTC))
+    await queries.upsert_intro_request(db, DEVICE, 7, ME, datetime.now(UTC))
     await db.commit()
 
-    first = await queries.respond_to_intro_request(db, 7, ME, "approved", datetime.now(UTC))
-    second = await queries.respond_to_intro_request(db, 7, ME, "declined", datetime.now(UTC))
+    first = await queries.respond_to_intro_request(db, DEVICE, 7, ME, "approved", datetime.now(UTC))
+    second = await queries.respond_to_intro_request(
+        db, DEVICE, 7, ME, "declined", datetime.now(UTC)
+    )
 
     assert first is not None and first["status"] == "approved"
     assert second is None
 
 
 async def test_asking_again_after_a_decline_reopens_the_same_request(db) -> None:
-    await queries.ensure_me(db, ME)
+    await queries.ensure_me(db, DEVICE, ME)
     await _add_person(db, 7, "홍길동")
-    await queries.upsert_intro_request(db, ME, 7, datetime.now(UTC))
-    await queries.respond_to_intro_request(db, ME, 7, "declined", datetime.now(UTC))
+    await queries.upsert_intro_request(db, DEVICE, ME, 7, datetime.now(UTC))
+    await queries.respond_to_intro_request(db, DEVICE, ME, 7, "declined", datetime.now(UTC))
 
-    reopened = await queries.upsert_intro_request(db, ME, 7, datetime.now(UTC))
+    reopened = await queries.upsert_intro_request(db, DEVICE, ME, 7, datetime.now(UTC))
 
     assert reopened["status"] == "pending"
     assert reopened["responded_at"] is None
@@ -284,12 +299,12 @@ async def test_asking_again_after_a_decline_reopens_the_same_request(db) -> None
 
 
 async def test_timestamps_come_back_as_utc(db) -> None:
-    await queries.ensure_me(db, ME)
+    await queries.ensure_me(db, DEVICE, ME)
     await _add_person(db, 7, "홍길동")
-    await queries.ensure_edge(db, ME, 7)
+    await queries.ensure_edge(db, DEVICE, ME, 7)
     await db.commit()
 
-    [row] = await queries.fetch_first_degree(db, ME)
+    [row] = await queries.fetch_first_degree(db, DEVICE, ME)
 
     assert row["last_interaction"].tzinfo is not None
     assert row["last_interaction"].utcoffset().total_seconds() == 0
@@ -310,10 +325,13 @@ def test_the_api_still_serializes_timestamps_with_a_z() -> None:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         async with session_factory() as session:
-            await queries.ensure_me(session, ME)
-            await session.execute(GraphPerson.__table__.insert().values(id=7, name="홍길동"))
+            await queries.ensure_me(session, DEVICE, ME)
+            await session.execute(
+                GraphPerson.__table__.insert().values(device_id=DEVICE, id=7, name="홍길동")
+            )
             await session.execute(
                 GraphEdge.__table__.insert().values(
+                    device_id=DEVICE,
                     person_a_id=ME,
                     person_b_id=7,
                     weight=3,
@@ -331,7 +349,7 @@ def test_the_api_still_serializes_timestamps_with_a_z() -> None:
     asyncio.run(_seed())
     app.dependency_overrides[get_db] = _override_get_db
     try:
-        response = TestClient(app).get("/api/v1/graph?depth=1")
+        response = TestClient(app, headers={"X-Device-Id": DEVICE}).get("/api/v1/graph?depth=1")
     finally:
         app.dependency_overrides.pop(get_db, None)
         asyncio.run(engine.dispose())
@@ -364,7 +382,13 @@ def test_the_upsert_helper_compiles_for_mysql() -> None:
     statement = queries._upsert(
         _MysqlSession(),
         GraphEdge,
-        {"person_a_id": 0, "person_b_id": 7, "weight": 1, "last_interaction": None},
+        {
+            "device_id": DEVICE,
+            "person_a_id": 0,
+            "person_b_id": 7,
+            "weight": 1,
+            "last_interaction": None,
+        },
         {"person_a_id": 0},
     )
 

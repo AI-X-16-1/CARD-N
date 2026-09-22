@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db
+from app.dependencies import get_db, get_device_id
 from app.features.game.schemas import (
     BattleCardResponse,
     CreateCardRequest,
@@ -15,8 +15,11 @@ from app.features.game.service import GameService
 router = APIRouter()
 
 
-def _service(db: AsyncSession = Depends(get_db)) -> GameService:
-    return GameService(db)
+def _service(
+    db: AsyncSession = Depends(get_db),
+    device_id: str = Depends(get_device_id),
+) -> GameService:
+    return GameService(db, device_id)
 
 
 @router.get("/ping")
