@@ -4,14 +4,18 @@ services:
     ports:
       - "3307:3306"
     environment:
-      MYSQL_DATABASE: cardn_db
-      MYSQL_USER: cardn
-      MYSQL_PASSWORD: cardn
-      MYSQL_ROOT_PASSWORD: cardn
+      # Defaults keep `docker compose up` working with no setup on a laptop. A deployment
+      # overrides them from the environment (or a .env beside this file) — the passwords
+      # below are in the repository, so they protect nothing once the port is reachable.
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-cardn_db}
+      MYSQL_USER: ${MYSQL_USER:-cardn}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-cardn}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-cardn}
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-ucardn", "-pcardn"]
+      test:
+        ["CMD-SHELL", "mysqladmin ping -h localhost -u\"$$MYSQL_USER\" -p\"$$MYSQL_PASSWORD\""]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -32,7 +36,7 @@ services:
       # localhost is the container itself, so the compose service name and its internal
       # port are used instead. Compose gives `environment` precedence over `env_file`,
       # so a host-shaped .env stays usable for both ways of running.
-      DATABASE_URL: mysql+asyncmy://cardn:cardn@mysql:3306/cardn_db
+      DATABASE_URL: mysql+asyncmy://${MYSQL_USER:-cardn}:${MYSQL_PASSWORD:-cardn}@mysql:3306/${MYSQL_DATABASE:-cardn_db}
     volumes:
       # Saved business card images (app/core/image_store.py). Bind-mounted so they
       # survive `docker compose down` and are the same files the host-run backend uses.
