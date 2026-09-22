@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.config import settings
 from app.features.contacts.router import router as contacts_router
 from app.features.conversation.router import router as conversation_router
 from app.features.conversation.stt import warmup as warmup_stt
@@ -51,14 +52,20 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="CARD:N API", version="0.1.0", lifespan=lifespan)
 
-# Local dev only (no deployment, per CLAUDE.md) — needed for the Expo web preview
-# (react-native-web) to call this API from the browser without hitting CORS.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Only the Expo web preview (react-native-web) is ever subject to CORS; the Android app
+# is not a browser and ignores it. So this list is empty unless someone sets
+# CORS_ORIGINS, and the middleware is skipped entirely when it is — an installed
+# middleware with no allowed origin still answers preflights, which is noise at best.
+#
+# It was `["*"]` while nothing was deployed. On a public address that is the setting that
+# lets any site a user visits call this API as them.
+if settings.cors_origin_list:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 app.include_router(scan_router, prefix="/api/v1/scan", tags=["scan"])
 app.include_router(contacts_router, prefix="/api/v1/contacts", tags=["contacts"])

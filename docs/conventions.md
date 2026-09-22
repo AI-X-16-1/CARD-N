@@ -179,8 +179,22 @@ Do not commit the `.env` file. Provide a `.env.example` instead.
 # .env.example
 DATABASE_URL=mysql+asyncmy://cardn:cardn@localhost:3307/cardn_db
 GOOGLE_VISION_API_KEY=
-OPENAI_API_KEY=
+
+# Required — the server refuses to start without it. See backend/.env.example for the
+# value to use locally and how to generate a fresh one for a deployment.
+FIELD_ENCRYPTION_KEY=
+
+# Comma-separated; only the Expo web preview needs it. Empty everywhere else.
+CORS_ORIGINS=
 ```
+
+`FIELD_ENCRYPTION_KEY` has **no default in source any more**. It used to, and that default
+is in this repository's git history — a key anyone can read is not a key. Copy the value
+from `.env.example` for local work, where it keeps your existing database readable, and
+generate a separate one for anything reachable from outside your machine.
+
+`GOOGLE_VISION_API_KEY` and `OPENAI_API_KEY` are gone: OCR is self-hosted PaddleOCR and
+summaries are Gemini, so nothing read them.
 
 If you are coming from a checkout that predates the Neo4j removal, delete the three
 `NEO4J_*` lines from your own `.env` too — `Settings` rejects keys it does not know, so a
