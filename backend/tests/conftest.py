@@ -12,7 +12,6 @@ from app.features.contacts import models  # noqa: F401  registers tables on Base
 from app.features.game import models as game_models  # noqa: F401  same
 from app.features.graph import models as graph_models  # noqa: F401  same
 from app.main import app
-from app.neo4j_driver import get_neo4j_driver
 
 
 async def _create_tables(engine) -> None:
@@ -35,12 +34,8 @@ def client() -> Iterator[TestClient]:
 
     asyncio.run(_create_tables(engine))
     app.dependency_overrides[get_db] = _override_get_db
-    # Contacts CRUD must not depend on a real Neo4j instance being up in tests —
-    # ContactsService already treats a None driver as "skip the graph sync".
-    app.dependency_overrides[get_neo4j_driver] = lambda: None
     try:
         yield TestClient(app)
     finally:
         app.dependency_overrides.pop(get_db, None)
-        app.dependency_overrides.pop(get_neo4j_driver, None)
         asyncio.run(engine.dispose())

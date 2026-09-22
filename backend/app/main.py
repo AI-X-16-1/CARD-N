@@ -13,7 +13,6 @@ from app.features.game.router import router as game_router
 from app.features.graph.router import router as graph_router
 from app.features.scan.ocr.pipeline import warmup as warmup_ocr
 from app.features.scan.router import router as scan_router
-from app.neo4j_driver import close_neo4j_driver
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +47,6 @@ async def lifespan(app: FastAPI):
         _warmup(warmup_stt, "whisper"),
     )
     yield
-    await close_neo4j_driver()
 
 
 app = FastAPI(title="CARD:N API", version="0.1.0", lifespan=lifespan)
