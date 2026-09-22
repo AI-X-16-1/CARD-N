@@ -29,8 +29,10 @@ type CallDetectorModuleType = {
 };
 
 /**
- * Android-only: iOS exposes call state to CallKit extensions only, which this app has no
- * path to. The stub keeps callers from having to branch on Platform.OS.
+ * Used when the native side is not there — on iOS, which exposes call state to CallKit
+ * extensions only, and in any build that leaves the module out of autolinking (the
+ * default; see package.json's expo.autolinking.exclude). Keeps callers from having to
+ * branch on either.
  */
 const stub: CallDetectorModuleType = {
   getPermissionStatus: () => ({ phone: false, callLog: false, notifications: false }),
@@ -43,9 +45,28 @@ const stub: CallDetectorModuleType = {
   markConsentPromptSeen: () => {},
 };
 
-const CallDetector =
-  Platform.OS === 'android' ? requireNativeModule<CallDetectorModuleType>('CallDetector') : stub;
+function resolveNativeModule(): CallDetectorModuleType | null {
+  if (Platform.OS !== 'android') return null;
+  try {
+    return requireNativeModule<CallDetectorModuleType>('CallDetector');
+  } catch {
+    // Not linked into this build. The Play Store build excludes it on purpose — its
+    // manifest declares READ_CALL_LOG, a restricted permission — so this is the normal
+    // path there, not an error. requireNativeModule throws rather than returning null,
+    // hence the catch.
+    return null;
+  }
+}
 
-export const isCallAlertSupported = Platform.OS === 'android';
+const nativeModule = resolveNativeModule();
+
+const CallDetector = nativeModule ?? stub;
+
+/**
+ * False on iOS, and false in any build the module was excluded from. Callers use it to
+ * skip the feature entirely: `shouldShowCallAlertConsent` returns false, so the consent
+ * screen never opens, and the contact sync no-ops.
+ */
+export const isCallAlertSupported = nativeModule !== null;
 
 export default CallDetector;

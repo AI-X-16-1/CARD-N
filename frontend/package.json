@@ -53,7 +53,9 @@
   "expo": {
     "autolinking": {
       "//": "Local modules are only autolinked when this points at them; see modules/call-detector.",
-      "nativeModulesDir": "./modules"
+      "nativeModulesDir": "./modules",
+      "//exclude": "call-detector is left out of the build on purpose: its manifest declares READ_CALL_LOG, a Google Play restricted permission that a business-card app does not qualify for. Delete the line below to get the feature back in a local dev build - see docs/call-alert-spec.md.",
+      "exclude": ["call-detector"]
     }
   }
 }

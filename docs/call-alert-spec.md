@@ -1,9 +1,42 @@
 # Incoming Call Alert — Feature Spec
 
-**Status**: assigned to 김민경, implemented. The ring path is verified on hardware
-(Galaxy S25+, Android 16) — see "Findings that changed the design" #6.
+**Status**: implemented and working, but **excluded from builds by default** since
+2026-09-22 — see "Excluded from the Play Store build" below. The ring path is verified on
+hardware (Galaxy S25+, Android 16) — see "Findings that changed the design" #6.
 **Proposed by**: 김민경 (2026-08-27). Design approved in PR #41, then revised — see
 "Findings that changed the design".
+
+## Excluded from the Play Store build
+
+`modules/call-detector` is left out of autolinking by default
+(`frontend/package.json` → `expo.autolinking.exclude`). Nothing about the feature was
+deleted; it simply is not compiled into the app.
+
+**Why.** The receiver needs `READ_CALL_LOG`, and that is one of Google Play's *restricted
+permissions*. Access requires a Permissions Declaration and an app that qualifies as a
+default phone handler or caller-ID app. A business-card networking app does not qualify,
+so shipping it means the listing gets rejected — and a rejection blocks the whole app, not
+just this feature.
+
+**Why the permission cannot simply be dropped.** Since Android 9 (API 28),
+`EXTRA_INCOMING_NUMBER` is redacted for receivers that hold only `READ_PHONE_STATE`. The
+feature would still be told a call is happening, but never by whom, which is the entire
+input it works from. There is no reduced version of this that still does something useful.
+
+**What excluding it does.** The module's manifest is what declares `READ_PHONE_STATE`,
+`READ_CALL_LOG` and `POST_NOTIFICATIONS`, so not linking it keeps all three out of the
+merged manifest — verified by re-running the manifest merge and grepping the result. On
+the JS side `modules/call-detector/index.ts` falls back to the stub it already had for
+iOS, so `isCallAlertSupported` is false, `shouldShowCallAlertConsent()` returns false, the
+consent screen never opens and the contact sync no-ops. No navigation changes were needed.
+
+**Getting it back for local development.** Delete the `"exclude"` line in
+`frontend/package.json`, then `npx expo prebuild -p android && npx expo run:android`.
+Everything works as before.
+
+**If it should ever ship.** Either the app takes on a role that qualifies for the
+permission, which would be a different product, or the alert drops the caller's identity
+and becomes something else. Both are product decisions, not build settings.
 
 ## Summary
 
