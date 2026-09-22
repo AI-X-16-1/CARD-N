@@ -17,7 +17,7 @@ CARD:N은 명함을 스캔해 인물을 등록하고, 만남 이후의 대화를
 |------|------|
 | Frontend | React Native (Android-first), TypeScript |
 | Backend | FastAPI (Python 3.11+), async |
-| Database | MySQL 8+ (메인) + Neo4j Community Edition (관계도 그래프) |
+| Database | MySQL 8+ (관계도 그래프 포함) |
 | AI/ML | Google Vision OCR, Whisper STT, Claude/GPT LLM |
 | Asset | ComfyUI, Krea2 (게임 카드 일러스트, 아이콘) |
 | Infra | Docker Compose (로컬 개발 전용, 배포 없음) |
@@ -54,7 +54,7 @@ CARD:N은 명함을 스캔해 인물을 등록하고, 만남 이후의 대화를
 이 프로젝트는 별도 배포 없이 로컬 Docker Compose 환경에서만 동작합니다.
 
 ```bash
-# DB (MySQL + Neo4j) 및 백엔드 실행
+# DB (MySQL) 및 백엔드 실행
 docker compose up -d
 
 # 프론트엔드
@@ -69,7 +69,8 @@ npm run android
 
 | 문서 | 경로 | 설명 |
 |------|------|------|
-| 아키텍처 | [`docs/architecture.md`](./docs/architecture.md) | 모노레포 구조, feature 폴더, Neo4j 구성 |
+| 아키텍처 | [`docs/architecture.md`](./docs/architecture.md) | 모노레포 구조, feature 폴더, DB 구성 |
+| Neo4j → MySQL | [`docs/neo4j-to-mysql-migration.md`](./docs/neo4j-to-mysql-migration.md) | 관계도 그래프를 MySQL로 옮긴 이유와 매핑 |
 | 컨벤션 | [`docs/conventions.md`](./docs/conventions.md) | Git flow, 브랜치/커밋/PR 규칙, 코드 스타일 |
 | UI 스펙 | [`docs/ui-spec.md`](./docs/ui-spec.md) | 전체 화면별 UI 명세 |
 | 디자인 토큰 | [`docs/design-tokens.md`](./docs/design-tokens.md) | 컬러, 타이포, 스페이싱, 모션 토큰 |

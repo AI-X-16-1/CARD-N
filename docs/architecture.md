@@ -47,7 +47,6 @@
 │   │   ├── main.py
 │   │   ├── config.py
 │   │   ├── database.py         ← MySQL connection
-│   │   ├── neo4j_driver.py     ← Neo4j driver connection
 │   │   ├── dependencies.py
 │   │   ├── core/
 │   │   │   └── base.py         ← SQLAlchemy declarative Base
@@ -55,7 +54,7 @@
 │   │   └── features/           ← per-feature schemas.py / queries.py / router.py / service.py
 │   │       ├── scan/           ← 강민구
 │   │       ├── contacts/       ← 강민구
-│   │       ├── graph/          ← 김민경 (queries.py instead of schemas.py — talks to Neo4j)
+│   │       ├── graph/          ← 김민경 (queries.py alongside schemas.py — the graph tables)
 │   │       ├── conversation/   ← 박재경
 │   │       └── game/           ← 이승환
 │   │
@@ -70,7 +69,7 @@
 │   ├── icons/                  ← app icons, tab icons (Krea2)
 │   └── README.md               ← asset naming, size guide
 │
-└── docker-compose.yml          ← MySQL + Neo4j + Backend
+└── docker-compose.yml          ← MySQL + Backend
 ```
 
 ## Feature Folder Rules
@@ -134,48 +133,40 @@ features/* → assets/*    ✅ allowed (referencing image resources)
 - `battle_cards` — battle cards (references persons)
 - `decks` — user deck composition
 
-### Neo4j Community Edition (relationship graph only)
+### Relationship graph (same MySQL instance)
 
-Runs **Neo4j Community Edition** (GPL-3.0, free) locally via Docker.
-Since there is no deployment, the AuraDB cloud service is not used.
+The graph used to live in Neo4j. It doesn't any more — every query the app makes is a
+fixed 1- or 2-hop lookup, which a second database engine was not buying us anything for.
+See `docs/neo4j-to-mysql-migration.md` for the reasoning, the query-by-query translation
+and the behaviour that needed preserving.
 
-```yaml
-# docker-compose.yml
-services:
-  neo4j:
-    image: neo4j:5-community
-    ports:
-      - "7474:7474"   # Browser UI
-      - "7687:7687"   # Bolt protocol
-    environment:
-      NEO4J_AUTH: neo4j/cardncardn123
-    volumes:
-      - neo4j_data:/data
-```
+Three tables, owned by `features/graph/` (`app/features/graph/models.py`):
 
-**Graph Data Model (Cypher)**:
+- `graph_persons` — a node. The id space is shared and meaningful:
+  `0` is me, a positive id is `persons.id`, a negative id is an acquaintance who exists
+  only in the graph. Not a foreign key to `persons`, because two of those three cases have
+  no row there.
+- `graph_edges` — "I have met this person", carrying `weight` (the conversation count) and
+  `last_interaction`. **Undirected**: the pair is stored once, always smallest id first,
+  which is what lets `UNIQUE (person_a_id, person_b_id)` reject duplicates. Reads go
+  through the `ADJACENCY` CTE in `features/graph/queries.py`, which expands each row into
+  both directions.
+- `graph_intro_consents` — one person's consent to being surfaced to another. **Directed**,
+  and the direction is the privacy rule: `from` is the person agreeing to be shown,
+  `to` is the contact they would be shown through.
 
-```cypher
-// Nodes
-(:Person {id: 1, name: "홍길동", job_class: "marketing"})
-(:Company {name: "카카오", domain: "kakao.com"})
+Both tables cascade on delete from `graph_persons`, which is what `DETACH DELETE` used to do.
 
-// Relationships
-(:Person)-[:MET_AT {date: "2024-03-15", context: "AI conference"}]->(:Person)
-(:Person)-[:WORKS_AT {title: "Manager", department: "Marketing Team"}]->(:Company)
-(:Person)-[:DISCUSSED {summary: "Q4 budget discussion", date: "2024-03-15"}]->(:Person)
-```
+**Synchronization**: there is nothing to synchronize any more, which was the point. A
+person's node is written in the same transaction as the contact
+(`features/contacts/graph_sync.py`), and a conversation's weight bump in the same
+transaction as the conversation (`features/graph/conversation_sync.py`). `persons` is
+still the source of truth; the graph is a derived view that can no longer fall behind it.
 
-**MySQL ↔ Neo4j Synchronization**:
-- When a person is created/updated → create/update the corresponding node in Neo4j (handled in the graph feature's service)
-- When a conversation is saved → update the Neo4j edge weight
-- MySQL is the source of truth; Neo4j is used only for relationship traversal
-
-**Community Edition Constraints (know these before using)**:
-- No clustering (single instance only)
-- No role-based access control
-- No hot backups
-- Since this is for local development only, these constraints are not a problem
+**Timestamps**: MySQL `DATETIME` has no timezone, so `features/graph/queries.py` writes
+naive UTC and re-attaches it on read. The API keeps serializing `"...T14:00:00Z"`, which
+is what `api-spec.md` documents and what the client parses — a naive string would be read
+as local time, nine hours off.
 
 ### Full Docker Compose
 
@@ -193,30 +184,18 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
 
-  neo4j:
-    image: neo4j:5-community
-    ports:
-      - "7474:7474"
-      - "7687:7687"
-    environment:
-      NEO4J_AUTH: neo4j/cardncardn123
-    volumes:
-      - neo4j_data:/data
-
   backend:
     build: ./backend
     ports:
       - "8000:8000"
     depends_on:
       - mysql
-      - neo4j
     env_file:
       - path: ./backend/.env
         required: false
 
 volumes:
   mysql_data:
-  neo4j_data:
 ```
 
 ## Backend Feature Router Registration

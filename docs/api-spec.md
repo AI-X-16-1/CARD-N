@@ -465,12 +465,16 @@ Response 200:
 }
 ```
 
-**Neo4j model**: a new `INTRO_CONSENT` relationship, separate from `MET_AT` so approval state never
-touches conversation-count bookkeeping.
+**Storage**: `graph_intro_consents`, a table of its own rather than a column on the edge, so
+approval state never touches conversation-count bookkeeping.
 
-```cypher
-(:Person)-[:INTRO_CONSENT {status: "pending" | "approved" | "declined", requested_at, responded_at}]->(:Person)
 ```
+graph_intro_consents(from_person_id, to_person_id, status: pending | approved | declined,
+                     requested_at, responded_at)
+```
+
+Directed, and the direction is the rule: `from` is the person agreeing to be shown, `to` is
+the contact they would be shown through.
 
 `(A)-[:INTRO_CONSENT]->(B)` reads as "A asked B to introduce A to B's network." `GET /graph`'s
 2nd-degree query only follows edges where `status = "approved"`.

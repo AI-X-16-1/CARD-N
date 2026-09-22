@@ -13,8 +13,7 @@ Agent instructions for the FastAPI (Python 3.11+) backend.
 
 - Python 3.11+, FastAPI, uvicorn
 - SQLAlchemy 2.0 (async), Alembic (migration)
-- MySQL 8+ (main DB), via the `asyncmy` async driver
-- Neo4j Community Edition (relationship graph, driven by the official `neo4j` async driver)
+- MySQL 8+ (main DB, relationship graph included), via the `asyncmy` async driver
 - Pydantic v2 (schema validation)
 - httpx (external API calls: Google Vision, OpenAI)
 - python-multipart (file upload)
@@ -107,9 +106,6 @@ class Settings(BaseSettings):
     database_url: str
     google_vision_api_key: str
     openai_api_key: str
-    neo4j_uri: str = "bolt://localhost:7687"
-    neo4j_user: str = "neo4j"
-    neo4j_password: str = ""
 
     model_config = ConfigDict(env_file=".env")
 
@@ -149,23 +145,28 @@ app.include_router(conversation_router, prefix="/api/v1/conversations", tags=["c
 app.include_router(game_router, prefix="/api/v1/game", tags=["game"])
 ```
 
-## Using the Graph DB (graph feature only)
+## The Relationship Graph (graph feature only)
 
-The graph feature talks to Neo4j directly (not through MySQL/SQLAlchemy).
+The graph used to be Neo4j. It is now three tables in the same MySQL database, reached
+with SQLAlchemy like every other feature — that is the whole point of
+`docs/neo4j-to-mysql-migration.md`. Keep the SQL in `app/features/graph/queries.py`, as
+the Cypher was.
+
+Two invariants live there and are easy to break by accident:
 
 ```python
-# app/features/graph/queries.py
-from neo4j import AsyncGraphDatabase
+# Edges are undirected and stored once, smallest id first. Write through pair(); read
+# through the ADJACENCY CTE, which expands each row into both directions.
+lo, hi = queries.pair(me_id, person_id)
 
-async def get_connections(driver, person_id: int, depth: int = 1):
-    async with driver.session() as session:
-        result = await session.run(
-            "MATCH (me:Person {id: $pid})-[r:MET_AT*1..$depth]-(other:Person) "
-            "RETURN other, r",
-            pid=person_id, depth=depth
-        )
-        return [record async for record in result]
+# MySQL DATETIME has no timezone. Write naive UTC, re-attach it on read — the API
+# contract is "...T14:00:00Z" and a naive string is read as local time by the client.
 ```
+
+Other features write graph rows on their own session (`contacts/graph_sync.py`,
+`graph/conversation_sync.py`), so those writes belong to the caller's transaction. Do not
+wrap them in try/except: there is no separate database to be down any more, and a failed
+statement poisons the session the caller is about to commit.
 
 ## Testing
 

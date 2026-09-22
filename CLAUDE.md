@@ -52,7 +52,7 @@ The flow: business card OCR → contact registration → conversation recording/
 
 - **Frontend**: React Native (Android-first), TypeScript
 - **Backend**: FastAPI (Python 3.11+), async
-- **Database**: MySQL (main) + Neo4j Community Edition (relationship graph)
+- **Database**: MySQL (main; the relationship graph lives here too — see `docs/neo4j-to-mysql-migration.md`)
 - **AI/ML**: self-hosted PaddleOCR (business card scan; see `docs/api-spec.md`'s Scan section for why this replaced the originally-planned Google Vision API), Whisper STT, Claude/GPT LLM
 - **Asset**: ComfyUI, Krea2 (game card illustrations, icons)
 - **Infra**: Docker Compose (local development only, no deployment)
@@ -79,13 +79,14 @@ Always read the relevant document before starting work.
 
 | Document | Path | Description |
 |------|------|------|
-| Architecture | `docs/architecture.md` | Monorepo structure, feature folders, Neo4j setup |
+| Architecture | `docs/architecture.md` | Monorepo structure, feature folders, DB setup |
 | Conventions | `docs/conventions.md` | Git flow, branch/commit/PR rules, code style |
 | UI Spec | `docs/ui-spec.md` | UI specification per screen |
 | Design Tokens | `docs/design-tokens.md` | Color, typography, spacing, motion tokens |
 | API Spec | `docs/api-spec.md` | REST API endpoints, request/response schemas |
 | Feature Ownership | `docs/features.md` | 5-person role split, feature boundaries, dependencies |
 | Game Rules | `docs/game-rules.md` | Card battle rules, stats, skills, AI logic |
+| Neo4j → MySQL | `docs/neo4j-to-mysql-migration.md` | Why the graph left Neo4j, and how it maps onto MySQL |
 
 ## Working Rules
 

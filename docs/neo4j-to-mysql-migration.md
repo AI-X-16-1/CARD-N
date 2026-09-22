@@ -1,6 +1,7 @@
 # Neo4j → MySQL Migration Plan
 
-**Status**: proposal, not yet implemented. Written 2026-09-21 by 김민경 (graph owner).
+**Status**: implemented 2026-09-22, as the six commits in §10. Written 2026-09-21 by
+김민경 (graph owner).
 **Goal**: remove Neo4j from CARD:N and serve the relationship graph from the existing MySQL
 instance, without changing a single byte of the HTTP API.
 
@@ -115,7 +116,8 @@ CREATE TABLE graph_persons (
     job_class    VARCHAR(30)  NULL,
     company      VARCHAR(150) NULL,
     created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    -- refreshed by SQLAlchemy's onupdate, the way `persons` does it, not by DDL
+    updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE graph_edges (
@@ -529,7 +531,24 @@ Assert on the serialized string in a router test, not just on the Python object 
 Cypher statements were individually atomic; several of them did the work of what is now 2–3 SQL
 statements (5.10, 5.13). Those must each be wrapped in one transaction.
 
-### 6.4 `driver is None` disappears
+### 6.4 A stale `.env` stops the server from starting
+
+`Settings` forbids unknown keys, so once the three `neo4j_*` fields are gone, a `.env`
+that still has `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` fails validation at import
+time — before anything logs, with an error that says "Extra inputs are not permitted"
+rather than "your env file is out of date". Everyone on the team has those three lines.
+Delete them from your `.env` when you pull this; `.env.example` and `conventions.md` no
+longer list them.
+
+### 6.5 SQLite does not autoincrement a `BIGINT` primary key
+
+Only `INTEGER PRIMARY KEY` is a rowid alias, so a `BigInteger` surrogate key inserts fine
+on MySQL and fails on SQLite with `NOT NULL constraint failed`. The two surrogate keys
+(`graph_edges.id`, `graph_intro_consents.id`) are declared
+`BigInteger().with_variant(Integer, "sqlite")`. `graph_persons.id` is unaffected — it is
+never generated, only assigned.
+
+### 6.6 `driver is None` disappears
 
 `ContactsService` and `ConversationService` currently accept `neo4j_driver: AsyncDriver | None`
 and skip the sync when it is `None` — which is how `tests/conftest.py` keeps contacts tests off a
@@ -692,8 +711,19 @@ Every PR here except #2 and #4 touches files nobody owns, so `CLAUDE.md`'s rule 
 | 2 | `refactor/graph-queries-to-sql` | `features/graph/{queries,service,router,conversation_sync}.py` + new tests. Graph reads/writes MySQL; Neo4j still running, still written to by contacts. | 김민경's folder — 1 is enough |
 | 3 | `refactor/contacts-graph-sync-to-sql` | `contacts/{graph_sync,service,router}.py`, atomic sync (§7) | 강민구 + 1 |
 | 4 | `refactor/conversation-drop-neo4j-driver` | `conversation/{service,router}.py` | 박재경 + 1 |
-| 5 | `chore/remove-neo4j` | delete `neo4j_driver.py`; `dependencies.py`, `config.py`, `main.py`, `pyproject.toml`, `docker-compose.yml`, `test_config.py` | 2 |
-| 6 | `docs/remove-neo4j` | `architecture.md`, `features.md`, `conventions.md`, `README.md`, `backend/CLAUDE.md`, root `CLAUDE.md` | 2 |
+| 5 | `chore/remove-neo4j` | delete `neo4j_driver.py`; `dependencies.py`, `config.py`, `main.py`, `pyproject.toml`, `uv.lock`, `.env.example`, `docker-compose.yml`, `conftest.py`, `test_config.py` | 2 |
+| 6 | `docs/remove-neo4j` | `architecture.md`, `features.md`, `conventions.md`, `api-spec.md`, `README.md`, `backend/CLAUDE.md`, root `CLAUDE.md` | 2 |
+
+Two things moved while this was being built, both to keep every step working on its own:
+
+* **`features/graph/conversation_sync.py` moved from #2 to #4.** Changing its signature in
+  #2 would have broken its caller in `features/conversation/` until #4 landed. It stays on
+  the Neo4j driver until the commit that moves its caller — which means #4 touches one file
+  in `features/graph/` as well as 박재경's two.
+* **Test rewrites moved out of #5.** `test_contacts_graph_sync.py` and
+  `test_conversation.py` assert on behaviour that #3 and #4 change, so they were rewritten
+  in those commits rather than left failing until #5. Only `test_config.py` and
+  `conftest.py` stayed in #5, where the settings they assert on are removed.
 
 Between #2 and #5 both databases are live and the graph is served from MySQL — that is the window
 for anyone to sanity-check the app against real data before the Neo4j volume is dropped.
