@@ -26,6 +26,7 @@ from app.features.graph.queries import ME_PERSON_ID
 
 async def sync_person_node(
     db: AsyncSession,
+    device_id: str,
     *,
     person_id: int,
     name: str,
@@ -43,12 +44,12 @@ async def sync_person_node(
     no stale edge to leave behind.
     """
     await queries.upsert_person(
-        db, person_id=person_id, name=name, company=company, job_class=job_class
+        db, device_id, person_id=person_id, name=name, company=company, job_class=job_class
     )
-    await queries.ensure_me(db, ME_PERSON_ID)
-    await queries.ensure_edge(db, ME_PERSON_ID, person_id)
+    await queries.ensure_me(db, device_id, ME_PERSON_ID)
+    await queries.ensure_edge(db, device_id, ME_PERSON_ID, person_id)
 
 
-async def delete_person_node(db: AsyncSession, *, person_id: int) -> None:
+async def delete_person_node(db: AsyncSession, device_id: str, *, person_id: int) -> None:
     """Remove the person; their edges and consent rows cascade with them."""
-    await queries.delete_person(db, person_id=person_id)
+    await queries.delete_person(db, device_id, person_id)

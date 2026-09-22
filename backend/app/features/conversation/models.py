@@ -2,10 +2,20 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.base import Base
+from app.device import DEVICE_ID_MAX_LENGTH
 
 
 class Conversation(Base):
@@ -21,9 +31,13 @@ class Conversation(Base):
     __tablename__ = "conversations"
     __table_args__ = (
         UniqueConstraint("person_id", "transcript_hash", name="uq_person_transcript"),
+        Index("ix_conversations_device", "device_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Denormalized from the person on purpose: reaching it through a join would make every
+    # missed join a leak, and there are seven queries here. See app/device.py.
+    device_id: Mapped[str] = mapped_column(String(DEVICE_ID_MAX_LENGTH))
     person_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("persons.id", ondelete="CASCADE"), index=True
     )

@@ -28,8 +28,8 @@ from app.features.graph.queries import ME_PERSON_ID
 logger = logging.getLogger(__name__)
 
 
-async def bump_conversation_weight(db: AsyncSession, *, person_id: int) -> None:
+async def bump_conversation_weight(db: AsyncSession, device_id: str, *, person_id: int) -> None:
     """No-op if the (me)-(person_id) edge doesn't exist yet (e.g. contacts sync hasn't run
     for this person) — there is nothing to bump.
     """
-    await queries.bump_edge_weight(db, ME_PERSON_ID, person_id)
+    await queries.bump_edge_weight(db, device_id, ME_PERSON_ID, person_id)

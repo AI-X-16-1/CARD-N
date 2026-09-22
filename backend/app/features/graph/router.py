@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db
+from app.dependencies import get_db, get_device_id
 from app.features.graph.schemas import (
     AcquaintanceResponse,
     AcquaintancesResponse,
@@ -17,8 +17,11 @@ from app.features.graph.service import GraphService
 router = APIRouter()
 
 
-def _service(db: AsyncSession = Depends(get_db)) -> GraphService:
-    return GraphService(db)
+def _service(
+    db: AsyncSession = Depends(get_db),
+    device_id: str = Depends(get_device_id),
+) -> GraphService:
+    return GraphService(db, device_id)
 
 
 @router.get("/ping")

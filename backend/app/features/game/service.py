@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.features.contacts.models import Person
 from app.features.game import flavor as flavor_llm
 from app.features.game.card_builder import GRADE_LABEL, JOB_LABEL, build_snapshot
-from app.features.game.models import GAME_DECK_ID, BattleCard, GameDeck
+from app.features.game.models import BattleCard, GameDeck
 from app.features.game.schemas import (
     MAX_DECK_SIZE,
     BattleCardResponse,
@@ -19,8 +19,10 @@ from app.features.game.schemas import (
 
 
 class GameService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(self, db: AsyncSession, device_id: str) -> None:
         self.db = db
+        # Which install owns this collection and deck (app/device.py).
+        self.device_id = device_id
 
     # --- cards -----------------------------------------------------------
 
@@ -85,13 +87,25 @@ class GameService:
 
     async def list_cards(self) -> list[BattleCardResponse]:
         """Collection == my contacts: make sure every person has a card, then return all."""
-        persons = list((await self.db.execute(select(Person))).scalars().all())
-        have = set((await self.db.execute(select(BattleCard.person_id))).scalars().all())
+        persons = list(
+            (await self.db.execute(select(Person).where(Person.device_id == self.device_id)))
+            .scalars()
+            .all()
+        )
+        have = set(
+            (
+                await self.db.execute(
+                    select(BattleCard.person_id).where(BattleCard.device_id == self.device_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
 
         created = False
         for person in persons:
             if person.id not in have:
-                self.db.add(BattleCard(**build_snapshot(person)))
+                self.db.add(BattleCard(**build_snapshot(person), device_id=self.device_id))
                 created = True
         if created:
             await self.db.commit()
@@ -100,6 +114,7 @@ class GameService:
             await self.db.execute(
                 select(BattleCard, Person)
                 .join(Person, Person.id == BattleCard.person_id)
+                .where(BattleCard.device_id == self.device_id)
                 .order_by(BattleCard.person_id.desc())
             )
         ).all()
@@ -107,17 +122,21 @@ class GameService:
 
     async def _person_or_404(self, person_id: int) -> Person:
         person = await self.db.get(Person, person_id)
-        if person is None:
+        if person is None or person.device_id != self.device_id:
             raise HTTPException(status_code=404, detail="Person not found")
         return person
 
     async def create_card(self, person_id: int) -> BattleCardResponse:
         person = await self._person_or_404(person_id)
         card = (
-            await self.db.execute(select(BattleCard).where(BattleCard.person_id == person_id))
+            await self.db.execute(
+                select(BattleCard).where(
+                    BattleCard.device_id == self.device_id, BattleCard.person_id == person_id
+                )
+            )
         ).scalar_one_or_none()
         if card is None:
-            card = BattleCard(**build_snapshot(person))
+            card = BattleCard(**build_snapshot(person), device_id=self.device_id)
             self.db.add(card)
             await self.db.commit()
             await self.db.refresh(card)
@@ -128,7 +147,7 @@ class GameService:
             await self.db.execute(
                 select(BattleCard, Person)
                 .join(Person, Person.id == BattleCard.person_id)
-                .where(BattleCard.id == card_id)
+                .where(BattleCard.device_id == self.device_id, BattleCard.id == card_id)
             )
         ).first()
         if row is None:
@@ -153,9 +172,9 @@ class GameService:
     # --- deck ----------------------------------------------------------
 
     async def _get_or_create_deck(self) -> GameDeck:
-        deck = await self.db.get(GameDeck, GAME_DECK_ID)
+        deck = await self.db.get(GameDeck, self.device_id)
         if deck is None:
-            deck = GameDeck(id=GAME_DECK_ID, card_ids=[])
+            deck = GameDeck(device_id=self.device_id, card_ids=[])
             self.db.add(deck)
             await self.db.commit()
             await self.db.refresh(deck)
@@ -164,7 +183,14 @@ class GameService:
     async def _deck_response(self, card_ids: list[int]) -> DeckResponse:
         costs = (
             list(
-                (await self.db.execute(select(BattleCard.cost).where(BattleCard.id.in_(card_ids))))
+                (
+                    await self.db.execute(
+                        select(BattleCard.cost).where(
+                            BattleCard.device_id == self.device_id,
+                            BattleCard.id.in_(card_ids),
+                        )
+                    )
+                )
                 .scalars()
                 .all()
             )
@@ -187,7 +213,14 @@ class GameService:
             raise HTTPException(status_code=422, detail="A card cannot be in the deck twice")
         if card_ids:
             known = set(
-                (await self.db.execute(select(BattleCard.id).where(BattleCard.id.in_(card_ids))))
+                (
+                    await self.db.execute(
+                        select(BattleCard.id).where(
+                            BattleCard.device_id == self.device_id,
+                            BattleCard.id.in_(card_ids),
+                        )
+                    )
+                )
                 .scalars()
                 .all()
             )

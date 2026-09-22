@@ -33,6 +33,8 @@ from app.features.conversation.schemas import ConversationSummary, SaveConversat
 from app.features.conversation.service import ConversationService
 from app.features.graph import queries as graph_queries
 
+DEVICE = "test-device-0001"
+
 SUMMARY = {
     "one_line": "온보딩 개편 초안 공유 및 11월 배포 일정 논의",
     "key_points": ["본인 인증 단계를 3단계에서 1단계로 축소", "11월 초 배포 목표"],
@@ -64,7 +66,7 @@ async def db_session() -> AsyncIterator[AsyncSession]:
 
 @pytest_asyncio.fixture()
 async def person_id(db_session: AsyncSession) -> int:
-    person = Person(name="김서연", company="토스")
+    person = Person(name="김서연", company="토스", device_id=DEVICE)
     db_session.add(person)
     await db_session.commit()
     await db_session.refresh(person)
@@ -182,7 +184,7 @@ def _patch_sync(monkeypatch) -> dict[str, list]:
     """Record what ConversationService.save hands to the graph feature."""
     calls: dict[str, list] = {"bump": []}
 
-    async def fake_bump(db, *, person_id):
+    async def fake_bump(db, device_id, *, person_id):
         calls["bump"].append(person_id)
 
     monkeypatch.setattr(service_module, "bump_conversation_weight", fake_bump)
@@ -190,7 +192,7 @@ def _patch_sync(monkeypatch) -> dict[str, list]:
 
 
 async def _save(person_id: int, transcript: str, summary: dict, db_session) -> None:
-    await ConversationService(db_session).save(
+    await ConversationService(db_session, DEVICE).save(
         SaveConversationRequest(
             person_id=person_id,
             transcript=transcript,
@@ -233,16 +235,16 @@ async def test_a_saved_conversation_lands_on_the_graph_edge(db_session, person_i
     docs/neo4j-to-mysql-migration.md, so the weight moves in the conversation's own
     transaction rather than best-effort after it.
     """
-    await graph_queries.ensure_me(db_session, graph_queries.ME_PERSON_ID)
+    await graph_queries.ensure_me(db_session, DEVICE, graph_queries.ME_PERSON_ID)
     await graph_queries.upsert_person(
-        db_session, person_id=person_id, name="김서연", company="토스", job_class=None
+        db_session, DEVICE, person_id=person_id, name="김서연", company="토스", job_class=None
     )
-    await graph_queries.ensure_edge(db_session, graph_queries.ME_PERSON_ID, person_id)
+    await graph_queries.ensure_edge(db_session, DEVICE, graph_queries.ME_PERSON_ID, person_id)
     await db_session.commit()
 
     await _save(person_id, "첫 대화", SUMMARY, db_session)
 
-    [edge] = await graph_queries.fetch_first_degree(db_session, graph_queries.ME_PERSON_ID)
+    [edge] = await graph_queries.fetch_first_degree(db_session, DEVICE, graph_queries.ME_PERSON_ID)
     assert edge["weight"] == 1  # the edge starts at 0, this conversation makes it 1
     assert edge["last_interaction"] is not None
 

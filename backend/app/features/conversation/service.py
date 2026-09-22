@@ -34,16 +34,23 @@ def fingerprint(text: str) -> str:
 
 
 class ConversationService:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, device_id: str):
         self.db = db
+        # Which install these recordings belong to (app/device.py).
+        self.device_id = device_id
 
     # ─────────────────────────────────────────────────────────
     # Prompt context — assembled server-side from the contact record
     # ─────────────────────────────────────────────────────────
 
     async def _get_person_or_404(self, person_id: int) -> Person:
+        """The contact this recording is about — only if they are *my* contact.
+
+        Another install's person id has to read as "not found" here, or the whole
+        conversation history for that contact would be reachable by guessing an integer.
+        """
         person = await self.db.get(Person, person_id)
-        if person is None:
+        if person is None or person.device_id != self.device_id:
             raise HTTPException(status_code=404, detail="Person not found")
         return person
 
@@ -59,6 +66,7 @@ class ConversationService:
             select(func.count())
             .select_from(Conversation)
             .where(
+                Conversation.device_id == self.device_id,
                 Conversation.person_id == person_id,
                 Conversation.transcript_hash != fingerprint(transcript),
             )
@@ -76,7 +84,10 @@ class ConversationService:
 
         stmt = (
             select(Conversation)
-            .where(Conversation.person_id == person_id)
+            .where(
+                Conversation.device_id == self.device_id,
+                Conversation.person_id == person_id,
+            )
             .order_by(Conversation.created_at.desc())
             .limit(limit + 1)  # +1 covers the row we may skip
         )
@@ -166,6 +177,7 @@ class ConversationService:
         row = (
             await self.db.execute(
                 select(Conversation).where(
+                    Conversation.device_id == self.device_id,
                     Conversation.person_id == data.person_id,
                     Conversation.transcript_hash == transcript_hash,
                 )
@@ -174,7 +186,11 @@ class ConversationService:
 
         is_new = row is None
         if row is None:
-            row = Conversation(person_id=data.person_id, transcript_hash=transcript_hash)
+            row = Conversation(
+                device_id=self.device_id,
+                person_id=data.person_id,
+                transcript_hash=transcript_hash,
+            )
             self.db.add(row)
 
         row.one_liner = data.summary.one_line[:300]
@@ -205,7 +221,7 @@ class ConversationService:
         the conversation that caused it. A weight that drifts from the conversation count
         is exactly what the old best-effort version could produce, silently.
         """
-        await bump_conversation_weight(self.db, person_id=person_id)
+        await bump_conversation_weight(self.db, self.device_id, person_id=person_id)
 
     async def list_for_person(
         self, person_id: int, limit: int, offset: int
@@ -216,7 +232,10 @@ class ConversationService:
             await self.db.execute(
                 select(func.count())
                 .select_from(Conversation)
-                .where(Conversation.person_id == person_id)
+                .where(
+                    Conversation.device_id == self.device_id,
+                    Conversation.person_id == person_id,
+                )
             )
         ).scalar_one()
 
@@ -224,7 +243,10 @@ class ConversationService:
             (
                 await self.db.execute(
                     select(Conversation)
-                    .where(Conversation.person_id == person_id)
+                    .where(
+                        Conversation.device_id == self.device_id,
+                        Conversation.person_id == person_id,
+                    )
                     .order_by(Conversation.created_at.desc())
                     .limit(limit)
                     .offset(offset)
@@ -237,7 +259,7 @@ class ConversationService:
 
     async def delete(self, conversation_id: int) -> None:
         row = await self.db.get(Conversation, conversation_id)
-        if row is None:
+        if row is None or row.device_id != self.device_id:
             raise HTTPException(status_code=404, detail="Conversation not found")
         await self.db.delete(row)
         await self.db.commit()

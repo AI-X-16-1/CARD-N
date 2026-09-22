@@ -16,12 +16,13 @@ from app.features.contacts.schemas import (
     UpdatePersonRequest,
 )
 
-MY_CARD_ID = 1
-
 
 class ContactsService:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, device_id: str):
         self.db = db
+        # Which install these contacts belong to (app/device.py). Every query below
+        # filters on it; my_card is keyed by it outright.
+        self.device_id = device_id
 
     async def _sync_graph_node(self, person: Person) -> None:
         """Keep the graph's view of this person current, inside the caller's transaction.
@@ -34,6 +35,7 @@ class ContactsService:
         """
         await sync_person_node(
             self.db,
+            self.device_id,
             person_id=person.id,
             name=person.name,
             company=person.company,
@@ -41,7 +43,7 @@ class ContactsService:
         )
 
     async def _delete_graph_node(self, person_id: int) -> None:
-        await delete_person_node(self.db, person_id=person_id)
+        await delete_person_node(self.db, self.device_id, person_id=person_id)
 
     def _to_person_response(self, person: Person) -> PersonResponse:
         return PersonResponse(
@@ -78,8 +80,16 @@ class ContactsService:
             like = f"%{q}%"
             conditions.append((Person.name.ilike(like)) | (Person.company.ilike(like)))
 
-        count_stmt = select(func.count()).select_from(Person)
-        list_stmt = select(Person).order_by(Person.created_at.desc()).limit(limit).offset(offset)
+        count_stmt = (
+            select(func.count()).select_from(Person).where(Person.device_id == self.device_id)
+        )
+        list_stmt = (
+            select(Person)
+            .where(Person.device_id == self.device_id)
+            .order_by(Person.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
         for condition in conditions:
             count_stmt = count_stmt.where(condition)
             list_stmt = list_stmt.where(condition)
@@ -95,7 +105,7 @@ class ContactsService:
     async def create_person(self, data: CreatePersonRequest) -> PersonResponse:
         payload = data.model_dump()
         image_token = payload.pop("image_token", None)
-        person = Person(**payload)
+        person = Person(**payload, device_id=self.device_id)
         self.db.add(person)
         # flush, not commit: person.id exists from here on, and the graph node goes in on
         # the same transaction, so a contact can never come into being without one.
@@ -114,8 +124,14 @@ class ContactsService:
         return self._to_person_response(person)
 
     async def _get_person_or_404(self, person_id: int) -> Person:
+        """Fetch one of *my* contacts.
+
+        The device check is what makes an id from another install read as "not found"
+        rather than as somebody else's business card. It is the single gate every
+        by-id route goes through, so it must never become a bare `db.get`.
+        """
         person = await self.db.get(Person, person_id)
-        if person is None:
+        if person is None or person.device_id != self.device_id:
             raise HTTPException(status_code=404, detail="Person not found")
         return person
 
@@ -145,9 +161,9 @@ class ContactsService:
         await self.db.commit()
 
     async def _get_or_create_my_card(self) -> MyCard:
-        card = await self.db.get(MyCard, MY_CARD_ID)
+        card = await self.db.get(MyCard, self.device_id)
         if card is None:
-            card = MyCard(id=MY_CARD_ID, name="")
+            card = MyCard(device_id=self.device_id, name="")
             self.db.add(card)
             await self.db.commit()
             await self.db.refresh(card)

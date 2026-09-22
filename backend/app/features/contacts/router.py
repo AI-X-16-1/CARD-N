@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db
+from app.dependencies import get_db, get_device_id
 from app.features.contacts.schemas import (
     CreatePersonRequest,
     MyCardResponse,
@@ -16,8 +16,11 @@ from app.features.contacts.service import ContactsService
 router = APIRouter()
 
 
-def _service(db: AsyncSession = Depends(get_db)) -> ContactsService:
-    return ContactsService(db)
+def _service(
+    db: AsyncSession = Depends(get_db),
+    device_id: str = Depends(get_device_id),
+) -> ContactsService:
+    return ContactsService(db, device_id)
 
 
 @router.get("/ping")
