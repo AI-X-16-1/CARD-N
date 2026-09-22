@@ -233,9 +233,7 @@ async def test_responding_to_a_request_that_was_never_made_returns_nothing(db) -
     await _add_person(db, 7, "홍길동")
     await db.commit()
 
-    answered = await queries.respond_to_intro_request(
-        db, 7, ME, "approved", datetime.now(UTC)
-    )
+    answered = await queries.respond_to_intro_request(db, 7, ME, "approved", datetime.now(UTC))
 
     assert answered is None
 
@@ -299,9 +297,7 @@ def test_the_api_still_serializes_timestamps_with_a_z() -> None:
             await conn.run_sync(Base.metadata.create_all)
         async with session_factory() as session:
             await queries.ensure_me(session, ME)
-            await session.execute(
-                GraphPerson.__table__.insert().values(id=7, name="홍길동")
-            )
+            await session.execute(GraphPerson.__table__.insert().values(id=7, name="홍길동"))
             await session.execute(
                 GraphEdge.__table__.insert().values(
                     person_a_id=ME,

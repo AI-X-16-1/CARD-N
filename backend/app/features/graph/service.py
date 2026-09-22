@@ -126,9 +126,7 @@ class GraphService:
             except IntegrityError:
                 await self.db.rollback()
                 if not await queries.person_exists(self.db, contact_person_id):
-                    raise HTTPException(
-                        status_code=404, detail="CONTACT_NOT_IN_GRAPH"
-                    ) from None
+                    raise HTTPException(status_code=404, detail="CONTACT_NOT_IN_GRAPH") from None
                 if attempt == 2:
                     raise
 

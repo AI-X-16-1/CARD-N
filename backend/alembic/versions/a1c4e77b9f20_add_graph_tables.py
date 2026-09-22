@@ -18,6 +18,7 @@ Revises: acb826978ad1
 Create Date: 2026-09-22 02:14:05.331902
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -25,8 +26,8 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = 'a1c4e77b9f20'
-down_revision: str | Sequence[str] | None = 'acb826978ad1'
+revision: str = "a1c4e77b9f20"
+down_revision: str | Sequence[str] | None = "acb826978ad1"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -86,7 +87,9 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("from_person_id", "to_person_id", name="uq_graph_consent"),
     )
-    op.create_index("ix_graph_intro_consents_from_person_id", "graph_intro_consents", ["from_person_id"])
+    op.create_index(
+        "ix_graph_intro_consents_from_person_id", "graph_intro_consents", ["from_person_id"]
+    )
     op.create_index("ix_graph_consents_to", "graph_intro_consents", ["to_person_id", "status"])
 
     _backfill()
