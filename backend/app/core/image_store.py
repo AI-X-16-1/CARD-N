@@ -14,9 +14,13 @@ promotes it into `persons/{person_id}.jpg`; if they cancel out of the scan flow,
 file is simply never claimed. Local dev only, so an occasional orphaned staged file isn't
 worth a cleanup job.
 """
+
+import logging
 import re
 import uuid
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 STORAGE_ROOT = Path(__file__).resolve().parents[2] / "storage" / "card_images"
 STAGING_DIR = STORAGE_ROOT / "staging"
@@ -62,6 +66,29 @@ def promote_staged_image(token: str, person_id: int) -> str | None:
     filename = f"{person_id}.jpg"
     staged_path.replace(PERSONS_DIR / filename)
     return filename
+
+
+def delete_person_image(image_path: str | None) -> None:
+    """Remove a contact's saved card image.
+
+    Called after the contact's row is committed away (ContactsService.delete_person).
+    Deleting a contact has to delete their card photo too — it is a photograph of
+    somebody's name, phone number and employer, and the privacy policy says removing the
+    contact removes it.
+
+    Tolerant on purpose: a missing file is the outcome we wanted, and a filesystem error
+    must not turn a successful deletion into a 500 that makes the user try again on a
+    contact that is already gone. The row is what the app reads; a stray file is an
+    inconsistency to report, not a failure to hand back.
+    """
+    if not image_path:
+        return
+
+    target = person_image_path(image_path)
+    try:
+        target.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("could not delete card image %s", target, exc_info=True)
 
 
 def person_image_path(image_path: str) -> Path:

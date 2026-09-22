@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.image_store import person_image_path, promote_staged_image
+from app.core.image_store import delete_person_image, person_image_path, promote_staged_image
 from app.features.contacts.graph_sync import delete_person_node, sync_person_node
 from app.features.contacts.models import MyCard, Person
 from app.features.contacts.schemas import (
@@ -140,9 +140,17 @@ class ContactsService:
 
     async def delete_person(self, person_id: int) -> None:
         person = await self._get_person_or_404(person_id)
+        image_path = person.image_path
+
         await self.db.delete(person)
         await self._delete_graph_node(person_id)
         await self.db.commit()
+
+        # After the commit, never before: deleting the file first and then failing to
+        # commit would destroy the card photo of a contact that still exists. This way
+        # the worst case is a stray file, which is recoverable; the other way round is
+        # not. The filename is read off the row before it goes, since it is gone after.
+        delete_person_image(image_path)
 
     async def _get_or_create_my_card(self) -> MyCard:
         card = await self.db.get(MyCard, MY_CARD_ID)
