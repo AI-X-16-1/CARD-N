@@ -13,6 +13,7 @@
     },
     "android": {
       "package": "com.cardn.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#0A0A0F",
         "foregroundImage": "./assets/android-icon-foreground.png",
