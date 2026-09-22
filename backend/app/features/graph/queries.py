@@ -1,154 +1,303 @@
-"""Neo4j Cypher queries for the graph feature."""
+"""SQL queries for the graph feature.
 
-from datetime import datetime
+These were Cypher against Neo4j until docs/neo4j-to-mysql-migration.md; the shapes they
+return are unchanged, because GraphService reads them by key and the HTTP API is built
+straight off that.
+
+Two things carried over from Cypher need care here, and both have a test:
+
+* `MET_AT` was undirected. A row is not, so every write goes through `pair()` and every
+  read goes through `ADJACENCY` — see GraphEdge's docstring.
+* Neo4j returned timezone-aware UTC timestamps, which is what api-spec.md documents and
+  what the client parses. MySQL DATETIME has no timezone, so `_utc()` puts it back before
+  the row reaches Pydantic. Dropping that turns every timestamp in the API from
+  "...T14:00:00Z" into a naive string the client reads as local time.
+
+Nothing here commits. Reads don't need to, and the writes are deliberately left joinable
+to the caller's transaction (contacts/graph_sync.py and graph/conversation_sync.py rely on
+exactly that); GraphService commits its own.
+"""
+
+from datetime import UTC, datetime
 from typing import Any
 
-from neo4j import AsyncDriver
-from neo4j.time import DateTime as Neo4jDateTime
+from sqlalchemy import Row, Select, and_, delete, func, insert, select, union_all, update
+from sqlalchemy.dialects.mysql import insert as mysql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
-# Single-user MVP: the signed-in person is always the Person node with this id.
+from app.features.graph.models import GraphEdge, GraphIntroConsent, GraphPerson
+
+# Single-user MVP: the signed-in person is always the graph_persons row with this id.
 ME_PERSON_ID = 0
 
 
-def _to_native(value: Any) -> Any:
-    """Neo4j returns its own DateTime type for temporal properties; Pydantic wants a stdlib one."""
-    return value.to_native() if isinstance(value, Neo4jDateTime) else value
+def pair(x: int, y: int) -> tuple[int, int]:
+    """MET_AT is undirected; store it once, always smallest id first."""
+    return (x, y) if x <= y else (y, x)
 
 
-def _row(record: Any) -> dict:
-    return {key: _to_native(value) for key, value in record.data().items()}
+# Every stored edge, expanded into both directions, so the reads below can be written as
+# if edges were directed. This is what `MATCH (a)-[:MET_AT]-(b)` did for free.
+ADJACENCY = union_all(
+    select(
+        GraphEdge.person_a_id.label("from_id"),
+        GraphEdge.person_b_id.label("to_id"),
+        GraphEdge.weight.label("weight"),
+        GraphEdge.last_interaction.label("last_interaction"),
+    ),
+    select(
+        GraphEdge.person_b_id.label("from_id"),
+        GraphEdge.person_a_id.label("to_id"),
+        GraphEdge.weight.label("weight"),
+        GraphEdge.last_interaction.label("last_interaction"),
+    ),
+).cte("adjacency")
 
 
-_ME_QUERY = """
-MATCH (me:Person {id: $me_id})
-RETURN me.id AS id, me.name AS name
-"""
-
-_FIRST_DEGREE_QUERY = """
-MATCH (me:Person {id: $me_id})-[r:MET_AT]-(person:Person)
-OPTIONAL MATCH (person)-[:WORKS_AT]->(company:Company)
-OPTIONAL MATCH (me)-[c:INTRO_CONSENT]->(person)
-RETURN DISTINCT person.id AS id, person.name AS name, person.job_class AS job_class,
-       company.name AS company, r.weight AS weight, r.last_interaction AS last_interaction,
-       c.status AS introduction_request_status
-"""
-
-# A 2nd-degree candidate only counts once they've *approved* an introduction request through the
-# connecting 1st-degree contact (INTRO_CONSENT) — see docs/api-spec.md "Introduction Requests".
-_SECOND_DEGREE_QUERY = """
-MATCH (parent:Person)-[r:MET_AT]-(person:Person)-[:INTRO_CONSENT {status: 'approved'}]->(parent)
-WHERE parent.id IN $first_degree_ids
-  AND person.id <> $me_id
-  AND NOT person.id IN $first_degree_ids
-OPTIONAL MATCH (person)-[:WORKS_AT]->(company:Company)
-RETURN DISTINCT person.id AS id, person.name AS name, person.job_class AS job_class,
-       company.name AS company, parent.id AS parent_id, r.weight AS weight,
-       r.last_interaction AS last_interaction
-"""
-
-_IS_FIRST_DEGREE_QUERY = """
-MATCH (me:Person {id: $me_id})-[:MET_AT]-(target:Person {id: $target_id})
-RETURN count(*) > 0 AS is_first_degree
-"""
-
-_GET_INTRO_CONSENT_QUERY = """
-MATCH (from:Person {id: $from_id})-[c:INTRO_CONSENT]->(to:Person {id: $to_id})
-RETURN c.status AS status, c.requested_at AS requested_at, c.responded_at AS responded_at
-"""
-
-_UPSERT_INTRO_REQUEST_QUERY = """
-MATCH (from:Person {id: $from_id}), (to:Person {id: $to_id})
-MERGE (from)-[c:INTRO_CONSENT]->(to)
-SET c.status = 'pending', c.requested_at = $requested_at, c.responded_at = null
-RETURN c.status AS status, c.requested_at AS requested_at, c.responded_at AS responded_at
-"""
-
-_RESPOND_INTRO_REQUEST_QUERY = """
-MATCH (from:Person {id: $from_id})-[c:INTRO_CONSENT {status: 'pending'}]->(to:Person {id: $to_id})
-SET c.status = $status, c.responded_at = $responded_at
-RETURN c.status AS status, c.requested_at AS requested_at, c.responded_at AS responded_at
-"""
-
-_INCOMING_INTRO_REQUESTS_QUERY = """
-MATCH (from:Person)-[c:INTRO_CONSENT {status: 'pending'}]->(me:Person {id: $me_id})
-OPTIONAL MATCH (from)-[:WORKS_AT]->(company:Company)
-RETURN from.id AS person_id, from.name AS name, from.job_class AS job_class,
-       company.name AS company, c.requested_at AS requested_at
-ORDER BY c.requested_at ASC
-"""
+def _utc(value: Any) -> Any:
+    """MySQL hands back a naive DATETIME; everything here is written as UTC."""
+    if isinstance(value, datetime) and value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
 
 
-async def fetch_me(driver: AsyncDriver, me_id: int) -> dict:
-    async with driver.session() as session:
-        result = await session.run(_ME_QUERY, me_id=me_id)
-        record = await result.single()
-        return _row(record) if record is not None else {"id": me_id, "name": "Me"}
+def _naive(value: datetime) -> datetime:
+    """The other half of _utc: UTC goes in, without a tzinfo the column cannot hold.
+
+    Normalising here rather than at each call site keeps the two dialects behaving the
+    same — MySQL would silently drop the offset, SQLite would keep formatting whatever
+    wall clock it was handed, and a caller passing KST would write KST to one and UTC to
+    the other.
+    """
+    return value.astimezone(UTC).replace(tzinfo=None) if value.tzinfo else value
 
 
-async def fetch_first_degree(driver: AsyncDriver, me_id: int) -> list[dict]:
-    async with driver.session() as session:
-        result = await session.run(_FIRST_DEGREE_QUERY, me_id=me_id)
-        return [_row(record) async for record in result]
+def _now() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _row(record: Row) -> dict:
+    return {key: _utc(value) for key, value in record._mapping.items()}
+
+
+async def _rows(db: AsyncSession, stmt: Select) -> list[dict]:
+    result = await db.execute(stmt)
+    return [_row(record) for record in result.all()]
+
+
+async def _one(db: AsyncSession, stmt: Select) -> dict | None:
+    result = await db.execute(stmt)
+    record = result.first()
+    return _row(record) if record is not None else None
+
+
+def _upsert(db: AsyncSession, table: Any, values: dict, update_values: dict) -> Any:
+    """INSERT .. ON CONFLICT DO UPDATE, spelled for whichever dialect is in play.
+
+    MySQL in the app, SQLite under pytest — the statement is dialect-specific in both, so
+    it is built here rather than duplicated at each of the three call sites.
+    """
+    if db.get_bind().dialect.name == "mysql":
+        stmt = mysql_insert(table).values(**values)
+        return stmt.on_duplicate_key_update(**update_values)
+
+    stmt = sqlite_insert(table).values(**values)
+    return stmt.on_conflict_do_update(
+        index_elements=list(_conflict_columns(table)), set_=update_values
+    )
+
+
+def _conflict_columns(table: Any) -> tuple[str, ...]:
+    if table is GraphIntroConsent:
+        return ("from_person_id", "to_person_id")
+    if table is GraphEdge:
+        return ("person_a_id", "person_b_id")
+    return ("id",)
+
+
+# ─────────────────────────────────────────────────────────────
+# Reads
+# ─────────────────────────────────────────────────────────────
+
+
+async def fetch_me(db: AsyncSession, me_id: int) -> dict:
+    row = await _one(
+        db, select(GraphPerson.id, GraphPerson.name).where(GraphPerson.id == me_id)
+    )
+    return row if row is not None else {"id": me_id, "name": "Me"}
+
+
+async def fetch_first_degree(db: AsyncSession, me_id: int) -> list[dict]:
+    stmt = (
+        select(
+            GraphPerson.id,
+            GraphPerson.name,
+            GraphPerson.job_class,
+            GraphPerson.company,
+            ADJACENCY.c.weight,
+            ADJACENCY.c.last_interaction,
+            GraphIntroConsent.status.label("introduction_request_status"),
+        )
+        .select_from(ADJACENCY)
+        .join(GraphPerson, GraphPerson.id == ADJACENCY.c.to_id)
+        .outerjoin(
+            GraphIntroConsent,
+            and_(
+                GraphIntroConsent.from_person_id == me_id,
+                GraphIntroConsent.to_person_id == GraphPerson.id,
+            ),
+        )
+        .where(ADJACENCY.c.from_id == me_id)
+    )
+    return await _rows(db, stmt)
 
 
 async def fetch_second_degree(
-    driver: AsyncDriver, me_id: int, first_degree_ids: list[int]
+    db: AsyncSession, me_id: int, first_degree_ids: list[int]
 ) -> list[dict]:
-    async with driver.session() as session:
-        result = await session.run(
-            _SECOND_DEGREE_QUERY, me_id=me_id, first_degree_ids=first_degree_ids
+    """Candidates one hop past my contacts, filtered to those who consented to be seen.
+
+    The consent join direction is the privacy rule in api-spec.md, not a detail: it is the
+    *2nd-degree person* who agreed to be surfaced *through the connecting contact*
+    (`person -> parent`). Reversing it would return people who never agreed to anything.
+    """
+    stmt = (
+        select(
+            GraphPerson.id,
+            GraphPerson.name,
+            GraphPerson.job_class,
+            GraphPerson.company,
+            ADJACENCY.c.from_id.label("parent_id"),
+            ADJACENCY.c.weight,
+            ADJACENCY.c.last_interaction,
         )
-        return [_row(record) async for record in result]
+        .select_from(ADJACENCY)
+        .join(GraphPerson, GraphPerson.id == ADJACENCY.c.to_id)
+        .join(
+            GraphIntroConsent,
+            and_(
+                GraphIntroConsent.from_person_id == GraphPerson.id,
+                GraphIntroConsent.to_person_id == ADJACENCY.c.from_id,
+                GraphIntroConsent.status == "approved",
+            ),
+        )
+        .where(
+            ADJACENCY.c.from_id.in_(first_degree_ids),
+            GraphPerson.id != me_id,
+            GraphPerson.id.not_in(first_degree_ids),
+        )
+    )
+    return await _rows(db, stmt)
 
 
-async def is_first_degree(driver: AsyncDriver, me_id: int, target_id: int) -> bool:
-    async with driver.session() as session:
-        result = await session.run(_IS_FIRST_DEGREE_QUERY, me_id=me_id, target_id=target_id)
-        record = await result.single()
-        return bool(record["is_first_degree"]) if record is not None else False
+async def is_first_degree(db: AsyncSession, me_id: int, target_id: int) -> bool:
+    lo, hi = pair(me_id, target_id)
+    result = await db.execute(
+        select(func.count())
+        .select_from(GraphEdge)
+        .where(GraphEdge.person_a_id == lo, GraphEdge.person_b_id == hi)
+    )
+    return bool(result.scalar_one())
 
 
-async def get_intro_consent(driver: AsyncDriver, from_id: int, to_id: int) -> dict | None:
-    async with driver.session() as session:
-        result = await session.run(_GET_INTRO_CONSENT_QUERY, from_id=from_id, to_id=to_id)
-        record = await result.single()
-        return _row(record) if record is not None else None
+async def person_exists(db: AsyncSession, person_id: int) -> bool:
+    result = await db.execute(
+        select(func.count()).select_from(GraphPerson).where(GraphPerson.id == person_id)
+    )
+    return bool(result.scalar_one())
+
+
+async def get_intro_consent(db: AsyncSession, from_id: int, to_id: int) -> dict | None:
+    return await _one(
+        db,
+        select(
+            GraphIntroConsent.status,
+            GraphIntroConsent.requested_at,
+            GraphIntroConsent.responded_at,
+        ).where(
+            GraphIntroConsent.from_person_id == from_id,
+            GraphIntroConsent.to_person_id == to_id,
+        ),
+    )
+
+
+async def fetch_incoming_intro_requests(db: AsyncSession, me_id: int) -> list[dict]:
+    stmt = (
+        select(
+            GraphPerson.id.label("person_id"),
+            GraphPerson.name,
+            GraphPerson.job_class,
+            GraphPerson.company,
+            GraphIntroConsent.requested_at,
+        )
+        .select_from(GraphIntroConsent)
+        .join(GraphPerson, GraphPerson.id == GraphIntroConsent.from_person_id)
+        .where(
+            GraphIntroConsent.to_person_id == me_id,
+            GraphIntroConsent.status == "pending",
+        )
+        .order_by(GraphIntroConsent.requested_at.asc())
+    )
+    return await _rows(db, stmt)
+
+
+# ─────────────────────────────────────────────────────────────
+# Introduction requests
+# ─────────────────────────────────────────────────────────────
 
 
 async def upsert_intro_request(
-    driver: AsyncDriver, from_id: int, to_id: int, requested_at: datetime
+    db: AsyncSession, from_id: int, to_id: int, requested_at: datetime
 ) -> dict:
-    async with driver.session() as session:
-        result = await session.run(
-            _UPSERT_INTRO_REQUEST_QUERY,
-            from_id=from_id,
-            to_id=to_id,
-            requested_at=requested_at,
+    """Ask, or ask again after a decline. Callers check is_first_degree first, so both
+    endpoints exist; the foreign keys are a backstop, not the control flow.
+    """
+    await db.execute(
+        _upsert(
+            db,
+            GraphIntroConsent,
+            {
+                "from_person_id": from_id,
+                "to_person_id": to_id,
+                "status": "pending",
+                "requested_at": _naive(requested_at),
+                "responded_at": None,
+            },
+            {"status": "pending", "requested_at": _naive(requested_at), "responded_at": None},
         )
-        record = await result.single()
-        assert record is not None
-        return _row(record)
+    )
+    row = await get_intro_consent(db, from_id, to_id)
+    assert row is not None
+    return row
 
 
 async def respond_to_intro_request(
-    driver: AsyncDriver, from_id: int, to_id: int, status: str, responded_at: datetime
+    db: AsyncSession, from_id: int, to_id: int, status: str, responded_at: datetime
 ) -> dict | None:
-    async with driver.session() as session:
-        result = await session.run(
-            _RESPOND_INTRO_REQUEST_QUERY,
-            from_id=from_id,
-            to_id=to_id,
-            status=status,
-            responded_at=responded_at,
-        )
-        record = await result.single()
-        return _row(record) if record is not None else None
+    """Approve or decline a pending request. None when there is no pending one to answer.
 
+    Decided by selecting first rather than by rowcount: MySQL reports zero affected rows
+    when an UPDATE writes values identical to the existing ones, which would turn a
+    legitimate response into a spurious 404.
+    """
+    existing = await _one(
+        db,
+        select(GraphIntroConsent.id).where(
+            GraphIntroConsent.from_person_id == from_id,
+            GraphIntroConsent.to_person_id == to_id,
+            GraphIntroConsent.status == "pending",
+        ),
+    )
+    if existing is None:
+        return None
 
-async def fetch_incoming_intro_requests(driver: AsyncDriver, me_id: int) -> list[dict]:
-    async with driver.session() as session:
-        result = await session.run(_INCOMING_INTRO_REQUESTS_QUERY, me_id=me_id)
-        return [_row(record) async for record in result]
+    await db.execute(
+        update(GraphIntroConsent)
+        .where(GraphIntroConsent.id == existing["id"])
+        .values(status=status, responded_at=_naive(responded_at))
+    )
+    return await get_intro_consent(db, from_id, to_id)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -159,68 +308,167 @@ async def fetch_incoming_intro_requests(driver: AsyncDriver, me_id: int) -> list
 # Someone who exists only in the graph therefore takes a negative id — it cannot collide
 # with a contact created later, and the sign alone says "this person is not in my contacts".
 
-_NEXT_ACQUAINTANCE_ID_QUERY = """
-MATCH (p:Person) WHERE p.id < 0
-RETURN coalesce(min(p.id), 0) - 1 AS id
-"""
 
-# Starts unapproved on purpose: a 2nd-degree person appears only once consent is
-# recorded (api-spec.md's privacy rule), so creating them already approved would let
-# this endpoint hand out the exposure the rule exists to withhold.
-_CREATE_ACQUAINTANCE_QUERY = """
-MATCH (contact:Person {id: $contact_id})
-CREATE (person:Person {id: $person_id, name: $name, job_class: $job_class})
-MERGE (contact)-[r:MET_AT]-(person)
-  ON CREATE SET r.weight = 1, r.last_interaction = datetime(), r.origin = 'acquaintance'
-MERGE (person)-[c:INTRO_CONSENT]->(contact)
-  SET c.status = 'pending', c.requested_at = datetime()
-RETURN person.id AS id, person.name AS name, person.job_class AS job_class, c.status AS status
-"""
+async def next_acquaintance_id(db: AsyncSession) -> int:
+    """The next free negative id.
 
-_APPROVE_ACQUAINTANCE_QUERY = """
-MATCH (person:Person {id: $acquaintance_id})-[c:INTRO_CONSENT]->(contact:Person)
-SET c.status = 'approved', c.responded_at = datetime()
-RETURN person.id AS id, person.name AS name, person.job_class AS job_class, c.status AS status
-"""
-
-_ACQUAINTANCES_QUERY = """
-MATCH (person:Person)-[c:INTRO_CONSENT]->(contact:Person {id: $contact_id})
-WHERE person.id < 0
-RETURN person.id AS id, person.name AS name, person.job_class AS job_class, c.status AS status
-ORDER BY person.id DESC
-"""
-
-
-async def next_acquaintance_id(driver: AsyncDriver) -> int:
-    async with driver.session() as session:
-        result = await session.run(_NEXT_ACQUAINTANCE_ID_QUERY)
-        record = await result.single()
-        return int(record["id"])
+    Racy on its own, as it was against Neo4j. The difference is that the caller runs this
+    and the insert in one transaction now, and the primary key rejects a collision instead
+    of two people quietly merging into one node — see GraphService.add_acquaintance.
+    """
+    result = await db.execute(
+        select(func.coalesce(func.min(GraphPerson.id), 0) - 1).where(GraphPerson.id < 0)
+    )
+    return int(result.scalar_one())
 
 
 async def create_acquaintance(
-    driver: AsyncDriver, *, contact_id: int, person_id: int, name: str, job_class: str | None
-) -> dict | None:
-    async with driver.session() as session:
-        result = await session.run(
-            _CREATE_ACQUAINTANCE_QUERY,
-            contact_id=contact_id,
-            person_id=person_id,
-            name=name,
-            job_class=job_class,
+    db: AsyncSession, *, contact_id: int, person_id: int, name: str, job_class: str | None
+) -> dict:
+    """Add the person, the edge to the contact who knows them, and their pending consent.
+
+    Three statements where Cypher had one, so they must stay in one transaction — a person
+    with no consent row would be invisible forever, and a consent row with no person would
+    break every read that joins the two.
+
+    Starts unapproved on purpose: a 2nd-degree person appears only once consent is recorded
+    (api-spec.md's privacy rule), so creating them already approved would let this endpoint
+    hand out the exposure the rule exists to withhold.
+    """
+    now = _now()
+    lo, hi = pair(contact_id, person_id)
+
+    await db.execute(
+        insert(GraphPerson).values(id=person_id, name=name, job_class=job_class)
+    )
+    await db.execute(
+        insert(GraphEdge).values(
+            person_a_id=lo,
+            person_b_id=hi,
+            weight=1,
+            last_interaction=now,
+            origin="acquaintance",
         )
-        record = await result.single()
-        return _row(record) if record is not None else None
+    )
+    await db.execute(
+        insert(GraphIntroConsent).values(
+            from_person_id=person_id,
+            to_person_id=contact_id,
+            status="pending",
+            requested_at=now,
+        )
+    )
+    return {"id": person_id, "name": name, "job_class": job_class, "status": "pending"}
 
 
-async def approve_acquaintance(driver: AsyncDriver, acquaintance_id: int) -> dict | None:
-    async with driver.session() as session:
-        result = await session.run(_APPROVE_ACQUAINTANCE_QUERY, acquaintance_id=acquaintance_id)
-        record = await result.single()
-        return _row(record) if record is not None else None
+async def approve_acquaintance(db: AsyncSession, acquaintance_id: int) -> dict | None:
+    await db.execute(
+        update(GraphIntroConsent)
+        .where(GraphIntroConsent.from_person_id == acquaintance_id)
+        .values(status="approved", responded_at=_now())
+    )
+    stmt = (
+        select(
+            GraphPerson.id,
+            GraphPerson.name,
+            GraphPerson.job_class,
+            GraphIntroConsent.status,
+        )
+        .select_from(GraphPerson)
+        .join(GraphIntroConsent, GraphIntroConsent.from_person_id == GraphPerson.id)
+        .where(GraphPerson.id == acquaintance_id)
+    )
+    result = await db.execute(stmt)
+    records = result.all()
+    # An acquaintance has exactly one consent row by construction (create_acquaintance).
+    # More than one means something upstream is wrong; picking one quietly would hide it.
+    assert len(records) <= 1, f"acquaintance {acquaintance_id} has {len(records)} consents"
+    return _row(records[0]) if records else None
 
 
-async def fetch_acquaintances(driver: AsyncDriver, contact_id: int) -> list[dict]:
-    async with driver.session() as session:
-        result = await session.run(_ACQUAINTANCES_QUERY, contact_id=contact_id)
-        return [_row(record) async for record in result]
+async def fetch_acquaintances(db: AsyncSession, contact_id: int) -> list[dict]:
+    stmt = (
+        select(
+            GraphPerson.id,
+            GraphPerson.name,
+            GraphPerson.job_class,
+            GraphIntroConsent.status,
+        )
+        .select_from(GraphIntroConsent)
+        .join(GraphPerson, GraphPerson.id == GraphIntroConsent.from_person_id)
+        .where(GraphIntroConsent.to_person_id == contact_id, GraphPerson.id < 0)
+        .order_by(GraphPerson.id.desc())
+    )
+    return await _rows(db, stmt)
+
+
+# ─────────────────────────────────────────────────────────────
+# Writes used by other features' sync paths
+# ─────────────────────────────────────────────────────────────
+
+
+async def upsert_person(
+    db: AsyncSession,
+    *,
+    person_id: int,
+    name: str,
+    company: str | None,
+    job_class: str | None,
+) -> None:
+    """Keep the graph's view of a person's display fields current."""
+    await db.execute(
+        _upsert(
+            db,
+            GraphPerson,
+            {"id": person_id, "name": name, "job_class": job_class, "company": company},
+            {"name": name, "job_class": job_class, "company": company},
+        )
+    )
+
+
+async def ensure_me(db: AsyncSession, me_id: int) -> None:
+    """Create the "me" node if it isn't there, and never touch its name if it is.
+
+    The Cypher used `coalesce(me.name, 'Me')` so an existing name survived; name is NOT
+    NULL here, so a no-op update says the same thing.
+    """
+    await db.execute(
+        _upsert(db, GraphPerson, {"id": me_id, "name": "Me"}, {"id": me_id})
+    )
+
+
+async def ensure_edge(db: AsyncSession, first_id: int, second_id: int) -> None:
+    """Create the edge if it isn't there, leaving an existing one alone.
+
+    The no-op update is Cypher's `ON CREATE SET`: resetting weight here would throw away
+    everything conversation_sync.py has accumulated, on every contact edit.
+    """
+    lo, hi = pair(first_id, second_id)
+    await db.execute(
+        _upsert(
+            db,
+            GraphEdge,
+            {
+                "person_a_id": lo,
+                "person_b_id": hi,
+                "weight": 1,
+                "last_interaction": _now(),
+            },
+            {"person_a_id": lo},
+        )
+    )
+
+
+async def delete_person(db: AsyncSession, person_id: int) -> None:
+    """Drop a person and, by cascade, their edges and consent rows — `DETACH DELETE`."""
+    await db.execute(delete(GraphPerson).where(GraphPerson.id == person_id))
+
+
+async def bump_edge_weight(db: AsyncSession, first_id: int, second_id: int) -> None:
+    """Count one more conversation on an existing edge. No-op when there is no edge."""
+    lo, hi = pair(first_id, second_id)
+    await db.execute(
+        update(GraphEdge)
+        .where(GraphEdge.person_a_id == lo, GraphEdge.person_b_id == hi)
+        .values(weight=GraphEdge.weight + 1, last_interaction=_now())
+    )

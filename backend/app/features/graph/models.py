@@ -22,6 +22,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.base import Base
 
+# SQLite only autoincrements a column declared INTEGER PRIMARY KEY — a BIGINT one is an
+# ordinary column that insists on a value. The app runs on MySQL and the tests on SQLite,
+# so the surrogate keys below say BIGINT to one and INTEGER to the other.
+_AutoId = BigInteger().with_variant(Integer, "sqlite")
+
 
 class GraphPerson(Base):
     """A node in the relationship graph. Was `(:Person)`.
@@ -63,7 +68,7 @@ class GraphEdge(Base):
     __tablename__ = "graph_edges"
     __table_args__ = (UniqueConstraint("person_a_id", "person_b_id", name="uq_graph_edge"),)
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(_AutoId, primary_key=True, autoincrement=True)
     person_a_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("graph_persons.id", ondelete="CASCADE"), index=True
     )
@@ -94,7 +99,7 @@ class GraphIntroConsent(Base):
         Index("ix_graph_consents_to", "to_person_id", "status"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(_AutoId, primary_key=True, autoincrement=True)
     from_person_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("graph_persons.id", ondelete="CASCADE"), index=True
     )
