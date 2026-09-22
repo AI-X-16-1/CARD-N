@@ -13,7 +13,11 @@ dependencies = [
     "numpy>=1.26.0",
     "opencv-python-headless>=4.9.0",
     "paddleocr>=3.0.0",
-    "paddlepaddle>=3.0.0",
+    # Capped below 3.3: that release dropped the Linux aarch64 wheels, and the
+    # deployment target (Oracle Cloud's Always Free tier) is ARM. 3.2.2 publishes
+    # x86_64, aarch64 and win_amd64 for cp311, so one version covers the ARM server,
+    # the x86 container and everyone's Windows dev machine.
+    "paddlepaddle>=3.0.0,<3.3",
     "pillow>=10.0.0",
     "pydantic-settings>=2.15.0",
     "python-multipart>=0.0.32",
