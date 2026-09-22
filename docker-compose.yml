@@ -16,27 +16,15 @@ services:
       timeout: 5s
       retries: 10
 
-  neo4j:
-    image: neo4j:5-community
-    ports:
-      - "7474:7474"   # Browser UI
-      - "7687:7687"   # Bolt protocol
-    environment:
-      NEO4J_AUTH: neo4j/cardncardn123
-    volumes:
-      - neo4j_data:/data
-
   backend:
     build: ./backend
     ports:
       - "8000:8000"
     depends_on:
       - mysql
-      - neo4j
     env_file:
       - path: ./backend/.env
         required: false
 
 volumes:
   mysql_data:
-  neo4j_data:
