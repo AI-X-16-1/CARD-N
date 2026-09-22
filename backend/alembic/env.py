@@ -17,7 +17,8 @@ sys.path.insert(0, os.getcwd())
 # a populated database and proposes dropping every real table (confirmed: a bare run against
 # the current schema generated a migration dropping persons/conversations/my_card entirely).
 import app.features.contacts.models
-import app.features.conversation.models  # noqa: F401
+import app.features.conversation.models
+import app.features.graph.models  # noqa: F401
 from app.config import settings
 from app.core.base import Base
 
